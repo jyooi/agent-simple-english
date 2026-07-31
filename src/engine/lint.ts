@@ -1,5 +1,5 @@
 import type { Dictionary } from "../dictionary/schema.ts"
-import { extractHashComments, extractSlashComments, type ProseBreak } from "./comments.ts"
+import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownCodeWithStructure } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
@@ -50,10 +50,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
     const end = boundaries[runIndex + 1]
     const firstLine = start?.line ?? 0
     const lastLine = end?.line ?? extracted.lines.length - 1
-    const firstColumnOffset = Math.min(
-      start?.column ?? 0,
-      extracted.lines[firstLine]?.length ?? 0,
-    )
+    const firstColumnOffset = Math.min(start?.column ?? 0, extracted.lines[firstLine]?.length ?? 0)
     const sourceLines = extracted.lines.slice(firstLine, lastLine + 1)
     const lines = sourceLines.map((line, index) => {
       const lineIndex = firstLine + index
@@ -139,8 +136,7 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
     lintExtracted(run, resolved).map((violation) => ({
       ...violation,
       line: violation.line + run.lineOffset,
-      column:
-        violation.column + (violation.line === 1 ? run.firstColumnOffset : 0),
+      column: violation.column + (violation.line === 1 ? run.firstColumnOffset : 0),
     })),
   )
   const violations: Violation[] = raw

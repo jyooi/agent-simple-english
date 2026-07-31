@@ -2,7 +2,7 @@ const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 const INDENTED = /^(?: {4,}|\t)/
 const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
-const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]{1,4})/
+const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])(?:([ \t]{1,4})(?![ \t])|[ \t])/
 
 const blankLine = (line: string): string => " ".repeat(line.length)
 
@@ -270,13 +270,13 @@ export function blankMarkdownCode(
   return blankMarkdownCodeWithStructure(inputLines, contentStarts).lines
 }
 
-interface BacktickRun {
+interface InlineBacktickRun {
   readonly start: number
   readonly length: number
 }
 
 function blankInlineCodeLine(line: string): string {
-  const runs: BacktickRun[] = []
+  const runs: InlineBacktickRun[] = []
   for (let index = 0; index < line.length; index += 1) {
     if (line[index] !== "`") continue
     const start = index
