@@ -1,5 +1,8 @@
+import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
 import { type CliOptions, runCli as runCliBase } from "./run-cli.ts"
+
+const fixturesPath = fileURLToPath(new URL("../fixtures", import.meta.url))
 
 interface DictionaryCliOptions extends CliOptions {
   readonly dictionaryPath?: string
@@ -253,10 +256,10 @@ describe("simple-english CLI", () => {
   })
 
   test("maps a dotless path to prose-file, not a source kind", async () => {
-    const result = await runCli(["test/fixtures/go"])
+    const result = await runCli(["go"], { cwd: fixturesPath })
 
     expect(result.code).toBe(1)
-    expect(result.stdout).toContain("test/fixtures/go:1:1")
+    expect(result.stdout).toContain("go:1:1")
     expect(result.stdout).toContain("sentence-length")
   })
 

@@ -66,12 +66,17 @@ describe("lint slash-source: comment extraction", () => {
     expect(report.violations[0]).toMatchObject({ line: 1, column: 5 })
   })
 
-  // Accepted verdict: extraction is line-based, so string state does not
-  // carry across lines and template literal bodies may be scanned as code.
-  test("accepted: a comment marker inside a multi-line template literal is treated as a comment", () => {
-    const text = ["const s = `first line", `// ${words(30)}.`, "`"].join("\n")
+  test("does not lint comment markers inside multi-line template literals", () => {
+    const text = [
+      "const s = `first line",
+      `// ${words(30)}.`,
+      "`",
+      `// ${words(30)}.`,
+    ].join("\n")
+    const report = lint("slash-source", text)
 
-    expect(lint("slash-source", text).violations).toHaveLength(1)
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 4 })
   })
 })
 
@@ -106,6 +111,25 @@ describe("lint hash-source: comment extraction", () => {
 
   test("never lints code outside comments", () => {
     const text = `run ${words(40)}.`
+
+    expect(lint("hash-source", text).violations).toHaveLength(0)
+  })
+
+  test("does not lint comment markers inside multi-line string literals", () => {
+    const text = [
+      'value = """first line',
+      `# ${words(30)}.`,
+      '"""',
+      `# ${words(30)}.`,
+    ].join("\n")
+    const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 3 })
+  })
+
+  test("does not treat a shell parameter operator as a comment", () => {
+    const text = `trimmed=\${name#${words(30)}}`
 
     expect(lint("hash-source", text).violations).toHaveLength(0)
   })
@@ -149,6 +173,13 @@ describe("identifier exemption", () => {
     expect(lint("commit-message", text).violations).toHaveLength(0)
   })
 
+  test("plain function calls are exempt in prose", () => {
+    const identifiers = Array.from({ length: 12 }, () => "parse()").join(" ")
+    const text = `${words(20)} ${identifiers}.`
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
   test("plain words still count", () => {
     expect(lint("commit-message", `${words(26)}.`).violations).toHaveLength(1)
   })
@@ -167,10 +198,30 @@ describe("lint prose-file: hardened markdown stripping", () => {
     expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 
+  test("inline code spans can cross line boundaries", () => {
+    const text = ["Run `the command", `${words(30)}`, "to finish` now."].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
   test("a tilde fence is not closed by a backtick fence", () => {
     const text = ["~~~", "```", `${words(40)}.`, "~~~"].join("\n")
 
     expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
+  test("a fence marker with trailing text does not close a fence", () => {
+    const text = [
+      "~~~",
+      "~~~not-a-close",
+      `${words(40)}.`,
+      "~~~",
+      `${words(30)}.`,
+    ].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 5, column: 1 })
   })
 
   test("prose after an indented code block is still flagged with the correct position", () => {

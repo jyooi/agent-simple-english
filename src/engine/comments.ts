@@ -1,17 +1,16 @@
 // Line-based comment extraction. Each function maps source text to lines of
 // the same length where only comment prose keeps its characters, so line and
-// column positions in the output match the original file. String-literal
-// state never carries across lines; that limit is pinned by tests.
+// column positions in the output match the original file.
 
 export function extractSlashComments(text: string): string[] {
   let inBlock = false
+  let quote: string | null = null
+
   return text.split("\n").map((line) => {
     const out = new Array<string>(line.length).fill(" ")
     let i = 0
-    let quote: string | null = null
 
     if (inBlock) {
-      // Skip the decorative leading asterisk of doc comment continuation lines.
       while (line[i] === " " || line[i] === "\t") i++
       if (line[i] === "*" && line[i + 1] !== "/") i++
     }
@@ -62,32 +61,41 @@ export function extractSlashComments(text: string): string[] {
 }
 
 export function extractHashComments(text: string): string[] {
+  let quote: string | null = null
+
   return text.split("\n").map((line, index) => {
     if (index === 0 && line.startsWith("#!")) {
-      return ""
+      return " ".repeat(line.length)
     }
     const out = new Array<string>(line.length).fill(" ")
-    let quote: string | null = null
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
+    let i = 0
+    while (i < line.length) {
+      const ch = line[i] as string
       if (quote !== null) {
         if (ch === "\\") {
-          i++
+          i += 2
           continue
         }
-        if (ch === quote) quote = null
+        if (line.startsWith(quote, i)) {
+          i += quote.length
+          quote = null
+          continue
+        }
+        i++
         continue
       }
       if (ch === '"' || ch === "'") {
-        quote = ch
+        quote = line.startsWith(ch.repeat(3), i) ? ch.repeat(3) : ch
+        i += quote.length
         continue
       }
-      if (ch === "#") {
+      if (ch === "#" && (i === 0 || /\s/.test(line[i - 1] as string))) {
         let j = i + 1
         while (line[j] === "#") j++
         for (; j < line.length; j++) out[j] = line[j] as string
         break
       }
+      i++
     }
     return out.join("")
   })
