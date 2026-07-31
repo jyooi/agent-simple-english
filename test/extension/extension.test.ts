@@ -37,6 +37,7 @@ interface ExtensionContextStub {
   readonly hasUI: boolean
   readonly ui: {
     notify(message: string, level: "info" | "warning" | "error"): void
+    setWidget(key: string, content: readonly string[] | undefined): void
   }
   isProjectTrusted(): boolean
 }
@@ -131,18 +132,28 @@ async function startExtension(options?: {
   }
 
   const notifications: Array<{ message: string; level: string }> = []
+  const widgets = new Map<string, readonly string[] | undefined>()
   const context: ExtensionContextStub = {
     cwd,
     hasUI: true,
     ui: {
       notify: (message, level) => notifications.push({ message, level }),
+      setWidget: (key, content) => widgets.set(key, content),
     },
     isProjectTrusted: () => options?.trusted ?? true,
   }
   const pi = new ExtensionApiStub()
   simpleEnglishExtension(pi as never)
   await pi.emit("session_start", { reason: "startup" }, context)
-  return { cwd, pi, context, notifications }
+  return { cwd, pi, context, notifications, widgets }
+}
+
+function assistantMessage(text: string) {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    timestamp: Date.now(),
+  }
 }
 
 describe.sequential("pi extension wiring", () => {
@@ -437,6 +448,80 @@ describe.sequential("pi extension wiring", () => {
         { type: "text", text: expect.stringContaining("STE warnings for notes.md") },
       ],
     })
+  })
+
+  test("shows reply counts and injects only hard feedback before the next model call", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    const reply = assistantMessage(
+      "This isn't permitted. It is important to note that the valve is open.",
+    )
+
+    const messageResult = await pi.emit("message_end", { message: reply }, context)
+
+    expect(messageResult).toBeUndefined()
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 1 soft"])
+
+    const result = await pi.emit(
+      "context",
+      { messages: [reply, { role: "user", content: "Continue.", timestamp: Date.now() }] },
+      context,
+    )
+    expect(result).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          role: "custom",
+          customType: "simple-english-reply-feedback",
+          content: expect.stringContaining("[contraction]"),
+          display: false,
+        }),
+      ]),
+    })
+    expect(result).toMatchObject({
+      messages: expect.not.arrayContaining([
+        expect.objectContaining({ content: expect.stringContaining("[hedging]") }),
+      ]),
+    })
+    await expect(pi.emit("context", { messages: [reply] }, context)).resolves.toBeUndefined()
+  })
+
+  test("shows soft reply violations without injecting feedback", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+
+    await pi.emit(
+      "message_end",
+      { message: assistantMessage("It is important to note that the valve is open.") },
+      context,
+    )
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 0 hard, 1 soft"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+  })
+
+  test("shows a clean reply without injecting feedback", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+
+    await pi.emit("message_end", { message: assistantMessage("Open the valve.") }, context)
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+  })
+
+  test("excludes fenced code blocks from reply linting", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    const reply = ["```text", "This isn't permitted.", "```", "Open the valve."].join("\n")
+
+    await pi.emit("message_end", { message: assistantMessage(reply) }, context)
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
   test("ignores project rule settings until the project is trusted", async () => {

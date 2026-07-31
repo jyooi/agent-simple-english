@@ -54,6 +54,7 @@ interface SessionState {
   tagger?: Tagger
   error?: string
   ready: boolean
+  pendingReplyFeedback?: string
   readonly pendingWarnings: Map<string, string>
 }
 
@@ -97,14 +98,21 @@ function suggestedFix(violation: Violation): string {
   return fixes[violation.ruleId]
 }
 
-function formatViolations(path: string, heading: string, violations: readonly Violation[]): string {
-  const details = violations
+function violationDetails(violations: readonly Violation[]): string {
+  return violations
     .map(
       (violation) =>
         `- line ${violation.line}, column ${violation.column} [${violation.ruleId}]: ${violation.message} Suggested fix: ${suggestedFix(violation)}`,
     )
     .join("\n")
-  return `${heading} ${path}:\n${details}`
+}
+
+function formatViolations(path: string, heading: string, violations: readonly Violation[]): string {
+  return `${heading} ${path}:\n${violationDetails(violations)}`
+}
+
+function formatReplyFeedback(violations: readonly Violation[]): string {
+  return `STE feedback for your previous reply:\n${violationDetails(violations)}`
 }
 
 function notifyWarnings(
@@ -218,6 +226,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     state.ready = false
     state.error = undefined
+    state.pendingReplyFeedback = undefined
     state.pendingWarnings.clear()
     pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
@@ -238,6 +247,48 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", (event) => ({
     systemPrompt: `${event.systemPrompt}\n\n${ruleSummary(state.config)}`,
   }))
+
+  pi.on("message_end", (event, ctx) => {
+    if (!state.ready || event.message.role !== "assistant") return undefined
+    const text = event.message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n")
+    const report = lint("prose-file", text, {
+      ...state.config,
+      dictionary: state.dictionary,
+      tagger: state.tagger,
+    })
+    const hard = report.violations.filter((violation) => violation.severity === "hard")
+    const softCount = report.summary.total - report.summary.hard
+    state.pendingReplyFeedback = hard.length === 0 ? undefined : formatReplyFeedback(hard)
+    if (ctx.hasUI) {
+      const status =
+        report.summary.total === 0
+          ? "STE reply: clean"
+          : `STE reply: ${report.summary.hard} hard, ${softCount} soft`
+      ctx.ui.setWidget("simple-english-reply", [status])
+    }
+    return undefined
+  })
+
+  pi.on("context", (event) => {
+    const feedback = state.pendingReplyFeedback
+    if (feedback === undefined) return undefined
+    state.pendingReplyFeedback = undefined
+    return {
+      messages: [
+        ...event.messages,
+        {
+          role: "custom" as const,
+          customType: "simple-english-reply-feedback",
+          content: feedback,
+          display: false,
+          timestamp: Date.now(),
+        },
+      ],
+    }
+  })
 
   pi.on("tool_call", async (event) => {
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
