@@ -1,8 +1,12 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
-import { changedLineNumbers } from "./diff.ts"
+import { changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure } from "./markdown.ts"
+import {
+  blankInlineCode,
+  blankMarkdownCode,
+  blankMarkdownCodeWithStructure,
+} from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
@@ -93,7 +97,7 @@ const lintProse = (
   { maxSentenceWords, dictionary, tagger, includeSentence }: ResolvedOptions,
 ) => [
   ...sentenceLength(
-    segmentSentences(lines, structuralBlanks).filter(includeSentence),
+    segmentSentences(lines, lines.join("\n"), structuralBlanks).filter(includeSentence),
     maxSentenceWords,
   ),
   ...paragraphLength(
@@ -132,21 +136,58 @@ const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Vio
   )
 }
 
-// With a previousText, only sentences that touch a changed line are linted,
-// so pre-existing prose the author did not edit never blocks the edit.
+function nearestNonWhitespaceBefore(text: string, offset: number): number | undefined {
+  for (let index = offset - 1; index >= 0; index--) {
+    if (!/\s/u.test(text[index] ?? "")) return index
+  }
+  return undefined
+}
+
+function nearestNonWhitespaceAfter(text: string, offset: number): number | undefined {
+  for (let index = offset; index < text.length; index++) {
+    if (!/\s/u.test(text[index] ?? "")) return index
+  }
+  return undefined
+}
+
+function contains(sentence: Sentence, offset: number): boolean {
+  return sentence.startOffset <= offset && offset < sentence.endOffset
+}
+
 function sentenceFilter(text: string, previousText: string | undefined): SentenceFilter {
   if (previousText === undefined) {
     return () => true
   }
-  const changed = changedLineNumbers(previousText, text)
-  return (sentence) => {
-    for (let line = sentence.line; line <= sentence.endLine; line++) {
-      if (changed.has(line)) {
-        return true
-      }
+
+  const changes = changedText(previousText, text)
+  const previousLines = blankInlineCode(blankMarkdownCode(previousText.split("\n")))
+  const previousSentences = segmentSentences(previousLines, previousText)
+  const mergedBoundaries = changes.deletions.flatMap((deletion) => {
+    const oldBefore = nearestNonWhitespaceBefore(previousText, deletion.previousStart)
+    const oldAfter = nearestNonWhitespaceAfter(previousText, deletion.previousEnd)
+    const newBefore = nearestNonWhitespaceBefore(text, deletion.currentOffset)
+    const newAfter = nearestNonWhitespaceAfter(text, deletion.currentOffset)
+    if (
+      oldBefore === undefined ||
+      oldAfter === undefined ||
+      newBefore === undefined ||
+      newAfter === undefined
+    ) {
+      return []
     }
-    return false
-  }
+    const wasOneSentence = previousSentences.some(
+      (sentence) => contains(sentence, oldBefore) && contains(sentence, oldAfter),
+    )
+    return wasOneSentence ? [] : [{ before: newBefore, after: newAfter }]
+  })
+
+  return (sentence) =>
+    changes.ranges.some(
+      (range) => range.start < sentence.endOffset && range.end > sentence.startOffset,
+    ) ||
+    mergedBoundaries.some(
+      (boundary) => contains(sentence, boundary.before) && contains(sentence, boundary.after),
+    )
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {

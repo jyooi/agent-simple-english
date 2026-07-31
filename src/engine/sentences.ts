@@ -3,6 +3,8 @@ export interface Sentence {
   readonly line: number
   readonly column: number
   readonly endLine: number
+  readonly startOffset: number
+  readonly endOffset: number
 }
 
 const CLOSING_DELIMITERS = new Set([
@@ -180,16 +182,35 @@ function sentenceTerminatorEnds(text: string): number[] {
 // Sentences may span lines; position is where the sentence starts (1-based).
 export function segmentSentences(
   lines: readonly string[],
+  sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
 ): Sentence[] {
   const sentences: Sentence[] = []
-  let open: { line: number; column: number; endLine: number; parts: string[] } | null = null
+  const lineOffsets = [0]
+  for (let index = 0; index < sourceText.length; index++) {
+    if (sourceText[index] === "\n") lineOffsets.push(index + 1)
+  }
+  let open: {
+    line: number
+    column: number
+    endLine: number
+    startOffset: number
+    endOffset: number
+    parts: string[]
+  } | null = null
 
   const close = () => {
     if (!open) return
     const text = open.parts.join(" ").trim()
     if (text !== "") {
-      sentences.push({ text, line: open.line, column: open.column, endLine: open.endLine })
+      sentences.push({
+        text,
+        line: open.line,
+        column: open.column,
+        endLine: open.endLine,
+        startOffset: open.startOffset,
+        endOffset: open.endOffset,
+      })
     }
     open = null
   }
@@ -204,15 +225,19 @@ export function segmentSentences(
       const part = raw.slice(offset, end)
       if (!open) {
         const indent = part.length - part.trimStart().length
+        const startOffset = (lineOffsets[index] ?? 0) + offset + indent
         open = {
           line: index + 1,
           column: offset + indent + 1,
           endLine: index + 1,
+          startOffset,
+          endOffset: startOffset,
           parts: [],
         }
       }
       open.endLine = index + 1
       open.parts.push(part.trim())
+      open.endOffset = (lineOffsets[index] ?? 0) + end
       close()
       offset = end
     }
@@ -221,15 +246,19 @@ export function segmentSentences(
     if (rest.trim() !== "") {
       if (!open) {
         const indent = rest.length - rest.trimStart().length
+        const startOffset = (lineOffsets[index] ?? 0) + offset + indent
         open = {
           line: index + 1,
           column: offset + indent + 1,
           endLine: index + 1,
+          startOffset,
+          endOffset: startOffset,
           parts: [],
         }
       }
       open.endLine = index + 1
       open.parts.push(rest.trim())
+      open.endOffset = (lineOffsets[index] ?? 0) + raw.trimEnd().length
     }
   })
   close()

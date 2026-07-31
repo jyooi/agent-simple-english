@@ -42,6 +42,13 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.summary).toEqual({ total: 1, hard: 1 })
   })
 
+  test("editing a short sentence does not report an unchanged sentence on the same line", () => {
+    const previous = `${words(30)}. Keep this short.`
+    const current = `${words(30)}. Keep that short.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("an insertion that pushes an existing sentence over the word cap is reported", () => {
     const previous = `${words(20)}.`
     const current = `extra extra extra extra extra extra ${words(20)}.`
@@ -70,6 +77,22 @@ describe("lint prose-file: diff-only linting via previousText", () => {
   test("deleting one paragraph does not surface untouched pre-existing violations", () => {
     const previous = `${words(30)}.\n\n${words(28)}.`
     const current = `${words(28)}.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
+  test("replacing a short line does not report an unchanged neighboring sentence", () => {
+    const longSentence = `${words(30)}.`
+    const previous = `${longSentence}\nOld short middle.\nA short closing sentence.`
+    const current = `${longSentence}\nNew short middle.\nA short closing sentence.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
+  test("deleting a complete sentence does not report unchanged neighboring sentences", () => {
+    const longSentence = `${words(30)}.`
+    const previous = `${longSentence}\nA short complete sentence.\nA short closing sentence.`
+    const current = `${longSentence}\nA short closing sentence.`
 
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
