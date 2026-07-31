@@ -2,11 +2,11 @@ import { constants } from "node:fs"
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import {
-  createEditToolDefinition,
-  createWriteToolDefinition,
   type ExtensionAPI,
   type ExtensionContext,
   type ToolCallEventResult,
+  createEditToolDefinition,
+  createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent"
 import { Effect } from "effect"
 import { loadConfig } from "../config/load.ts"
@@ -161,14 +161,7 @@ function createGatedWriteTool(cwd: string, state: SessionState) {
               `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
             )
           }
-          const result = lintProposedText(
-            state,
-            ctx,
-            "write",
-            toolCallId,
-            input.path,
-            content,
-          )
+          const result = lintProposedText(state, ctx, "write", toolCallId, input.path, content)
           if (result?.block) throw new Error(result.reason)
           await mkdir(dirname(path), { recursive: true })
           if (signal?.aborted) throw new Error("Operation aborted")
@@ -229,9 +222,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
     try {
-      state.config = await Effect.runPromise(
-        loadConfig(undefined, ctx.cwd, ctx.isProjectTrusted()),
-      )
+      state.config = await Effect.runPromise(loadConfig(undefined, ctx.cwd, ctx.isProjectTrusted()))
       state.dictionary = await Effect.runPromise(
         loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
       )

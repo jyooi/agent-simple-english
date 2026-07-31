@@ -160,8 +160,17 @@ describe.sequential("pi extension wiring", () => {
     })
   })
 
-  test("injects an STE rule summary into the system prompt", async () => {
-    const { pi, context } = await startExtension()
+  test("injects an STE rule summary that reflects merged active settings", async () => {
+    const { pi, context } = await startExtension({
+      globalConfig: {
+        maxSentenceWords: 30,
+        rules: { contraction: "hard", semicolon: "soft" },
+      },
+      projectConfig: {
+        maxSentenceWords: 8,
+        rules: { contraction: "off", semicolon: "hard" },
+      },
+    })
 
     const result = await pi.emit(
       "before_agent_start",
@@ -173,7 +182,13 @@ describe.sequential("pi extension wiring", () => {
       systemPrompt: expect.stringContaining("Simplified Technical English"),
     })
     expect(result).toMatchObject({
-      systemPrompt: expect.stringContaining("Do not use contractions"),
+      systemPrompt: expect.stringContaining("[hard] Do not use semicolons"),
+    })
+    expect(result).toMatchObject({
+      systemPrompt: expect.stringContaining("Keep each sentence to 8 words or fewer"),
+    })
+    expect(result).toMatchObject({
+      systemPrompt: expect.not.stringContaining("Do not use contractions"),
     })
   })
 
