@@ -1,6 +1,9 @@
 // Longest-common-subsequence line diff. Returns the 1-based line numbers of
 // the current text that are new or changed relative to the previous text.
-// Deleted lines have no counterpart in the current text, so they never appear.
+// Deleted lines have no counterpart in the current text, but a pure deletion
+// between two retained lines can merge their sentences (for example when the
+// removed line carried the terminator), so both neighbours of such a
+// deletion point also count as changed.
 export function changedLineNumbers(previousText: string, currentText: string): Set<number> {
   const previous = previousText.split("\n")
   const current = currentText.split("\n")
@@ -25,6 +28,13 @@ export function changedLineNumbers(previousText: string, currentText: string): S
   const b = current.slice(start, currentEnd)
 
   const changed = new Set<number>()
+  const markDeletionPoint = (j: number) => {
+    const before = start + j
+    if (before >= 1 && before < current.length) {
+      changed.add(before)
+      changed.add(before + 1)
+    }
+  }
   const markAll = () => {
     for (let i = 0; i < b.length; i++) {
       changed.add(start + i + 1)
@@ -55,11 +65,15 @@ export function changedLineNumbers(previousText: string, currentText: string): S
       i++
       j++
     } else if (lcs(i + 1, j) >= lcs(i, j + 1)) {
+      markDeletionPoint(j)
       i++
     } else {
       changed.add(start + j + 1)
       j++
     }
+  }
+  if (i < a.length) {
+    markDeletionPoint(j)
   }
   for (; j < b.length; j++) {
     changed.add(start + j + 1)

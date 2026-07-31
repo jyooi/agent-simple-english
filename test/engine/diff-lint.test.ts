@@ -74,6 +74,29 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("deleting a terminator line that merges retained fragments lints the merged sentence", () => {
+    const previous = `${words(13)}\nEnds here.\n${words(13)} done.`
+    const current = `${words(13)}\n${words(13)} done.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({
+      ruleId: "sentence-length",
+      line: 1,
+      column: 1,
+    })
+  })
+
+  test("edits past the DP size bound conservatively treat the whole middle as changed", () => {
+    const previous = Array.from({ length: 1001 }, (_, i) => `Old line ${i}.`).join("\n")
+    const current = Array.from({ length: 1001 }, (_, i) =>
+      i === 0 || i === 500 || i === 1000 ? `${words(26)} tail${i}.` : `New line ${i}.`,
+    ).join("\n")
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations.map((violation) => violation.line)).toEqual([1, 501, 1001])
+  })
+
   test("positions refer to the new text when an insertion shifts pre-existing prose", () => {
     const previous = `Intro.\n\n${words(30)}.`
     const current = `Intro.\n\n${words(28)} inserted.\n\n${words(30)}.`
