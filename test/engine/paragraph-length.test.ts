@@ -22,6 +22,18 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor("One. Two. Three. Four. Five. Six.")).not.toContain("paragraph-length")
   })
 
+  test("flags a paragraph of quoted sentences", () => {
+    const text = '"One." "Two." “Three.” ‘Four.’ "Five?" “Six!” "Seven."'
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
+  test("flags sentences before closing Markdown delimiters", () => {
+    const text = "*One.* **Two.** _Three._ ~~Four.~~ `Five.` **Six!** _Seven?_"
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
   test("a blank line ends a paragraph", () => {
     expect(idsFor("One. Two. Three. Four.\n\nFive. Six. Seven. Eight.")).not.toContain(
       "paragraph-length",

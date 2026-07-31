@@ -4,10 +4,10 @@ export interface Sentence {
   readonly column: number
 }
 
-const TERMINATOR = /[.!?]+(\s|$)/
+const TERMINATOR = /[.!?]+["'’”»›)\]}*_~`]*(\s|$)/
 
 // A sentence starts at the first non-whitespace character and ends at
-// terminal punctuation followed by whitespace, at a blank line, or at EOF.
+// terminal punctuation and closing delimiters, at a blank line, or at EOF.
 // Sentences may span lines; position is where the sentence starts (1-based).
 export function segmentSentences(lines: readonly string[]): Sentence[] {
   const sentences: Sentence[] = []

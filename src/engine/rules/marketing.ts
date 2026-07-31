@@ -1,4 +1,3 @@
-import { scanLines } from "../scan.ts"
 import type { Violation } from "../types.ts"
 
 const MARKETING_WORDS = [
@@ -28,14 +27,45 @@ const MARKETING_WORDS = [
   "empowers",
 ]
 
-const MARKETING_PATTERN = new RegExp(`\\b(?:${MARKETING_WORDS.join("|")})\\b`, "gi")
+const MARKETING_SET = new Set(MARKETING_WORDS)
+const HYPHENATED_TOKEN = /[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*/g
+
+interface MarketingMatch {
+  readonly found: string
+  readonly offset: number
+}
+
+function findMarketingLanguage(token: string): MarketingMatch | undefined {
+  const normalized = token.toLowerCase()
+  if (MARKETING_SET.has(normalized)) {
+    return { found: normalized, offset: 0 }
+  }
+
+  let offset = 0
+  for (const part of normalized.split("-")) {
+    if (MARKETING_SET.has(part)) {
+      return { found: part, offset }
+    }
+    offset += part.length + 1
+  }
+}
 
 export function marketing(lines: readonly string[]): Violation[] {
-  return scanLines(lines, MARKETING_PATTERN).map((match) => ({
-    ruleId: "marketing",
-    severity: "soft" as const,
-    message: `Do not use marketing language. Delete "${match.found.toLowerCase()}".`,
-    line: match.line,
-    column: match.column,
-  }))
+  return lines.flatMap((line, lineIndex) =>
+    Array.from(line.matchAll(HYPHENATED_TOKEN)).flatMap((tokenMatch) => {
+      const match = findMarketingLanguage(tokenMatch[0])
+      if (!match) {
+        return []
+      }
+      return [
+        {
+          ruleId: "marketing",
+          severity: "soft" as const,
+          message: `Do not use marketing language. Delete "${match.found}".`,
+          line: lineIndex + 1,
+          column: tokenMatch.index + match.offset + 1,
+        },
+      ]
+    }),
+  )
 }

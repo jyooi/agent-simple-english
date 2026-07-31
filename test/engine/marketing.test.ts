@@ -34,6 +34,15 @@ describe("lint prose-file: marketing rule", () => {
     expect(violation?.message).toContain("robust")
   })
 
+  test("flags only the first listed part of a hyphenated token", () => {
+    const report = lint("prose-file", "A robust-powerful platform.")
+
+    const violations = report.violations.filter((v) => v.ruleId === "marketing")
+    expect(violations).toHaveLength(1)
+    expect(violations[0]).toMatchObject({ line: 1, column: 3 })
+    expect(violations[0]?.message).toContain("robust")
+  })
+
   test("soft marketing violations do not count as hard in the summary", () => {
     const report = lint("prose-file", "A robust and powerful tool.")
 
