@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { ExtensionRunner, createExtensionRuntime } from "@earendil-works/pi-coding-agent"
+import type { AutocompleteItem } from "@earendil-works/pi-tui"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import simpleEnglishExtension from "../../src/extension/index.ts"
 
@@ -62,6 +63,7 @@ type ToolHandler = {
 
 type CommandHandler = {
   readonly description: string
+  getArgumentCompletions?(prefix: string): AutocompleteItem[] | null
   handler(args: string, context: ExtensionContextStub): unknown
 }
 
@@ -117,6 +119,12 @@ class ExtensionApiStub {
 
   registerCommand(name: string, command: CommandHandler): void {
     this.commands.set(name, command)
+  }
+
+  getArgumentCompletions(name: string, prefix: string): AutocompleteItem[] | null {
+    const command = this.commands.get(name)
+    if (command === undefined) throw new Error(`No command registered for ${name}`)
+    return command.getArgumentCompletions?.(prefix) ?? null
   }
 
   async runCommand(name: string, args: string, context: ExtensionContextStub) {
@@ -487,6 +495,22 @@ describe.sequential("pi extension wiring", () => {
 
     expect(error?.message).toContain("line 3, column 6")
     expect(error?.message).toContain("[contraction]")
+  })
+
+  test("suggests STE command arguments and filters them by prefix", async () => {
+    const { pi } = await startExtension()
+
+    expect(pi.getArgumentCompletions("ste", "")).toEqual([
+      { value: "on", label: "on", description: "Enable STE enforcement" },
+      { value: "off", label: "off", description: "Disable STE enforcement" },
+      { value: "status", label: "status", description: "Show STE status" },
+      { value: "strict", label: "strict", description: "Enable strict reply gating" },
+    ])
+    expect(pi.getArgumentCompletions("ste", "s")).toEqual([
+      { value: "status", label: "status", description: "Show STE status" },
+      { value: "strict", label: "strict", description: "Enable strict reply gating" },
+    ])
+    expect(pi.getArgumentCompletions("ste", "missing")).toBeNull()
   })
 
   test("toggles write, edit, commit, and reply enforcement for the session", async () => {

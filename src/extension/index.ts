@@ -12,6 +12,7 @@ import {
   createEditToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent"
+import type { AutocompleteItem } from "@earendil-works/pi-tui"
 import { Effect } from "effect"
 import { Type } from "typebox"
 import { loadConfig } from "../config/load.ts"
@@ -25,6 +26,13 @@ import type { Tagger } from "../engine/tagger.ts"
 import type { LintReport, RuleSetting, Violation } from "../engine/types.ts"
 import { makeWinkTagger } from "../tagger/wink.ts"
 import { blankCommitMetadata, findCommitInvocations } from "./commit-message.ts"
+
+const STE_COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
+  { value: "on", label: "on", description: "Enable STE enforcement" },
+  { value: "off", label: "off", description: "Disable STE enforcement" },
+  { value: "status", label: "status", description: "Show STE status" },
+  { value: "strict", label: "strict", description: "Enable strict reply gating" },
+]
 
 const DEFAULT_RULE_SETTINGS: Readonly<Record<RuleId, RuleSetting>> = {
   contraction: "hard",
@@ -620,6 +628,10 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("ste", {
     description: "Toggle STE enforcement or show status. Use strict to gate replies.",
+    getArgumentCompletions: (prefix) => {
+      const completions = STE_COMMAND_COMPLETIONS.filter((item) => item.value.startsWith(prefix))
+      return completions.length > 0 ? completions : null
+    },
     handler: async (args, ctx) => {
       const command = args.trim().toLowerCase()
       if (command === "status") {
