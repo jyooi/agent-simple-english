@@ -4,6 +4,11 @@
   "description": "ASD-STE100 Simplified Technical English lint engine and CLI for the pi coding agent",
   "license": "MIT",
   "type": "module",
+  "keywords": ["pi-package", "simplified-technical-english", "linter"],
+  "pi": {
+    "extensions": ["./src/extension/index.ts"]
+  },
+  "files": ["src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
   "bin": {
     "simple-english": "./src/cli/main.ts"
   },
@@ -17,8 +22,12 @@
     "wink-eng-lite-web-model": "^1.8.1",
     "wink-nlp": "^2.4.0"
   },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@earendil-works/pi-coding-agent": "0.83.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"

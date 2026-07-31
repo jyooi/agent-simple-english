@@ -4,6 +4,22 @@ A pi extension that makes the pi coding agent comply with ASD-STE100 Simplified 
 
 This project is a TypeScript and Effect reimplementation of [pi-ste](https://github.com/ctotheameron/pi-ste).
 
+## pi extension
+
+Install the package from npm:
+
+```sh
+pi install npm:pi-simple-english
+```
+
+For local development, run `pi -e .` from the repository instead.
+At the start of each agent turn, the extension adds a concise STE rule summary that reflects the active configuration.
+It checks proposed `write` and `edit` content before the tools change a file, using the same file-extension content kinds described for the CLI below.
+Hard violations block the tool call with the line, column, rule ID, and a suggested fix so that the agent can correct the text and retry.
+Soft violations permit the tool call and appear as warnings.
+Edits use the existing file as a baseline, so unchanged violations do not block unrelated changes.
+A configuration or dictionary load error makes the extension fail closed and block `write` and `edit` for that session.
+
 ## CLI
 
 ```sh
@@ -59,7 +75,8 @@ Hedging, marketing, and phrasal-verb multiword matches stay within one line.
 
 Config is an optional JSON object.
 The global file lives at `simple-english.json` in the pi agent config directory, which defaults to `~/.pi/agent` and honors `PI_CODING_AGENT_DIR`.
-An optional per-project file at `.pi/simple-english.json` deep-merges over it, with the project value winning per key.
+For the CLI, an optional per-project file at `.pi/simple-english.json` deep-merges over it, with the project value winning per key.
+The extension uses the same merge for a trusted project and otherwise loads only the global file.
 
 ```json
 {
@@ -84,6 +101,7 @@ Entries without POS metadata use word-level matching.
 
 Set `SIMPLE_ENGLISH_DICTIONARY` to a replacement file that uses the documented [dictionary data format](src/dictionary/README.md).
 If that file cannot be read or validated, the CLI prints a dictionary error and continues with all other lint rules.
+The extension instead fails closed as described above.
 
 ## Attribution
 
