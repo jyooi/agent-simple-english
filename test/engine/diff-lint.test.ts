@@ -195,6 +195,24 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations[0]?.message).toContain('not "approximately"')
   })
 
+  test("an astral character before a changed line does not shift its dictionary position", () => {
+    const previous = "😀 Intro.\napproximatelyx."
+    const current = "😀 Intro.\napproximately."
+    const report = lint("prose-file", current, { previousText: previous, dictionary })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 2, column: 1 })
+  })
+
+  test("an astral character in a changed multiline sentence preserves its line break", () => {
+    const previous = "😀 Intro\napproximatelyx."
+    const current = "😀 Intro\napproximately."
+    const report = lint("prose-file", current, { previousText: previous, dictionary })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 2, column: 1 })
+  })
+
   test.each([
     [" approximately.", "approximately."],
     ["approximately. ", "approximately."],

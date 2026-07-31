@@ -39,9 +39,10 @@ interface ResolvedOptions {
 }
 
 function selectedProseLines(text: string, sentences: readonly Sentence[]): string[] {
-  const selected: string[] = Array.from(text, (character) =>
-    character === "\n" || character === "\r" ? character : " ",
-  )
+  const selected: string[] = Array.from({ length: text.length }, (_, offset) => {
+    const character = text[offset]
+    return character === "\n" || character === "\r" ? character : " "
+  })
   for (const sentence of sentences) {
     for (const range of sentence.contentRanges) {
       for (let offset = range.start; offset < range.end; offset++) {
