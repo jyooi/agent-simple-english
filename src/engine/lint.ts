@@ -358,12 +358,12 @@ function containingSentenceIndexes(
   return result
 }
 
-interface MergedBoundary {
+interface DeletionBoundary {
   readonly before: number
   readonly after: number
 }
 
-function deletionMergeBoundaries(
+function deletionBoundaries(
   previousProse: string,
   currentProse: string,
   previousSentences: readonly Sentence[],
@@ -378,12 +378,14 @@ function deletionMergeBoundaries(
   const newAfter = nearestNonWhitespaceAfter(currentProse, currentOffsets)
   const oldBeforeSentences = containingSentenceIndexes(previousSentences, oldBefore)
   const oldAfterSentences = containingSentenceIndexes(previousSentences, oldAfter)
-  const boundaries: MergedBoundary[] = []
+  const boundaries: DeletionBoundary[] = []
 
   for (let index = 0; index < changes.deletions.length; index++) {
+    const deletion = changes.deletions[index]
     const before = newBefore[index]
     const after = newAfter[index]
     if (
+      deletion === undefined ||
       oldBefore[index] === undefined ||
       oldAfter[index] === undefined ||
       before === undefined ||
@@ -392,7 +394,9 @@ function deletionMergeBoundaries(
       continue
     }
     const beforeSentence = oldBeforeSentences[index]
-    if (beforeSentence !== -1 && beforeSentence === oldAfterSentences[index]) continue
+    const previousTogether = beforeSentence !== -1 && beforeSentence === oldAfterSentences[index]
+    const deletedProse = previousProse.slice(deletion.previousStart, deletion.previousEnd)
+    if (previousTogether && !/\S/u.test(deletedProse) && before + 1 < after) continue
     boundaries.push({ before, after })
   }
 
@@ -542,7 +546,7 @@ function changedSentenceIdentityIndexes(
 function selectChangedSentences(
   sentences: readonly Sentence[],
   changedRanges: readonly ChangedRange[],
-  mergedBoundaries: readonly MergedBoundary[],
+  deletionBoundaries: readonly DeletionBoundary[],
   changedSentenceIndexes: ReadonlySet<number>,
 ): Sentence[] {
   const selected: Sentence[] = []
@@ -574,18 +578,18 @@ function selectChangedSentences(
     }
 
     while (
-      boundaryIndex < mergedBoundaries.length &&
-      (mergedBoundaries[boundaryIndex]?.before ?? 0) < sentence.startOffset
+      boundaryIndex < deletionBoundaries.length &&
+      (deletionBoundaries[boundaryIndex]?.before ?? 0) < sentence.startOffset
     ) {
       boundaryIndex++
     }
     let nextBoundary = boundaryIndex
     let containsBoundary = false
     while (
-      nextBoundary < mergedBoundaries.length &&
-      (mergedBoundaries[nextBoundary]?.before ?? Number.POSITIVE_INFINITY) < sentence.endOffset
+      nextBoundary < deletionBoundaries.length &&
+      (deletionBoundaries[nextBoundary]?.before ?? Number.POSITIVE_INFINITY) < sentence.endOffset
     ) {
-      const boundary = mergedBoundaries[nextBoundary]
+      const boundary = deletionBoundaries[nextBoundary]
       if (boundary && contains(sentence, boundary.before) && contains(sentence, boundary.after)) {
         containsBoundary = true
       }
@@ -612,7 +616,7 @@ function sentenceSelector(text: string, previousText: string | undefined): Sente
     ...newlyVisibleRanges(previousText, text, changes),
   ])
   const previousSentences = segmentSentences(previousProse.split("\n"), previousText)
-  const mergedBoundaries = deletionMergeBoundaries(
+  const changedDeletionBoundaries = deletionBoundaries(
     previousProse,
     currentProse,
     previousSentences,
@@ -623,7 +627,7 @@ function sentenceSelector(text: string, previousText: string | undefined): Sente
     selectChangedSentences(
       sentences,
       changedRanges,
-      mergedBoundaries,
+      changedDeletionBoundaries,
       changedSentenceIdentityIndexes(
         previousSentences,
         sentences,

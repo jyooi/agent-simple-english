@@ -1,10 +1,25 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
+import type { Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const fixture = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url)), "utf8")
+
+const dictionary = {
+  formatVersion: 1,
+  source: {
+    name: "test fixture",
+    repository: "https://example.test/dictionary",
+    commit: "fixture",
+    path: "dictionary.json",
+  },
+  entries: [
+    { unapproved: ["approximately"], suggestions: ["about"] },
+    { unapproved: ["prior to"], suggestions: ["before"] },
+  ],
+} as const satisfies Dictionary
 
 describe("lint prose-file: diff-only linting via previousText", () => {
   const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(" ")
@@ -160,11 +175,23 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
-  test("deleting duplicate internal whitespace does not report an existing violation", () => {
-    const previous = `${words(15)}  ${words(15)}.`
-    const current = `${words(15)} ${words(15)}.`
+  test.each([
+    ["Do this prior extra to assembly.", "Do this prior to assembly.", "prior to"],
+    ["It is approx-imately correct.", "It is approximately correct.", "approximately"],
+  ])("deleting prose can create a dictionary violation: %s", (previous, current, found) => {
+    const report = lint("prose-file", current, { previousText: previous, dictionary })
 
-    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]?.message).toContain(`not \"${found}\"`)
+  })
+
+  test("deleting duplicate internal whitespace does not report an existing violation", () => {
+    const previous = "Do this prior  to assembly."
+    const current = "Do this prior to assembly."
+
+    expect(
+      lint("prose-file", current, { previousText: previous, dictionary }).violations,
+    ).toHaveLength(0)
   })
 
   test("an excluded-code insertion does not select unrelated deletion-only prose", () => {
