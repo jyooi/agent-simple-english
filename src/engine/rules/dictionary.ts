@@ -92,6 +92,8 @@ const startsNewBlock = (content: string): boolean =>
 const isParagraphBlock = (content: string): boolean =>
   !isLeafBlock(content) && !SETEXT_UNDERLINE.test(content) && !THEMATIC_BREAK.test(content)
 
+const isIndentedCode = (content: string): boolean => /^(?: {4}|\t)/.test(content)
+
 const markdownContexts = (lines: readonly string[]): readonly MarkdownContext[] => {
   let activeParagraph: ActiveParagraph | undefined
   let nextParagraphId = 0
@@ -110,6 +112,11 @@ const markdownContexts = (lines: readonly string[]): readonly MarkdownContext[] 
       !startsNewBlock(content)
     ) {
       return { ...context, paragraphId: activeParagraph.id }
+    }
+
+    if (isIndentedCode(content)) {
+      activeParagraph = undefined
+      return context
     }
 
     const paragraphId = nextParagraphId++

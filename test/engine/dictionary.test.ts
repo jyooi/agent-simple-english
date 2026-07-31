@@ -141,6 +141,14 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", "> # In order\nto continue", { dictionary }).violations).toEqual([])
   })
 
+  test("does not match phrases across Markdown indented code boundaries", () => {
+    expect(lint("prose-file", "    in order\nto continue", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "\tin order\nto continue", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", ">     in order\n> to continue", { dictionary }).violations).toEqual(
+      [],
+    )
+  })
+
   test("matches hyphenated forms as one exact token", () => {
     const report = lint("prose-file", "Use state-of-the-art parts.", { dictionary })
 

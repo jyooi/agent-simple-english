@@ -137,6 +137,7 @@ describe("simple-english CLI", () => {
 
   test.each([
     ["invalid", "test/fixtures/invalid-dictionary.json", "entries[0].unapproved"],
+    ["unknown-property", "test/fixtures/unknown-dictionary-property.json", "partOfSpeech"],
     [
       "unsupported-form",
       "test/fixtures/unsupported-dictionary-form.json",

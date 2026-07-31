@@ -29,6 +29,11 @@ const formatParseError = (error: ParseResult.ParseError): string => {
   return path === "" ? `invalid dictionary data: ${issue.message}` : `${path}: ${issue.message}`
 }
 
+const decodeDictionary = Schema.decode(Schema.parseJson(DictionarySchema), {
+  onExcessProperty: "error",
+  errors: "all",
+})
+
 export const loadDictionary = (
   path = BUNDLED_DICTIONARY_PATH,
 ): Effect.Effect<Dictionary, DictionaryLoadError> =>
@@ -40,7 +45,7 @@ export const loadDictionary = (
         `cannot read file: ${cause instanceof Error ? cause.message : String(cause)}`,
       ),
   }).pipe(
-    Effect.flatMap(Schema.decode(Schema.parseJson(DictionarySchema))),
+    Effect.flatMap(decodeDictionary),
     Effect.mapError((cause) =>
       cause instanceof DictionaryLoadError
         ? cause
