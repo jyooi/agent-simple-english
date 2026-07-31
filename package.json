@@ -23,12 +23,14 @@
     "wink-nlp": "^2.4.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@types/node": "^22.0.0",
+    "typebox": "1.3.7",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
   }

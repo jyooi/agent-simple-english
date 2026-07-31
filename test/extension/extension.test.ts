@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { ExtensionRunner, createExtensionRuntime } from "@earendil-works/pi-coding-agent"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import simpleEnglishExtension from "../../src/extension/index.ts"
 
@@ -59,6 +60,11 @@ type ToolHandler = {
   ): unknown
 }
 
+type CommandHandler = {
+  readonly description: string
+  handler(args: string, context: ExtensionContextStub): unknown
+}
+
 interface CommitCommandFixture {
   readonly name: string
   readonly command: string
@@ -84,6 +90,8 @@ interface ExtensionContextStub {
 }
 
 class ExtensionApiStub {
+  readonly activeTools = new Set<string>()
+  readonly commands = new Map<string, CommandHandler>()
   readonly handlers = new Map<string, EventHandler[]>()
   readonly tools = new Map<string, ToolHandler>()
 
@@ -95,6 +103,26 @@ class ExtensionApiStub {
 
   registerTool(tool: ToolHandler): void {
     this.tools.set(tool.name, tool)
+    this.activeTools.add(tool.name)
+  }
+
+  getActiveTools(): string[] {
+    return [...this.activeTools]
+  }
+
+  setActiveTools(names: readonly string[]): void {
+    this.activeTools.clear()
+    for (const name of names) this.activeTools.add(name)
+  }
+
+  registerCommand(name: string, command: CommandHandler): void {
+    this.commands.set(name, command)
+  }
+
+  async runCommand(name: string, args: string, context: ExtensionContextStub) {
+    const command = this.commands.get(name)
+    if (command === undefined) throw new Error(`No command registered for ${name}`)
+    return command.handler(args, context)
   }
 
   async emit(event: string, payload: Record<string, unknown>, context: ExtensionContextStub) {
@@ -151,12 +179,14 @@ class ExtensionApiStub {
     }
     const tool = this.tools.get(toolName)
     if (tool === undefined) throw new Error(`No tool registered for ${toolName}`)
+    if (!this.activeTools.has(toolName)) throw new Error(`Tool is not active: ${toolName}`)
     return tool.execute(toolCallId, input as never, signal, undefined, context)
   }
 }
 
 const temporaryDirectories: string[] = []
 const originalAgentDirectory = process.env.PI_CODING_AGENT_DIR
+const originalDictionary = process.env.SIMPLE_ENGLISH_DICTIONARY
 const originalHome = process.env.HOME
 
 afterEach(async () => {
@@ -164,6 +194,11 @@ afterEach(async () => {
   bashControl.executedCommands.length = 0
   if (originalAgentDirectory === undefined) process.env.PI_CODING_AGENT_DIR = undefined
   else process.env.PI_CODING_AGENT_DIR = originalAgentDirectory
+  if (originalDictionary === undefined) {
+    Reflect.deleteProperty(process.env, "SIMPLE_ENGLISH_DICTIONARY")
+  } else {
+    process.env.SIMPLE_ENGLISH_DICTIONARY = originalDictionary
+  }
   if (originalHome === undefined) process.env.HOME = undefined
   else process.env.HOME = originalHome
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })))
@@ -171,7 +206,7 @@ afterEach(async () => {
 
 async function startExtension(options?: {
   readonly branch?: readonly Record<string, unknown>[]
-  readonly globalConfig?: object
+  readonly globalConfig?: object | string
   readonly projectConfig?: object
   readonly sessionStartReason?: "startup" | "resume"
   readonly trusted?: boolean
@@ -184,7 +219,9 @@ async function startExtension(options?: {
   if (options?.globalConfig !== undefined) {
     await writeFile(
       join(globalDirectory, "simple-english.json"),
-      JSON.stringify(options.globalConfig),
+      typeof options.globalConfig === "string"
+        ? options.globalConfig
+        : JSON.stringify(options.globalConfig),
     )
   }
   if (options?.projectConfig !== undefined) {
@@ -234,6 +271,31 @@ function assistantMessage(text: string) {
   }
 }
 
+function boundaryRunner(
+  sessionManager: ExtensionContextStub["sessionManager"],
+  handlers: Readonly<Record<string, readonly EventHandler[]>>,
+): ExtensionRunner {
+  const extension = {
+    path: "later-extension",
+    resolvedPath: "later-extension",
+    sourceInfo: {},
+    handlers: new Map(Object.entries(handlers)),
+    tools: new Map(),
+    messageRenderers: new Map(),
+    entryRenderers: new Map(),
+    commands: new Map(),
+    flags: new Map(),
+    shortcuts: new Map(),
+  }
+  return new ExtensionRunner(
+    [extension] as never,
+    createExtensionRuntime(),
+    process.cwd(),
+    sessionManager as never,
+    {} as never,
+  )
+}
+
 function assistantEntry(text: string, id = "assistant-reply") {
   return {
     type: "message",
@@ -256,6 +318,24 @@ async function executeBash(
   )
 }
 
+function sayResultEntry(text: string, id = "say-result") {
+  return {
+    type: "message",
+    id,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: {
+      role: "toolResult",
+      toolCallId: "say-approved",
+      toolName: "say",
+      content: [{ type: "text", text }],
+      details: {},
+      isError: false,
+      timestamp: Date.now(),
+    },
+  }
+}
+
 describe.sequential("pi extension wiring", () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
@@ -266,9 +346,12 @@ describe.sequential("pi extension wiring", () => {
       "wink-eng-lite-web-model": expect.any(String),
       "wink-nlp": expect.any(String),
     })
+    expect(manifest.dependencies).not.toHaveProperty("typebox")
     expect(manifest.peerDependencies).toMatchObject({
       "@earendil-works/pi-coding-agent": "*",
+      typebox: "*",
     })
+    expect(manifest.devDependencies).toMatchObject({ typebox: "1.3.7" })
   })
 
   test("injects an STE rule summary that reflects merged active settings", async () => {
@@ -403,6 +486,417 @@ describe.sequential("pi extension wiring", () => {
 
     expect(error?.message).toContain("line 3, column 6")
     expect(error?.message).toContain("[contraction]")
+  })
+
+  test("toggles write, edit, commit, and reply enforcement for the session", async () => {
+    const { cwd, pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-enabled",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    expect(
+      (
+        await executeBash(
+          pi,
+          context,
+          "commit-enabled",
+          `git commit -m "fix: This isn't permitted."`,
+        )
+      )?.message,
+    ).toContain("[contraction]")
+
+    await pi.runCommand("ste", "", context)
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-disabled",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).resolves.toBeDefined()
+    await expect(
+      pi.executeTool(
+        "edit",
+        "edit-disabled",
+        {
+          path: "notes.md",
+          edits: [{ oldText: "This isn't permitted.", newText: "This can't be permitted." }],
+        },
+        context,
+      ),
+    ).resolves.toBeDefined()
+    expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This can't be permitted.")
+    await expect(
+      executeBash(pi, context, "commit-disabled", `git commit -m "fix: This isn't permitted."`),
+    ).resolves.toBeUndefined()
+    await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
+    expect(widgets.get("simple-english-reply")).toBeUndefined()
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+    await expect(
+      pi.emit("before_agent_start", { systemPrompt: "Base system prompt." }, context),
+    ).resolves.toBeUndefined()
+
+    await pi.runCommand("ste", "", context)
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-reenabled",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    await expect(
+      pi.executeTool(
+        "edit",
+        "edit-reenabled",
+        {
+          path: "notes.md",
+          edits: [{ oldText: "This can't be permitted.", newText: "This won't be permitted." }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This can't be permitted.")
+    expect(
+      (
+        await executeBash(
+          pi,
+          context,
+          "commit-reenabled",
+          `git commit -m "fix: This isn't permitted."`,
+        )
+      )?.message,
+    ).toContain("[contraction]")
+    await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
+  })
+
+  test("reports the mode, rule severity counts, and dictionary state", async () => {
+    const { pi, context, notifications } = await startExtension({
+      projectConfig: { rules: { contraction: "off", semicolon: "soft" } },
+    })
+
+    await pi.runCommand("ste", "status", context)
+
+    expect(notifications.at(-1)).toEqual({
+      level: "info",
+      message: expect.stringContaining("Mode: enabled"),
+    })
+    expect(notifications.at(-1)?.message).toContain("Rules: 6 hard, 4 soft, 1 off")
+    expect(notifications.at(-1)?.message).toContain("Dictionary: loaded")
+
+    await pi.runCommand("ste", "off", context)
+    await pi.runCommand("ste", "status", context)
+    expect(notifications.at(-1)?.message).toContain("Mode: disabled")
+
+    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ste", "status", context)
+    expect(notifications.at(-1)?.message).toContain("Mode: strict")
+  })
+
+  test("reports the dictionary as not loaded when config loading fails", async () => {
+    const { pi, context, notifications } = await startExtension({ globalConfig: "{" })
+
+    await pi.runCommand("ste", "status", context)
+
+    expect(notifications.at(-1)?.message).toContain("Mode: enabled")
+    expect(notifications.at(-1)?.message).toContain("Dictionary: not loaded")
+    expect(notifications.at(-1)?.message).not.toContain("Dictionary: failed")
+  })
+
+  test("reports a failed dictionary load", async () => {
+    process.env.SIMPLE_ENGLISH_DICTIONARY = join(process.cwd(), "missing-dictionary.json")
+    const { pi, context, notifications } = await startExtension()
+
+    await pi.runCommand("ste", "status", context)
+
+    expect(notifications.at(-1)?.message).toContain("Mode: enabled")
+    expect(notifications.at(-1)?.message).toContain("Dictionary: failed (")
+    expect(notifications.at(-1)?.message).toContain("missing-dictionary.json")
+  })
+
+  test("gates strict replies through say until a clean rewrite passes", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+
+    await pi.runCommand("ste", "strict", context)
+    expect(pi.activeTools.has("say")).toBe(true)
+    const prompt = await pi.emit(
+      "before_agent_start",
+      { systemPrompt: "Base system prompt." },
+      context,
+    )
+    expect(prompt).toMatchObject({
+      systemPrompt: expect.stringContaining("Send every user-facing reply through the `say` tool"),
+    })
+
+    await expect(
+      pi.executeTool("say", "say-blocked", { text: "This isn't permitted." }, context),
+    ).rejects.toThrow("line 1, column 6 [contraction]")
+
+    await expect(
+      pi.executeTool("say", "say-clean", { text: "Open the valve." }, context),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: "Open the valve." }],
+      terminate: true,
+    })
+  })
+
+  test("suppresses ordinary assistant text throughout strict reply streaming", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+
+    const started = assistantMessage("This isn't permitted.")
+    await pi.emit("message_start", { message: started }, context)
+    expect(started.content).toEqual([])
+
+    const partial = assistantMessage("This isn't permitted.")
+    const update = {
+      message: partial,
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "This isn't permitted.",
+        partial: assistantMessage("This isn't permitted."),
+      },
+    }
+    await pi.emit("message_update", update, context)
+    expect(partial.content).toEqual([])
+    expect(update.assistantMessageEvent.delta).toBe("")
+    expect(update.assistantMessageEvent.partial.content).toEqual([])
+
+    const thinking = {
+      ...assistantMessage(""),
+      content: [{ type: "thinking", thinking: "This isn't permitted." }],
+    }
+    await pi.emit("message_start", { message: thinking }, context)
+    expect(thinking.content).toEqual([])
+
+    const thinkingPartial = {
+      ...assistantMessage(""),
+      content: [{ type: "thinking", thinking: "This isn't permitted." }],
+    }
+    const thinkingUpdate = {
+      message: thinkingPartial,
+      assistantMessageEvent: {
+        type: "thinking_delta",
+        contentIndex: 0,
+        delta: "This isn't permitted.",
+        partial: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+        },
+      },
+    }
+    await pi.emit("message_update", thinkingUpdate, context)
+    expect(thinkingPartial.content).toEqual([])
+    expect(thinkingUpdate.assistantMessageEvent.delta).toBe("")
+    expect(thinkingUpdate.assistantMessageEvent.partial.content).toEqual([])
+
+    const thinkingEnd = {
+      message: {
+        ...assistantMessage(""),
+        content: [{ type: "thinking", thinking: "This isn't permitted." }],
+      },
+      assistantMessageEvent: {
+        type: "thinking_end",
+        contentIndex: 0,
+        content: "This isn't permitted.",
+        partial: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+        },
+      },
+    }
+    await pi.emit("message_update", thinkingEnd, context)
+    expect(thinkingEnd.assistantMessageEvent.content).toBe("")
+    expect(thinkingEnd.assistantMessageEvent.partial.content).toEqual([])
+
+    const finalized = await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
+    expect(finalized.content).toEqual([])
+  })
+
+  test("redacts strict say arguments until the gated result succeeds", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+
+    const message = {
+      ...assistantMessage(""),
+      content: [
+        {
+          type: "toolCall",
+          id: "say-redacted",
+          name: "say",
+          arguments: { text: "Open the valve." },
+        },
+      ],
+    }
+    const update = {
+      message,
+      assistantMessageEvent: {
+        type: "toolcall_delta",
+        contentIndex: 0,
+        delta: '"text":"Open the valve."',
+        partial: message,
+      },
+    }
+
+    await pi.emit("message_update", update, context)
+
+    expect(update.assistantMessageEvent.delta).toBe("")
+    expect(message.content[0]?.arguments).toEqual({
+      text: "[redacted until STE approval]",
+    })
+    await expect(
+      pi.executeTool("say", "say-redacted", { text: "[redacted until STE approval]" }, context),
+    ).resolves.toMatchObject({ content: [{ type: "text", text: "Open the valve." }] })
+  })
+
+  test("enforces strict output after later extension middleware", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+    await pi.executeTool("say", "say-approved", { text: "Open the valve." }, context)
+
+    const runner = boundaryRunner(context.sessionManager, {
+      message_end: [
+        () => ({
+          message: {
+            ...assistantMessage(""),
+            content: [{ type: "thinking", thinking: "This isn't permitted." }],
+          },
+        }),
+      ],
+      message_update: [
+        (event) => {
+          const update = event.assistantMessageEvent as {
+            delta: string
+            partial: ReturnType<typeof assistantMessage>
+          }
+          update.delta = "This isn't permitted."
+          update.partial = {
+            ...assistantMessage(""),
+            content: [{ type: "thinking", thinking: "This isn't permitted." }],
+          } as never
+        },
+      ],
+      tool_result: [() => ({ content: [{ type: "text", text: "This isn't permitted." }] })],
+    })
+    const streamedThinking = {
+      type: "message_update",
+      message: {
+        ...assistantMessage(""),
+        content: [{ type: "thinking", thinking: "Open the valve." }],
+      },
+      assistantMessageEvent: {
+        type: "thinking_delta",
+        contentIndex: 0,
+        delta: "Open the valve.",
+        partial: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "Open the valve." }],
+        },
+      },
+    }
+    await runner.emit(streamedThinking as never)
+
+    const assistant = assistantMessage("Open the valve.")
+    const finalized = await runner.emitMessageEnd({
+      type: "message_end",
+      message: assistant,
+    } as never)
+    const result = await runner.emitToolResult({
+      type: "tool_result",
+      toolName: "say",
+      toolCallId: "say-approved",
+      input: { text: "Open the valve." },
+      content: [{ type: "text", text: "Open the valve." }],
+      details: {},
+      isError: false,
+    })
+
+    expect(streamedThinking.message.content).toEqual([])
+    expect(streamedThinking.assistantMessageEvent.delta).toBe("")
+    expect(streamedThinking.assistantMessageEvent.partial.content).toEqual([])
+    expect(finalized).toMatchObject({ content: [] })
+    expect(result).toMatchObject({
+      content: [{ type: "text", text: "Open the valve." }],
+      details: {},
+      isError: false,
+    })
+  })
+
+  test("gates strict say input after later tool-call handlers mutate it", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+    pi.on("tool_call", (event) => {
+      if (event.toolName === "say") {
+        const input = event.input as { text: string }
+        input.text = "This isn't permitted."
+      }
+    })
+
+    await expect(
+      pi.executeTool("say", "say-mutated", { text: "Open the valve." }, context),
+    ).rejects.toThrow("line 1, column 6 [contraction]")
+  })
+
+  test("turns strict mode off and restores normal assistant replies", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ste", "strict off", context)
+    expect(pi.activeTools.has("say")).toBe(false)
+
+    const prompt = await pi.emit(
+      "before_agent_start",
+      { systemPrompt: "Base system prompt." },
+      context,
+    )
+    expect(prompt).toMatchObject({
+      systemPrompt: expect.stringContaining("Simplified Technical English"),
+    })
+    expect(prompt).toMatchObject({
+      systemPrompt: expect.not.stringContaining(
+        "Send every user-facing reply through the `say` tool",
+      ),
+    })
+
+    const streamed = assistantMessage("This isn't permitted.")
+    const update = {
+      message: streamed,
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "This isn't permitted.",
+        partial: assistantMessage("This isn't permitted."),
+      },
+    }
+    await pi.emit("message_update", update, context)
+    expect(streamed.content).toEqual([{ type: "text", text: "This isn't permitted." }])
+    expect(update.assistantMessageEvent.delta).toBe("This isn't permitted.")
+
+    const reply = assistantMessage("This isn't permitted.")
+    await expect(pi.finalizeAssistant(reply, context)).resolves.toBe(reply)
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {
@@ -706,6 +1200,39 @@ describe.sequential("pi extension wiring", () => {
         }),
       ]),
     })
+  })
+
+  test("restores the latest successful strict say reply", async () => {
+    const { pi, context, widgets } = await startExtension({
+      branch: [
+        assistantEntry("This isn't permitted.", "old-reply"),
+        sayResultEntry("Open the valve."),
+      ],
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+      sessionStartReason: "resume",
+    })
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+  })
+
+  test("keeps reply checking cleared during disabled tree navigation", async () => {
+    const { pi, context, setBranch, widgets } = await startExtension({
+      branch: [assistantEntry("Open the valve.")],
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "off", context)
+    setBranch([assistantEntry("This isn't permitted.", "blocked-reply")])
+
+    await pi.emit(
+      "session_tree",
+      { newLeafId: "blocked-reply", oldLeafId: "assistant-reply" },
+      context,
+    )
+    await pi.runCommand("ste", "on", context)
+
+    expect(widgets.get("simple-english-reply")).toBeUndefined()
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
   test("recomputes reply state after session tree navigation", async () => {
