@@ -1,11 +1,11 @@
-import { readFile } from "node:fs/promises"
-import { resolve } from "node:path"
-import type {
-  EditToolInput,
-  ExtensionAPI,
-  ExtensionContext,
-  ToolCallEventResult,
-  WriteToolInput,
+import { constants } from "node:fs"
+import { access, readFile, writeFile } from "node:fs/promises"
+import {
+  createEditToolDefinition,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type ToolCallEventResult,
+  type WriteToolInput,
 } from "@earendil-works/pi-coding-agent"
 import { Effect } from "effect"
 import { loadConfig } from "../config/load.ts"
@@ -54,38 +54,6 @@ interface SessionState {
   error?: string
   ready: boolean
   readonly pendingWarnings: Map<string, string>
-}
-
-interface Replacement {
-  readonly start: number
-  readonly end: number
-  readonly text: string
-}
-
-const normalizedToolPath = (path: string): string => (path.startsWith("@") ? path.slice(1) : path)
-
-function applyEdits(previousText: string, edits: EditToolInput["edits"]): string | undefined {
-  const replacements: Replacement[] = []
-  for (const edit of edits) {
-    if (edit.oldText.length === 0) return undefined
-    const start = previousText.indexOf(edit.oldText)
-    if (start === -1 || previousText.indexOf(edit.oldText, start + edit.oldText.length) !== -1) {
-      return undefined
-    }
-    replacements.push({ start, end: start + edit.oldText.length, text: edit.newText })
-  }
-  replacements.sort((left, right) => left.start - right.start)
-  for (let index = 1; index < replacements.length; index++) {
-    if ((replacements[index]?.start ?? 0) < (replacements[index - 1]?.end ?? 0)) return undefined
-  }
-
-  let currentText = ""
-  let cursor = 0
-  for (const replacement of replacements) {
-    currentText += previousText.slice(cursor, replacement.start) + replacement.text
-    cursor = replacement.end
-  }
-  return currentText + previousText.slice(cursor)
 }
 
 function resolvedSetting(config: SteConfig, ruleId: RuleId): RuleSetting {
@@ -179,6 +147,44 @@ function lintProposedText(
   }
 }
 
+function createGatedEditTool(cwd: string, state: SessionState) {
+  const definition = createEditToolDefinition(cwd)
+  const execute: typeof definition.execute = async (...args) => {
+    const [toolCallId, input, _signal, _onUpdate, ctx] = args
+    let previousText: string | undefined
+    const implementation = createEditToolDefinition(cwd, {
+      operations: {
+        access: (path) => access(path, constants.R_OK | constants.W_OK),
+        readFile: async (path) => {
+          const content = await readFile(path)
+          previousText = content.toString("utf8")
+          return content
+        },
+        writeFile: async (path, content) => {
+          if (!state.ready) {
+            throw new Error(
+              `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+            )
+          }
+          const result = lintProposedText(
+            state,
+            ctx,
+            "edit",
+            toolCallId,
+            input.path,
+            content,
+            previousText,
+          )
+          if (result?.block) throw new Error(result.reason)
+          await writeFile(path, content, "utf8")
+        },
+      },
+    })
+    return implementation.execute(...args)
+  }
+  return { ...definition, execute }
+}
+
 export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   const state: SessionState = { config: {}, ready: false, pendingWarnings: new Map() }
 
@@ -186,8 +192,11 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     state.ready = false
     state.error = undefined
     state.pendingWarnings.clear()
+    pi.registerTool(createGatedEditTool(ctx.cwd, state))
     try {
-      state.config = await Effect.runPromise(loadConfig(undefined, ctx.cwd))
+      state.config = await Effect.runPromise(
+        loadConfig(undefined, ctx.cwd, ctx.isProjectTrusted()),
+      )
       state.dictionary = await Effect.runPromise(
         loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
       )
@@ -219,26 +228,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
       return lintProposedText(state, ctx, "write", event.toolCallId, input.path, input.content)
     }
 
-    const input = event.input as EditToolInput
-    if (typeof input.path !== "string" || !Array.isArray(input.edits)) return undefined
-    const absolutePath = resolve(ctx.cwd, normalizedToolPath(input.path))
-    let previousText: string
-    try {
-      previousText = await readFile(absolutePath, "utf8")
-    } catch {
-      return undefined
-    }
-    const currentText = applyEdits(previousText, input.edits)
-    if (currentText === undefined) return undefined
-    return lintProposedText(
-      state,
-      ctx,
-      "edit",
-      event.toolCallId,
-      input.path,
-      currentText,
-      previousText,
-    )
+    return undefined
   })
 
   pi.on("tool_result", (event) => {

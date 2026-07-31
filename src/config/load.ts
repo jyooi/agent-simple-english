@@ -47,10 +47,12 @@ const readConfigFile = (path: string, optional: boolean): Effect.Effect<SteConfi
 export const loadConfig = (
   explicitPath?: string,
   cwd = process.cwd(),
-): Effect.Effect<SteConfig, ConfigError> =>
-  explicitPath === undefined
-    ? Effect.all([
-        readConfigFile(globalConfigPath(), true),
-        readConfigFile(projectConfigPath(cwd), true),
-      ]).pipe(Effect.map(([global, project]) => mergeConfigs(global, project)))
-    : readConfigFile(explicitPath, false)
+  includeProjectConfig = true,
+): Effect.Effect<SteConfig, ConfigError> => {
+  if (explicitPath !== undefined) return readConfigFile(explicitPath, false)
+  const globalConfig = readConfigFile(globalConfigPath(), true)
+  if (!includeProjectConfig) return globalConfig
+  return Effect.all([globalConfig, readConfigFile(projectConfigPath(cwd), true)]).pipe(
+    Effect.map(([global, project]) => mergeConfigs(global, project)),
+  )
+}

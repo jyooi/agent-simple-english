@@ -5,19 +5,36 @@ import simpleEnglishExtension from "../../src/extension/index.ts"
 
 type EventHandler = (event: Record<string, unknown>, context: ExtensionContextStub) => unknown
 
+type ToolHandler = {
+  readonly name: string
+  execute(
+    toolCallId: string,
+    input: never,
+    signal: AbortSignal | undefined,
+    onUpdate: undefined,
+    context: ExtensionContextStub,
+  ): unknown
+}
+
 interface ExtensionContextStub {
   readonly cwd: string
   readonly hasUI: boolean
   readonly ui: {
     notify(message: string, level: "info" | "warning" | "error"): void
   }
+  isProjectTrusted(): boolean
 }
 
 class ExtensionApiStub {
   readonly handlers = new Map<string, EventHandler>()
+  readonly tools = new Map<string, ToolHandler>()
 
   on(event: string, handler: EventHandler): void {
     this.handlers.set(event, handler)
+  }
+
+  registerTool(tool: ToolHandler): void {
+    this.tools.set(tool.name, tool)
   }
 
   async emit(event: string, payload: Record<string, unknown>, context: ExtensionContextStub) {
@@ -25,20 +42,39 @@ class ExtensionApiStub {
     if (handler === undefined) throw new Error(`No handler registered for ${event}`)
     return handler(payload, context)
   }
+
+  async executeTool(
+    toolName: string,
+    toolCallId: string,
+    input: Record<string, unknown>,
+    context: ExtensionContextStub,
+  ) {
+    const gate = await this.emit("tool_call", { toolName, toolCallId, input }, context)
+    if (typeof gate === "object" && gate !== null && "block" in gate && gate.block === true) {
+      throw new Error("reason" in gate ? String(gate.reason) : "Tool call blocked")
+    }
+    const tool = this.tools.get(toolName)
+    if (tool === undefined) throw new Error(`No tool registered for ${toolName}`)
+    return tool.execute(toolCallId, input as never, undefined, undefined, context)
+  }
 }
 
 const temporaryDirectories: string[] = []
 const originalAgentDirectory = process.env.PI_CODING_AGENT_DIR
+const originalHome = process.env.HOME
 
 afterEach(async () => {
   if (originalAgentDirectory === undefined) process.env.PI_CODING_AGENT_DIR = undefined
   else process.env.PI_CODING_AGENT_DIR = originalAgentDirectory
+  if (originalHome === undefined) process.env.HOME = undefined
+  else process.env.HOME = originalHome
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })))
 })
 
 async function startExtension(options?: {
   readonly globalConfig?: object
   readonly projectConfig?: object
+  readonly trusted?: boolean
 }) {
   const cwd = await mkdtemp(join(process.cwd(), ".extension-test-"))
   temporaryDirectories.push(cwd)
@@ -67,6 +103,7 @@ async function startExtension(options?: {
     ui: {
       notify: (message, level) => notifications.push({ message, level }),
     },
+    isProjectTrusted: () => options?.trusted ?? true,
   }
   const pi = new ExtensionApiStub()
   simpleEnglishExtension(pi as never)
@@ -165,36 +202,108 @@ describe.sequential("pi extension wiring", () => {
 
   test("lints edits against the previous file and ignores unchanged violations", async () => {
     const { cwd, pi, context } = await startExtension()
-    await writeFile(join(cwd, "notes.md"), "This isn't compliant.\nReplace this sentence.")
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "This isn't compliant.\nReplace this sentence.")
 
-    const unchangedViolation = await pi.emit(
-      "tool_call",
+    await pi.executeTool(
+      "edit",
+      "edit-1",
       {
-        toolName: "edit",
-        toolCallId: "edit-1",
-        input: {
-          path: "notes.md",
-          edits: [{ oldText: "Replace this sentence.", newText: "Keep this sentence." }],
-        },
-      },
-      context,
-    )
-    const changedViolation = await pi.emit(
-      "tool_call",
-      {
-        toolName: "edit",
-        toolCallId: "edit-2",
-        input: {
-          path: "notes.md",
-          edits: [{ oldText: "Replace this sentence.", newText: "This isn't acceptable." }],
-        },
+        path: "notes.md",
+        edits: [{ oldText: "Replace this sentence.", newText: "Keep this sentence." }],
       },
       context,
     )
 
-    expect(unchangedViolation).toBeUndefined()
-    expect(changedViolation).toMatchObject({ block: true })
-    expect(changedViolation).toMatchObject({ reason: expect.stringContaining("line 2, column 6") })
+    await expect(
+      pi.executeTool(
+        "edit",
+        "edit-2",
+        {
+          path: "notes.md",
+          edits: [{ oldText: "Keep this sentence.", newText: "This isn't acceptable." }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("line 2, column 6")
+    expect(await readFile(path, "utf8")).toBe("This isn't compliant.\nKeep this sentence.")
+  })
+
+  test("uses pi edit path and text normalization and fails closed", async () => {
+    const { cwd, pi, context } = await startExtension()
+    process.env.HOME = cwd
+    const path = join(cwd, "home-notes.md")
+    const original = "\uFEFFKeep this line.\r\nReplace this line.\r\nKeep the final line.\r\n"
+    await writeFile(path, original)
+
+    await expect(
+      pi.executeTool(
+        "edit",
+        "edit-normalized",
+        {
+          path: "~/home-notes.md",
+          edits: [
+            {
+              oldText: "Replace this line.\nKeep the final line.",
+              newText: "This isn't permitted.\nKeep the final line.",
+            },
+          ],
+        },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    expect(await readFile(path, "utf8")).toBe(original)
+
+    await expect(
+      pi.executeTool(
+        "edit",
+        "edit-invalid",
+        {
+          path: "@~/home-notes.md",
+          edits: [{ oldText: "Missing text.", newText: "This isn't permitted." }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("Could not find")
+    expect(await readFile(path, "utf8")).toBe(original)
+  })
+
+  test("serializes parallel edits before linting the projected file", async () => {
+    const { cwd, pi, context } = await startExtension({
+      projectConfig: {
+        maxSentenceWords: 6,
+        rules: { "dictionary-not-approved-word": "off" },
+      },
+    })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "Open the access panel now.")
+
+    const results = await Promise.allSettled([
+      pi.executeTool(
+        "edit",
+        "edit-parallel-1",
+        {
+          path: "notes.md",
+          edits: [{ oldText: "Open the", newText: "Open the small" }],
+        },
+        context,
+      ),
+      pi.executeTool(
+        "edit",
+        "edit-parallel-2",
+        {
+          path: "notes.md",
+          edits: [{ oldText: "access panel", newText: "front access panel" }],
+        },
+        context,
+      ),
+    ])
+
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"])
+    expect(results[1]).toMatchObject({
+      reason: expect.objectContaining({ message: expect.stringContaining("[sentence-length]") }),
+    })
+    expect(await readFile(path, "utf8")).toBe("Open the small access panel now.")
   })
 
   test("passes soft violations and shows warning feedback", async () => {
@@ -234,6 +343,26 @@ describe.sequential("pi extension wiring", () => {
         { type: "text", text: expect.stringContaining("STE warnings for notes.md") },
       ],
     })
+  })
+
+  test("ignores project rule settings until the project is trusted", async () => {
+    const { pi, context } = await startExtension({
+      globalConfig: { rules: { contraction: "hard" } },
+      projectConfig: { rules: { contraction: "off" } },
+      trusted: false,
+    })
+
+    const result = await pi.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        toolCallId: "write-untrusted-config",
+        input: { path: "notes.md", content: "This isn't permitted." },
+      },
+      context,
+    )
+
+    expect(result).toMatchObject({ block: true })
   })
 
   test("uses project rule settings over global settings in the extension context", async () => {
