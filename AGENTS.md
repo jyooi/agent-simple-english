@@ -24,6 +24,20 @@ Parent spec lives in Linear HUF-130.
 
 - `bun run test` (Vitest), `bun run lint` (Biome), `bun run typecheck` (tsc). CI (`.github/workflows/ci.yml`) runs all three on bun 1.3.14.
 
+## Agent skills
+
+### Issue tracker
+
+Issues live in Linear, team Huffman (`HUF`), via the Linear MCP tools. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles map 1:1 to Linear label names (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: glossary in `CONTEXT.md` at the root, decisions in `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
