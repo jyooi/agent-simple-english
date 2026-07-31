@@ -119,6 +119,26 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 2, column 6 [contraction]")
   })
 
+  test("denies an Edit when a comment marker exposes retained source prose", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "sample.ts")
+    await writeFile(path, 'const note = "Carry out the test."')
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "const note",
+        new_string: "// const note",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 1, column 18 [phrasal-verb]")
+  })
+
   test("denies an Edit event in a later source comment", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "sample.ts")

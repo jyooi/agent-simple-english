@@ -2,7 +2,7 @@ import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { type ChangedRange, type RetainedRange, type TextChanges, changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure, maskMarkdownCode, proseVisibility } from "./markdown.ts"
+import { blankMarkdownCodeWithStructure } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
@@ -151,21 +151,67 @@ const lintProse = (
   ]
 }
 
-const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): Violation[] => {
+interface PreparedProse {
+  readonly lines: readonly string[]
+  readonly structuralLines: readonly string[]
+  readonly mechanicalLines: readonly string[]
+  readonly structuralBlanks: readonly boolean[]
+}
+
+const prepareProse = (extracted: ProseRun): PreparedProse => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
-  const prose = blankIdentifiers(markdown.lines)
-  const structuralProse = blankIdentifiers(markdown.structuralLines)
-  const mechanical = blankIdentifiers(
-    extracted.lines.map((line, index) =>
-      markdown.structuralBlanks[index] ? " ".repeat(line.length) : line,
+  return {
+    lines: blankIdentifiers(markdown.lines),
+    structuralLines: blankIdentifiers(markdown.structuralLines),
+    mechanicalLines: blankIdentifiers(
+      extracted.lines.map((line, index) =>
+        markdown.structuralBlanks[index] ? " ".repeat(line.length) : line,
+      ),
     ),
-  )
+    structuralBlanks: markdown.structuralBlanks,
+  }
+}
+
+const absoluteSentence = (sentence: Sentence, sourceOffset: number): Sentence => ({
+  ...sentence,
+  startOffset: sentence.startOffset + sourceOffset,
+  endOffset: sentence.endOffset + sourceOffset,
+  contentRanges: sentence.contentRanges.map((range) => ({
+    start: range.start + sourceOffset,
+    end: range.end + sourceOffset,
+  })),
+})
+
+interface AnalyzedText {
+  readonly prose: string
+  readonly sentences: readonly Sentence[]
+}
+
+const analyzeText = (kind: LintKind, text: string, options: LintOptions): AnalyzedText => {
+  const prose = text
+    .split("")
+    .map((character) => (character === "\n" || character === "\r" ? character : " "))
+  const sentences = splitProseRuns(extract(kind, text, options)).flatMap((run) => {
+    const prepared = prepareProse(run)
+    const runText = prepared.lines.join("\n")
+    for (let offset = 0; offset < runText.length; offset++) {
+      prose[run.sourceOffset + offset] = runText[offset] ?? " "
+    }
+    return segmentSentences(prepared.lines, runText, prepared.structuralBlanks).map((sentence) =>
+      absoluteSentence(sentence, run.sourceOffset),
+    )
+  })
+  return { prose: prose.join(""), sentences }
+}
+
+const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): Violation[] => {
+  const prepared = prepareProse(extracted)
   return lintProse(
-    prose,
-    structuralProse,
-    mechanical,
+    prepared.lines,
+    prepared.structuralLines,
+    prepared.mechanicalLines,
     extracted.contentStarts,
-    markdown.structuralBlanks,
+    prepared.structuralBlanks,
     extracted.sourceOffset,
     options,
   )
@@ -308,12 +354,10 @@ function contains(sentence: Sentence, offset: number): boolean {
 }
 
 function newlyVisibleRanges(
-  previousText: string,
-  text: string,
+  previousProse: string,
+  currentProse: string,
   changes: TextChanges,
 ): ChangedRange[] {
-  const previousVisibility = proseVisibility(previousText)
-  const currentVisibility = proseVisibility(text)
   const ranges: ChangedRange[] = []
 
   for (const retained of changes.retained) {
@@ -322,7 +366,8 @@ function newlyVisibleRanges(
       const previousOffset = retained.previousStart + index
       const currentOffset = retained.currentStart + index
       const newlyVisible =
-        previousVisibility[previousOffset] === 0 && currentVisibility[currentOffset] === 1
+        !/\S/u.test(previousProse[previousOffset] ?? "") &&
+        /\S/u.test(currentProse[currentOffset] ?? "")
       if (newlyVisible && rangeStart === undefined) rangeStart = currentOffset
       if (!newlyVisible && rangeStart !== undefined) {
         ranges.push({ start: rangeStart, end: currentOffset })
@@ -654,53 +699,44 @@ function selectChangedSentences(
   return selected
 }
 
-function sentenceSelector(text: string, previousText: string | undefined): SentenceSelector {
+function sentenceSelector(kind: LintKind, text: string, options: LintOptions): SentenceSelector {
+  const previousText = options.previousText
   if (previousText === undefined) return (sentences) => sentences
 
   const changes = changedText(previousText, text)
-  const previousProse = maskMarkdownCode(previousText)
-  const currentProse = maskMarkdownCode(text)
+  const previous = analyzeText(kind, previousText, options)
+  const current = analyzeText(kind, text, options)
   const changedRanges = normalizeRanges([
     ...changes.ranges,
-    ...newlyVisibleRanges(previousText, text, changes),
+    ...newlyVisibleRanges(previous.prose, current.prose, changes),
   ])
-  const previousSentences = segmentSentences(previousProse.split("\n"), previousText)
   const changedDeletionBoundaries = deletionBoundaries(
-    previousProse,
-    currentProse,
-    previousSentences,
+    previous.prose,
+    current.prose,
+    previous.sentences,
     changes,
   )
+  const changedSentenceIndexes = changedSentenceIdentityIndexes(
+    previous.sentences,
+    current.sentences,
+    previous.prose,
+    current.prose,
+    changes,
+  )
+  const selected = new Set(
+    selectChangedSentences(
+      current.sentences,
+      changedRanges,
+      changedDeletionBoundaries,
+      changedSentenceIndexes,
+    ).map((sentence) => `${sentence.startOffset}:${sentence.endOffset}`),
+  )
 
-  return (sentences, sourceOffset) => {
-    const absoluteSentences = sentences.map((sentence) => ({
-      ...sentence,
-      startOffset: sentence.startOffset + sourceOffset,
-      endOffset: sentence.endOffset + sourceOffset,
-      contentRanges: sentence.contentRanges.map((range) => ({
-        start: range.start + sourceOffset,
-        end: range.end + sourceOffset,
-      })),
-    }))
-    const selected = new Set(
-      selectChangedSentences(
-        absoluteSentences,
-        changedRanges,
-        changedDeletionBoundaries,
-        changedSentenceIdentityIndexes(
-          previousSentences,
-          absoluteSentences,
-          previousProse,
-          currentProse,
-          changes,
-        ),
-      ),
-    )
-    return sentences.filter((_, index) => {
-      const absolute = absoluteSentences[index]
-      return absolute !== undefined && selected.has(absolute)
+  return (sentences, sourceOffset) =>
+    sentences.filter((sentence) => {
+      const absolute = absoluteSentence(sentence, sourceOffset)
+      return selected.has(`${absolute.startOffset}:${absolute.endOffset}`)
     })
-  }
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
@@ -709,7 +745,7 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
-    selectSentences: sentenceSelector(text, options.previousText),
+    selectSentences: sentenceSelector(kind, text, options),
     diffOnly: options.previousText !== undefined,
   }
   const raw = splitProseRuns(extracted).flatMap((run) =>
