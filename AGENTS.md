@@ -14,7 +14,8 @@ Parent spec lives in Linear HUF-130.
 - Three test seams only: pure engine API (~90% of suite, `test/engine/`), CLI E2E via spawned `bun src/cli/main.ts` (`test/cli/`), extension wiring via stubbed ExtensionAPI double. Never run pi itself in tests.
 - Severity model: violations carry `hard`/`soft`; hard violations drive CLI exit code 1.
 - TDD per rule: failing engine-seam test first, then implement.
-- pi installs extension deps with `npm install --omit=dev` from the package.json next to the entry point, so runtime deps (e.g. `effect`) must stay in `dependencies`, never `devDependencies`.
+- pi installs extension deps with `npm install --omit=dev` from the package.json next to the entry point, so runtime deps (e.g. `effect`, `wink-nlp`) must stay in `dependencies`, never `devDependencies`.
+- POS tagging is an injected boundary: the engine consumes the pure `Tagger` type (`src/engine/tagger.ts`) and silently skips verb-form rules when `LintOptions.tagger` is absent; the wink-nlp implementation and its Effect layer live in `src/tagger/wink.ts`. Tagger-dependent verdicts are pinned, right or wrong, in `test/engine/verb-form-fixtures.test.ts`.
 
 ## Commands
 
