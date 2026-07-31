@@ -535,12 +535,7 @@ describe.sequential("pi extension wiring", () => {
     ).resolves.toBeDefined()
     expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This can't be permitted.")
     await expect(
-      executeBash(
-        pi,
-        context,
-        "commit-disabled",
-        `git commit -m "fix: This isn't permitted."`,
-      ),
+      executeBash(pi, context, "commit-disabled", `git commit -m "fix: This isn't permitted."`),
     ).resolves.toBeUndefined()
     await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
     expect(widgets.get("simple-english-reply")).toBeUndefined()
