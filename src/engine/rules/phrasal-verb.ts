@@ -1,4 +1,5 @@
 import { scanLines } from "../scan.ts"
+import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
 
 interface PhrasalVerbEntry {
@@ -37,7 +38,7 @@ const PHRASAL_VERBS: readonly PhrasalVerbEntry[] = [
 const patterns = PHRASAL_VERBS.map((entry) => ({
   suggestion: entry.suggestion,
   pattern: new RegExp(
-    `\\b(?:${entry.forms.map((form) => form.replace(/ /g, "\\s+")).join("|")})\\b`,
+    `(?<!${TOKEN_CHARACTER_PATTERN})(?:${entry.forms.map((form) => form.replace(/ /g, "\\s+")).join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
     "gi",
   ),
 }))

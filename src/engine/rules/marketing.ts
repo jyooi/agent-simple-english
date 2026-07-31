@@ -1,3 +1,4 @@
+import { TOKEN_RUN_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
 
 const MARKETING_WORDS = [
@@ -28,7 +29,6 @@ const MARKETING_WORDS = [
 ]
 
 const MARKETING_SET = new Set(MARKETING_WORDS)
-const HYPHENATED_TOKEN = /-*[A-Za-z0-9_]+(?:-+[A-Za-z0-9_]+)*-*/g
 
 interface MarketingMatch {
   readonly found: string
@@ -52,7 +52,7 @@ function findMarketingLanguage(token: string): MarketingMatch | undefined {
 
 export function marketing(lines: readonly string[]): Violation[] {
   return lines.flatMap((line, lineIndex) =>
-    Array.from(line.matchAll(HYPHENATED_TOKEN)).flatMap((tokenMatch) => {
+    Array.from(line.matchAll(TOKEN_RUN_PATTERN)).flatMap((tokenMatch) => {
       const match = findMarketingLanguage(tokenMatch[0])
       if (!match) {
         return []

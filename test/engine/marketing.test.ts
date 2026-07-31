@@ -53,6 +53,13 @@ describe("lint prose-file: marketing rule", () => {
     },
   )
 
+  test.each(["Turnkey's interface.", "Turnkey’s interface."])(
+    "preserves apostrophes in the token %s",
+    (text) => {
+      expect(idsFor(text)).not.toContain("marketing")
+    },
+  )
+
   test("soft marketing violations do not count as hard in the summary", () => {
     const report = lint("prose-file", "A robust and powerful tool.")
 

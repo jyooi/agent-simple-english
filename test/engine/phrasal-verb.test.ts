@@ -53,6 +53,14 @@ describe("lint prose-file: phrasal-verb rule", () => {
     expect(violation).toMatchObject({ line: 1, column: 8 })
   })
 
+  test.each([
+    "The channel carries out-of-band data.",
+    "Do not confuse carry out's spelling.",
+    "Do not confuse carry out’s spelling.",
+  ])("does not match within a token in %s", (text) => {
+    expect(idsFor(text)).not.toContain("phrasal-verb")
+  })
+
   test("does not flag the bare verb without its particle", () => {
     expect(idsFor("We spin the wheel. Carry the box.")).not.toContain("phrasal-verb")
   })
