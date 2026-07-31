@@ -6,6 +6,21 @@ export interface Sentence {
 
 const CLOSING_DELIMITERS = new Set(["\"", "'", "’", "”", "»", "›", ")", "]", "}", "*", "_", "~", "`"])
 
+function closingDelimiterIndex(
+  text: string,
+  start: number,
+  delimiter: string,
+): number | undefined {
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === "\\") {
+      index += 1
+    } else if (text[index] === delimiter) {
+      return index
+    }
+  }
+  return undefined
+}
+
 function markdownDelimiterEnds(text: string): {
   readonly parentheses: Int32Array
   readonly brackets: Int32Array
@@ -22,6 +37,27 @@ function markdownDelimiterEnds(text: string): {
       case "\\":
         index += 1
         break
+      case "\"":
+      case "'": {
+        const opening = parenthesisStack[parenthesisStack.length - 1]
+        const isLinkTitle =
+          opening !== undefined && text[opening - 1] === "]" && /\s/.test(text[index - 1] ?? "")
+        if (isLinkTitle) {
+          const end = closingDelimiterIndex(text, index, text[index] ?? "")
+          if (end !== undefined) index = end
+        }
+        break
+      }
+      case "<": {
+        const opening = parenthesisStack[parenthesisStack.length - 1]
+        const isAngleDestination =
+          opening !== undefined && text[opening - 1] === "]" && index === opening + 1
+        if (isAngleDestination) {
+          const end = closingDelimiterIndex(text, index, ">")
+          if (end !== undefined) index = end
+        }
+        break
+      }
       case "(":
         parenthesisStack.push(index)
         break

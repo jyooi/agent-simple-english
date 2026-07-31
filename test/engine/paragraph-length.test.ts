@@ -77,15 +77,29 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor(text)).toContain("paragraph-length")
   })
 
+  test("flags a long blockquote paragraph", () => {
+    const text = "> One. Two. Three. Four. Five. Six. Seven."
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
+  test("a blockquote starts a paragraph after preceding content", () => {
+    const text = "One. Two. Three.\n> Four. Five. Six. Seven."
+
+    expect(idsFor(text)).not.toContain("paragraph-length")
+  })
+
   test("a blockquote ends a list item paragraph", () => {
     const text = "- One. Two. Three.\n> Four. Five. Six. Seven."
 
     expect(idsFor(text)).not.toContain("paragraph-length")
   })
 
-  test("ignores punctuation in Markdown link destinations and titles", () => {
-    const text = 'One. Two. Three. Four. Five. Read [the docs](url "Version 1.") before setup.'
-
+  test.each([
+    'One. Two. Three. Four. Five. Read [the docs](url "Version 1.") before setup.',
+    'One. Two. Three. Four. Five. Read [docs](url "Version (beta.") before setup.',
+    'One. Two. Three. Four. Five. Read [docs](<url(with-parenthesis> "Version 1.") before setup.',
+  ])("ignores punctuation in Markdown link destinations and titles", (text) => {
     expect(idsFor(text)).not.toContain("paragraph-length")
   })
 

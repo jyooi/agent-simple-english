@@ -5,11 +5,11 @@ export interface Paragraph {
 
 const LIST_MARKER = /^(?:[-*+]|\d+[.)])\s+/
 
-type LineKind = "blank" | "block-boundary" | "list-item" | "prose"
-type ParagraphKind = "list-item" | "prose"
+type LineKind = "blank" | "block-boundary" | "blockquote" | "list-item" | "prose"
+type ParagraphKind = "blockquote" | "list-item" | "prose"
 
 const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
-const BLOCKQUOTE = /^ {0,3}>/
+const BLOCKQUOTE = /^ {0,3}>[ \t]?/
 
 function listItemContent(line: string): string | undefined {
   const trimmed = line.trimStart()
@@ -17,12 +17,16 @@ function listItemContent(line: string): string | undefined {
   return marker ? trimmed.slice(marker[0].length) : undefined
 }
 
+function blockquoteContent(line: string): string | undefined {
+  const marker = BLOCKQUOTE.exec(line)
+  return marker ? line.slice(marker[0].length) : undefined
+}
+
 function classify(line: string): LineKind {
   const trimmed = line.trim()
   if (trimmed === "") return "blank"
-  if (trimmed.startsWith("|") || ATX_HEADING.test(line) || BLOCKQUOTE.test(line)) {
-    return "block-boundary"
-  }
+  if (trimmed.startsWith("|") || ATX_HEADING.test(line)) return "block-boundary"
+  if (blockquoteContent(line) !== undefined) return "blockquote"
   if (listItemContent(line) !== undefined) return "list-item"
   return "prose"
 }
@@ -44,6 +48,19 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
       case "block-boundary":
         close()
         break
+      case "blockquote": {
+        const content = blockquoteContent(raw) ?? ""
+        if (content.trim() === "") {
+          close()
+          break
+        }
+        if (open?.kind !== "blockquote") close()
+        if (!open) {
+          open = { line: index + 1, lines: [], kind: "blockquote" }
+        }
+        open.lines.push(content)
+        break
+      }
       case "list-item":
         close()
         open = {
