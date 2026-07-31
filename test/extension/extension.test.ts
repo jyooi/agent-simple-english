@@ -1,7 +1,23 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { afterEach, describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import simpleEnglishExtension from "../../src/extension/index.ts"
+
+const mkdirControl = vi.hoisted(() => ({
+  afterMkdir: undefined as (() => Promise<void>) | undefined,
+}))
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    mkdir: async (...args: Parameters<typeof actual.mkdir>) => {
+      const result = await actual.mkdir(...args)
+      await mkdirControl.afterMkdir?.()
+      return result
+    },
+  }
+})
 
 type EventHandler = (event: Record<string, unknown>, context: ExtensionContextStub) => unknown
 
@@ -64,6 +80,7 @@ class ExtensionApiStub {
     toolCallId: string,
     input: Record<string, unknown>,
     context: ExtensionContextStub,
+    signal?: AbortSignal,
   ) {
     const gate = await this.emit("tool_call", { toolName, toolCallId, input }, context)
     if (typeof gate === "object" && gate !== null && "block" in gate && gate.block === true) {
@@ -71,7 +88,7 @@ class ExtensionApiStub {
     }
     const tool = this.tools.get(toolName)
     if (tool === undefined) throw new Error(`No tool registered for ${toolName}`)
-    return tool.execute(toolCallId, input as never, undefined, undefined, context)
+    return tool.execute(toolCallId, input as never, signal, undefined, context)
   }
 }
 
@@ -80,6 +97,7 @@ const originalAgentDirectory = process.env.PI_CODING_AGENT_DIR
 const originalHome = process.env.HOME
 
 afterEach(async () => {
+  mkdirControl.afterMkdir = undefined
   if (originalAgentDirectory === undefined) process.env.PI_CODING_AGENT_DIR = undefined
   else process.env.PI_CODING_AGENT_DIR = originalAgentDirectory
   if (originalHome === undefined) process.env.HOME = undefined
@@ -187,6 +205,39 @@ describe.sequential("pi extension wiring", () => {
     )
 
     expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This is permitted.")
+  })
+
+  test("does not write when cancellation occurs during directory creation", async () => {
+    const { cwd, pi, context } = await startExtension()
+    const controller = new AbortController()
+    let notifyMkdirStarted: () => void = () => undefined
+    let releaseMkdir: () => void = () => undefined
+    const mkdirStarted = new Promise<void>((resolve) => {
+      notifyMkdirStarted = resolve
+    })
+    const mkdirReleased = new Promise<void>((resolve) => {
+      releaseMkdir = resolve
+    })
+    mkdirControl.afterMkdir = async () => {
+      notifyMkdirStarted()
+      await mkdirReleased
+    }
+
+    const execution = pi.executeTool(
+      "write",
+      "write-aborted",
+      { path: "nested/notes.md", content: "This is permitted." },
+      context,
+      controller.signal,
+    )
+    await mkdirStarted
+    controller.abort()
+    releaseMkdir()
+
+    await expect(execution).rejects.toThrow("Operation aborted")
+    await expect(readFile(join(cwd, "nested/notes.md"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   test("gates write input after later tool-call handlers mutate it", async () => {

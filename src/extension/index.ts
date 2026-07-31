@@ -151,7 +151,7 @@ function lintProposedText(
 function createGatedWriteTool(cwd: string, state: SessionState) {
   const definition = createWriteToolDefinition(cwd)
   const execute: typeof definition.execute = async (...args) => {
-    const [toolCallId, input, _signal, _onUpdate, ctx] = args
+    const [toolCallId, input, signal, _onUpdate, ctx] = args
     const implementation = createWriteToolDefinition(cwd, {
       operations: {
         mkdir: async () => undefined,
@@ -171,6 +171,7 @@ function createGatedWriteTool(cwd: string, state: SessionState) {
           )
           if (result?.block) throw new Error(result.reason)
           await mkdir(dirname(path), { recursive: true })
+          if (signal?.aborted) throw new Error("Operation aborted")
           await writeFile(path, content, "utf8")
         },
       },
