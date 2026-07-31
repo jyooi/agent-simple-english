@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { Effect } from "effect"
 import { lint } from "../engine/lint.ts"
 import type { LintReport } from "../engine/types.ts"
+import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
 
 interface FileViolation {
   readonly file: string
@@ -57,6 +58,7 @@ const render = (report: CliReport, json: boolean): string => {
 }
 
 const program = Effect.gen(function* () {
+  const tagger = yield* TaggerService
   const args = process.argv.slice(2)
   const json = args.includes("--json")
   const paths = args.filter((arg) => arg !== "--json")
@@ -66,7 +68,7 @@ const program = Effect.gen(function* () {
       : yield* Effect.forEach(paths, readInput)
 
   const report = toCliReport(
-    inputs.map(({ path, text }) => ({ path, report: lint("prose-file", text) })),
+    inputs.map(({ path, text }) => ({ path, report: lint("prose-file", text, { tagger }) })),
   )
 
   const output = render(report, json)
@@ -76,7 +78,7 @@ const program = Effect.gen(function* () {
   return report.summary.hard > 0 ? 1 : 0
 })
 
-const exitCode = await Effect.runPromise(program).catch((error) => {
+const exitCode = await Effect.runPromise(Effect.provide(program, WinkTaggerLive)).catch((error) => {
   console.error(String(error))
   return 2
 })

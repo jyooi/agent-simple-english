@@ -1,3 +1,5 @@
+import type { Tagger } from "./tagger.ts"
+
 export type LintKind = "prose-file"
 
 export type Severity = "hard" | "soft"
@@ -12,6 +14,8 @@ export interface Violation {
 
 export interface LintOptions {
   readonly maxSentenceWords?: number
+  // POS tagger for the verb-form rules; when absent those rules do not run.
+  readonly tagger?: Tagger
 }
 
 export interface LintReport {
