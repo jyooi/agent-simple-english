@@ -79,14 +79,28 @@ function tokenize(command: string): ShellToken[] {
   let value = ""
   let dynamic = false
   let started = false
+  let discardWord = false
   let index = 0
 
   const flush = () => {
     if (!started) return
-    tokens.push({ type: "word", value, dynamic })
+    if (!discardWord) tokens.push({ type: "word", value, dynamic })
     value = ""
     dynamic = false
     started = false
+    discardWord = false
+  }
+
+  const redirection = (width: number) => {
+    if (started && /^\d+$/u.test(value)) {
+      value = ""
+      dynamic = false
+      started = false
+    } else {
+      flush()
+    }
+    discardWord = true
+    index += width
   }
 
   const operator = (width = 1) => {
@@ -109,6 +123,12 @@ function tokenize(command: string): ShellToken[] {
     }
     if (character === ";" || character === "(" || character === ")") {
       operator()
+      continue
+    }
+    if (character === "<" || character === ">" || (character === "&" && command[index + 1] === ">")) {
+      const rest = command.slice(index)
+      const width = rest.match(/^(?:<<<|<<-|&>>|<<|<>|<&|>>|>\||>&|&>|<|>)/u)?.[0].length ?? 1
+      redirection(width)
       continue
     }
     if (character === "&" || character === "|") {

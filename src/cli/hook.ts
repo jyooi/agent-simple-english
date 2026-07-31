@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-message.ts"
 import { formatViolations } from "../adapter/feedback.ts"
 import { loadConfig } from "../config/load.ts"
@@ -130,6 +130,10 @@ function nonBlockingError(message: string): HookError {
   }
 }
 
+function nonBlockingWarning(message: string): HookDecision {
+  return allow([`STE hook warning: ${message}. The event is allowed.`])
+}
+
 function proposedEdit(
   previousText: string,
   oldString: string,
@@ -229,16 +233,22 @@ function evaluateEvent(event: HookEvent, tagger: Tagger): Effect.Effect<HookDeci
 }
 
 export function runHookMode(raw: string): Effect.Effect<HookOutput, never, TaggerService> {
-  const hook = Effect.gen(function* () {
-    const event = yield* Effect.try({
-      try: () => decodeEvent(raw),
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-    })
-    const tagger = yield* TaggerService
-    return yield* evaluateEvent(event, tagger)
-  })
-  return hook.pipe(
-    Effect.catchAll((error) => Effect.succeed(nonBlockingError(error.message))),
-    Effect.catchAllCause(() => Effect.succeed(nonBlockingError("unexpected internal failure"))),
+  return Effect.try({
+    try: () => decodeEvent(raw),
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => Effect.succeed(nonBlockingError(error.message)),
+      onSuccess: (event) =>
+        Effect.gen(function* () {
+          const tagger = yield* TaggerService
+          return yield* evaluateEvent(event, tagger)
+        }).pipe(
+          Effect.catchAll((error) => Effect.succeed(nonBlockingWarning(error.message))),
+          Effect.catchAllCause((cause) =>
+            Effect.succeed(nonBlockingWarning(`internal failure: ${Cause.pretty(cause)}`)),
+          ),
+        ),
+    }),
   )
 }

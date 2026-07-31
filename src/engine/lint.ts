@@ -19,7 +19,10 @@ import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 
 export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
-type SentenceSelector = (sentences: readonly Sentence[]) => readonly Sentence[]
+type SentenceSelector = (
+  sentences: readonly Sentence[],
+  sourceOffset: number,
+) => readonly Sentence[]
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
@@ -53,6 +56,7 @@ interface ExtractedProse {
 interface ProseRun extends ExtractedProse {
   readonly lineOffset: number
   readonly firstColumnOffset: number
+  readonly sourceOffset: number
 }
 
 const wholeText = (text: string): ExtractedProse => {
@@ -66,6 +70,12 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
     ...extracted.proseBreaks,
     undefined,
   ]
+  const lineOffsets: number[] = []
+  let nextLineOffset = 0
+  for (const line of extracted.lines) {
+    lineOffsets.push(nextLineOffset)
+    nextLineOffset += line.length + 1
+  }
   return boundaries.slice(0, -1).map((start, runIndex) => {
     const end = boundaries[runIndex + 1]
     const firstLine = start?.line ?? 0
@@ -90,6 +100,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
       proseBreaks: [],
       lineOffset: firstLine,
       firstColumnOffset,
+      sourceOffset: (lineOffsets[firstLine] ?? 0) + firstColumnOffset,
     }
   })
 }
@@ -106,9 +117,13 @@ const lintProse = (
   mechanicalLines: readonly string[],
   contentStarts: readonly number[],
   structuralBlanks: readonly boolean[],
+  sourceOffset: number,
   { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
 ) => {
-  const sentences = selectSentences(segmentSentences(lines, lines.join("\n"), structuralBlanks))
+  const sentences = selectSentences(
+    segmentSentences(lines, lines.join("\n"), structuralBlanks),
+    sourceOffset,
+  )
   const selectedProse = diffOnly ? selectedProseLines(lines.join("\n"), sentences) : lines
   const selectedStructural = diffOnly
     ? selectedProseLines(structuralLines.join("\n"), sentences)
@@ -136,7 +151,7 @@ const lintProse = (
   ]
 }
 
-const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Violation[] => {
+const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): Violation[] => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
   const prose = blankIdentifiers(markdown.lines)
   const structuralProse = blankIdentifiers(markdown.structuralLines)
@@ -151,6 +166,7 @@ const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Vio
     mechanical,
     extracted.contentStarts,
     markdown.structuralBlanks,
+    extracted.sourceOffset,
     options,
   )
 }
@@ -656,19 +672,35 @@ function sentenceSelector(text: string, previousText: string | undefined): Sente
     changes,
   )
 
-  return (sentences) =>
-    selectChangedSentences(
-      sentences,
-      changedRanges,
-      changedDeletionBoundaries,
-      changedSentenceIdentityIndexes(
-        previousSentences,
-        sentences,
-        previousProse,
-        currentProse,
-        changes,
+  return (sentences, sourceOffset) => {
+    const absoluteSentences = sentences.map((sentence) => ({
+      ...sentence,
+      startOffset: sentence.startOffset + sourceOffset,
+      endOffset: sentence.endOffset + sourceOffset,
+      contentRanges: sentence.contentRanges.map((range) => ({
+        start: range.start + sourceOffset,
+        end: range.end + sourceOffset,
+      })),
+    }))
+    const selected = new Set(
+      selectChangedSentences(
+        absoluteSentences,
+        changedRanges,
+        changedDeletionBoundaries,
+        changedSentenceIdentityIndexes(
+          previousSentences,
+          absoluteSentences,
+          previousProse,
+          currentProse,
+          changes,
+        ),
       ),
     )
+    return sentences.filter((_, index) => {
+      const absolute = absoluteSentences[index]
+      return absolute !== undefined && selected.has(absolute)
+    })
+  }
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {

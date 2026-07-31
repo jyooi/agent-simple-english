@@ -119,6 +119,29 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 2, column 6 [contraction]")
   })
 
+  test("denies an Edit event in a later source comment", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "sample.ts")
+    await writeFile(
+      path,
+      ["/* Close the valve. */", "const value = 1", "/* Replace this sentence. */"].join("\n"),
+    )
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Replace this sentence.",
+        new_string: "This isn't permitted.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 3, column 9 [contraction]")
+  })
+
   test("reconstructs an Edit event that replaces every match", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "notes.md")
@@ -162,6 +185,21 @@ describe("simple-english CLI hook mode", () => {
       hookEventName: "PreToolUse",
       permissionDecision: "allow",
     })
+  })
+
+  test("gates a static commit after a leading redirection", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const result = await runHook(
+      event(cwd, "Bash", {
+        command: `>/tmp/log git commit -m "fix: This isn't permitted."`,
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 1, column 11 [contraction]")
   })
 
   test.each(["git commit", "git commit -F message.txt", 'git commit -m "$MESSAGE"'])(
@@ -221,6 +259,27 @@ describe("simple-english CLI hook mode", () => {
       hookEventName: "PreToolUse",
       permissionDecision: "allow",
     })
+  })
+
+  test("allows a valid event with a warning when configuration load fails", async () => {
+    const cwd = await makeProject()
+    const configPath = join(cwd, ".simple-english.json")
+    await writeFile(configPath, "{")
+
+    const result = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "notes.md"),
+        content: "This isn't permitted.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("allow")
+    expect(output.additionalContext).toContain("STE hook warning")
+    expect(output.additionalContext).toContain(`invalid JSON in ${configPath}`)
+    expect(result.output.continue).toBeUndefined()
   })
 
   test("returns a non-blocking JSON error for malformed event JSON", async () => {
