@@ -18,6 +18,7 @@ Parent spec lives in Linear HUF-130.
 - pi installs extension deps with `npm install --omit=dev` from the package.json next to the entry point, so runtime deps (e.g. `effect`, `wink-nlp`) must stay in `dependencies`, never `devDependencies`.
 - POS tagging is an injected boundary: the engine consumes the pure `Tagger` type (`src/engine/tagger.ts`) and silently skips tagger-dependent checks when `LintOptions.tagger` is absent; the wink-nlp implementation and its Effect layer live in `src/tagger/wink.ts`. Tagger-dependent verb verdicts are pinned, right or wrong, in `test/engine/verb-form-fixtures.test.ts`.
 - The package-owned dictionary format and matching semantics are documented in `src/dictionary/README.md`; load and validate dictionary data before passing it into the synchronous engine.
+- Extractors (`src/engine/comments.ts`, `markdown.ts`, `identifiers.ts`) blank non-prose with spaces so violation line/column always map to the original file. `test/fixtures/**` is excluded from Biome because tests pin exact byte positions in fixtures; do not let a formatter touch them.
 
 ## Commands
 

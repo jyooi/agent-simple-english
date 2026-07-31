@@ -1,4 +1,6 @@
 import type { Dictionary } from "../dictionary/schema.ts"
+import { extractHashComments, extractSlashComments } from "./comments.ts"
+import { blankIdentifiers } from "./identifiers.ts"
 import { blankInlineCode, blankMarkdownCode } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
@@ -22,31 +24,39 @@ interface ResolvedOptions {
   readonly tagger?: Tagger
 }
 
-const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Violation[]> = {
-  "prose-file": (text, { maxSentenceWords, dictionary, tagger }) => {
-    const lines = blankMarkdownCode(text)
-    const proseLines = blankInlineCode(lines)
-    return [
-      ...sentenceLength(segmentSentences(proseLines), maxSentenceWords),
-      ...paragraphLength(segmentParagraphs(proseLines)),
-      ...contraction(proseLines),
-      ...semicolon(lines),
-      ...phrasalVerb(proseLines),
-      ...hedging(proseLines),
-      ...marketing(proseLines),
-      ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
-      ...(tagger === undefined ? [] : verbForm(lines, tagger)),
-    ]
-  },
+const extractors: Record<LintKind, (text: string) => string[]> = {
+  "prose-file": blankMarkdownCode,
+  "slash-source": extractSlashComments,
+  "hash-source": extractHashComments,
+  "commit-message": (text) => text.split("\n"),
+}
+
+const lintProse = (
+  lines: string[],
+  { maxSentenceWords, dictionary, tagger }: ResolvedOptions,
+) => {
+  const proseLines = blankInlineCode(lines)
+  return [
+    ...sentenceLength(segmentSentences(proseLines), maxSentenceWords),
+    ...paragraphLength(segmentParagraphs(proseLines)),
+    ...contraction(proseLines),
+    ...semicolon(lines),
+    ...phrasalVerb(proseLines),
+    ...hedging(proseLines),
+    ...marketing(proseLines),
+    ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
+    ...(tagger === undefined ? [] : verbForm(lines, tagger)),
+  ]
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const raw = linters[kind](text, {
+  const prose = blankIdentifiers(extractors[kind](text))
+  const raw = lintProse(prose, {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
   })
-  const violations = raw
+  const violations: Violation[] = raw
     .flatMap((violation) => {
       const setting = options.rules?.[violation.ruleId]
       if (setting === undefined) {

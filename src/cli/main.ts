@@ -4,12 +4,45 @@ import { Effect, Either } from "effect"
 import { loadConfig } from "../config/load.ts"
 import { loadDictionary } from "../dictionary/load.ts"
 import { lint } from "../engine/lint.ts"
-import type { LintReport } from "../engine/types.ts"
+import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
+
+const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
+
+const SLASH_EXTENSIONS = new Set([
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "go",
+  "rs",
+  "java",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "cc",
+  "cs",
+  "swift",
+  "kt",
+  "scala",
+])
+
+const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
+
+const kindForPath = (path: string): LintKind => {
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase()
+  if (SLASH_EXTENSIONS.has(extension)) return "slash-source"
+  if (HASH_EXTENSIONS.has(extension)) return "hash-source"
+  return "prose-file"
+}
 
 interface CliArgs {
   readonly json: boolean
   readonly configPath: string | undefined
+  readonly kind: string | undefined
   readonly paths: readonly string[]
 }
 
@@ -17,6 +50,7 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
   Effect.gen(function* () {
     let json = false
     let configPath: string | undefined
+    let kind: string | undefined
     const paths: string[] = []
     for (let i = 0; i < args.length; i++) {
       const arg = args[i] as string
@@ -27,12 +61,19 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
         if (configPath === undefined) {
           yield* Effect.fail(new Error("--config requires a file path"))
         }
+      } else if (arg === "--kind") {
+        kind = args[++i]
+      } else if (arg.startsWith("--kind=")) {
+        kind = arg.slice("--kind=".length)
       } else {
         paths.push(arg)
       }
     }
-    return { json, configPath, paths }
+    return { json, configPath, kind, paths }
   })
+
+const isLintKind = (value: string): value is LintKind =>
+  (KINDS as readonly string[]).includes(value)
 
 interface FileViolation {
   readonly file: string
@@ -90,7 +131,12 @@ const render = (report: CliReport, json: boolean): string => {
 
 const program = Effect.gen(function* () {
   const tagger = yield* TaggerService
-  const { json, configPath, paths } = yield* parseArgs(process.argv.slice(2))
+  const { json, configPath, kind, paths } = yield* parseArgs(process.argv.slice(2))
+  if (kind !== undefined && !isLintKind(kind)) {
+    return yield* Effect.fail(
+      new Error(`unknown kind "${kind}"; expected one of: ${KINDS.join(", ")}`),
+    )
+  }
   const config = yield* loadConfig(configPath)
   const loadedDictionary = yield* Effect.either(
     loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
@@ -107,7 +153,7 @@ const program = Effect.gen(function* () {
   const report = toCliReport(
     inputs.map(({ path, text }) => ({
       path,
-      report: lint("prose-file", text, { ...config, dictionary, tagger }),
+      report: lint(kind ?? kindForPath(path), text, { ...config, dictionary, tagger }),
     })),
   )
 

@@ -196,6 +196,55 @@ describe("simple-english CLI", () => {
     ])
   })
 
+  test("maps .ts to slash-source: flags only the comment, not the string literal", async () => {
+    const result = await runCli(["test/fixtures/comment-violation.ts"])
+
+    expect(result.code).toBe(1)
+    const lines = result.stdout.trim().split("\n")
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain("test/fixtures/comment-violation.ts:2:4")
+    expect(lines[0]).toContain("sentence-length")
+  })
+
+  test("maps .sh to hash-source: flags only the comment, not the string literal", async () => {
+    const result = await runCli(["test/fixtures/comment-violation.sh"])
+
+    expect(result.code).toBe(1)
+    const lines = result.stdout.trim().split("\n")
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain("test/fixtures/comment-violation.sh:3:3")
+  })
+
+  test("--kind commit-message lints the full stdin text", async () => {
+    const message = [
+      "feat: add the widget",
+      "",
+      `${Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ")}.`,
+    ].join("\n")
+    const result = await runCli(["--kind", "commit-message"], { stdin: message })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("<stdin>:3:1")
+  })
+
+  test("--kind overrides the extension mapping", async () => {
+    const longSentence = `${Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ")}.`
+
+    const asProse = await runCli([], { stdin: longSentence })
+    expect(asProse.code).toBe(1)
+
+    const asSlashSource = await runCli(["--kind", "slash-source"], { stdin: longSentence })
+    expect(asSlashSource.code).toBe(0)
+    expect(asSlashSource.stdout.trim()).toBe("")
+  })
+
+  test("rejects an unknown kind with exit code 2", async () => {
+    const result = await runCli(["--kind", "nonsense"], { stdin: "Short." })
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("nonsense")
+  })
+
   test("errors with exit code 2 on an unreadable file", async () => {
     const result = await runCli(["test/fixtures/does-not-exist.md"])
 

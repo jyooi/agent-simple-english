@@ -2,7 +2,7 @@ import type { Dictionary } from "../dictionary/schema.ts"
 import type { RuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
 
-export type LintKind = "prose-file"
+export type LintKind = "prose-file" | "slash-source" | "hash-source" | "commit-message"
 
 export type Severity = "hard" | "soft"
 
