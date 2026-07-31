@@ -34,6 +34,14 @@ describe("lint prose-file: hedging rule", () => {
     expect(report.summary.hard).toBe(0)
   })
 
+  test.each([
+    "The text says as mentioned-above.",
+    "Do not use as mentioned's wording.",
+    "Do not use as mentioned’s wording.",
+  ])("does not match within a token in %s", (text) => {
+    expect(idsFor(text)).not.toContain("hedging")
+  })
+
   test("does not flag plain prose that mentions notes", () => {
     expect(idsFor("Write a note in the log.")).not.toContain("hedging")
   })

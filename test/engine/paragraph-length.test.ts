@@ -65,6 +65,16 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor(text)).not.toContain("paragraph-length")
   })
 
+  test("does not count an ordered-list marker as a sentence", () => {
+    expect(idsFor("1. One. Two. Three. Four. Five. Six.")).not.toContain("paragraph-length")
+  })
+
+  test("flags a long list item across continuation lines", () => {
+    const text = "- One. Two. Three.\n Four. Five. Six. Seven."
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
   test("a table is not a paragraph", () => {
     const text = [
       "| Rule | Severity |",

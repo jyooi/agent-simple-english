@@ -1,4 +1,5 @@
 import { scanLines } from "../scan.ts"
+import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
 
 const HEDGES = [
@@ -11,7 +12,7 @@ const HEDGES = [
 ]
 
 const HEDGE_PATTERN = new RegExp(
-  `\\b(?:${HEDGES.map((phrase) => phrase.replace(/ /g, "\\s+")).join("|")})\\b`,
+  `(?<!${TOKEN_CHARACTER_PATTERN})(?:${HEDGES.map((phrase) => phrase.replace(/ /g, "\\s+")).join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
   "gi",
 )
 
