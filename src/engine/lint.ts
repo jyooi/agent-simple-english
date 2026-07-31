@@ -1,11 +1,6 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
-import {
-  type ChangedRange,
-  changedText,
-  type RetainedRange,
-  type TextChanges,
-} from "./diff.ts"
+import { type ChangedRange, type RetainedRange, type TextChanges, changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import {
   blankMarkdownCodeWithStructure,
@@ -232,8 +227,7 @@ function nearestRetainedProseBefore(
     while (cursor < query.offset && cursor < text.length) {
       while (
         retainedIndex < retained.length &&
-        (retained[retainedIndex]?.currentStart ?? 0) +
-          (retained[retainedIndex]?.length ?? 0) <=
+        (retained[retainedIndex]?.currentStart ?? 0) + (retained[retainedIndex]?.length ?? 0) <=
           cursor
       ) {
         retainedIndex++
@@ -511,10 +505,7 @@ function changedSentenceIdentityIndexes(
       ? offset
       : undefined,
   )
-  const deletionBeforeIndexes = containingSentenceIndexes(
-    previousSentences,
-    deletionBeforeOffsets,
-  )
+  const deletionBeforeIndexes = containingSentenceIndexes(previousSentences, deletionBeforeOffsets)
   const deletionAfterIndexes = containingSentenceIndexes(previousSentences, deletionAfterOffsets)
   const deletionEdges = changes.deletions
     .map((deletion, index) => ({

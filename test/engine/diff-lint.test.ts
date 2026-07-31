@@ -326,7 +326,10 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     const current = Array.from({ length: 1001 }, (_, i) =>
       i === 0 || i === 500 || i === 1000 ? `${words(26)} tail${i}.` : `New line ${i}.`,
     ).join("\n")
-    const report = lint("prose-file", current, { previousText: previous })
+    const report = lint("prose-file", current, {
+      previousText: previous,
+      rules: { "paragraph-length": "off" },
+    })
 
     expect(report.violations.map((violation) => violation.line)).toEqual([1, 501, 1001])
   })
