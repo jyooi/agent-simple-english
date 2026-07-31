@@ -18,12 +18,15 @@ export interface Violation {
   readonly suggestion?: string
 }
 
+export type SourceDialect = "general" | "shell"
+
 export interface LintOptions {
   readonly rules?: Partial<Record<RuleId, RuleSetting>>
   readonly maxSentenceWords?: number
   readonly dictionary?: Dictionary
   // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger
+  readonly sourceDialect?: SourceDialect
 }
 
 export interface LintReport {

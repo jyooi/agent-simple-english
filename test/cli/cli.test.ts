@@ -215,7 +215,7 @@ describe("simple-english CLI", () => {
     expect(result.code).toBe(1)
     const lines = result.stdout.trim().split("\n")
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain("test/fixtures/comment-violation.sh:3:3")
+    expect(lines[0]).toContain("test/fixtures/comment-violation.sh:4:3")
   })
 
   test("--kind commit-message lints the full stdin text", async () => {

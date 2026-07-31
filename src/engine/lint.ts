@@ -34,11 +34,10 @@ const wholeText = (text: string): ExtractedProse => {
   return { lines, contentStarts: lines.map(() => 0) }
 }
 
-const extractors: Record<LintKind, (text: string) => ExtractedProse> = {
-  "prose-file": wholeText,
-  "slash-source": extractSlashComments,
-  "hash-source": extractHashComments,
-  "commit-message": wholeText,
+const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedProse => {
+  if (kind === "slash-source") return extractSlashComments(text)
+  if (kind === "hash-source") return extractHashComments(text, options.sourceDialect)
+  return wholeText(text)
 }
 
 const lintProse = (
@@ -60,7 +59,7 @@ const lintProse = (
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const extracted = extractors[kind](text)
+  const extracted = extract(kind, text, options)
   const prose = blankIdentifiers(blankMarkdownCode(extracted.lines, extracted.contentStarts))
   const raw = lintProse(prose, {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,

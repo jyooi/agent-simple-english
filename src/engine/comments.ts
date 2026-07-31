@@ -1,3 +1,5 @@
+import type { SourceDialect } from "./types.ts"
+
 export interface ExtractedComments {
   readonly lines: readonly string[]
   readonly contentStarts: readonly number[]
@@ -15,9 +17,47 @@ const isRustLifetime = (line: string, index: number): boolean => {
   return line[end] !== "'"
 }
 
+type MultilineLiteral =
+  | { readonly kind: "escaped"; readonly terminator: string }
+  | { readonly kind: "literal"; readonly terminator: string }
+  | { readonly kind: "verbatim" }
+
+const hasTokenBoundary = (line: string, index: number): boolean =>
+  index === 0 || !/[A-Za-z0-9_]/.test(line[index - 1] ?? "")
+
+const multilineLiteralAt = (
+  line: string,
+  index: number,
+): { literal: MultilineLiteral; end: number } | null => {
+  if (!hasTokenBoundary(line, index)) return null
+
+  const csharp = line.slice(index).match(/^(?:\$@|@\$|@)"/)
+  if (csharp !== null) {
+    return { literal: { kind: "verbatim" }, end: index + csharp[0].length }
+  }
+
+  const rust = line.slice(index).match(/^(?:br|r)(#{0,255})"/)
+  if (rust !== null) {
+    return {
+      literal: { kind: "literal", terminator: `"${rust[1] as string}` },
+      end: index + rust[0].length,
+    }
+  }
+
+  const cpp = line.slice(index).match(/^(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\(/)
+  if (cpp !== null) {
+    return {
+      literal: { kind: "literal", terminator: `)${cpp[1] as string}"` },
+      end: index + cpp[0].length,
+    }
+  }
+
+  return null
+}
+
 export function extractSlashComments(text: string): ExtractedComments {
   let inBlock = false
-  let multilineQuote: "`" | '"""' | null = null
+  let multilineLiteral: MultilineLiteral | null = null
   const contentStarts: number[] = []
 
   const lines = text.split("\n").map((line) => {
@@ -52,14 +92,27 @@ export function extractSlashComments(text: string): ExtractedComments {
         continue
       }
 
-      if (multilineQuote !== null) {
-        if (multilineQuote === "`" && ch === "\\") {
+      if (multilineLiteral !== null) {
+        if (multilineLiteral.kind === "escaped" && ch === "\\") {
           i += 2
           continue
         }
-        if (line.startsWith(multilineQuote, i)) {
-          i += multilineQuote.length
-          multilineQuote = null
+        if (multilineLiteral.kind === "verbatim") {
+          if (line.startsWith('""', i)) {
+            i += 2
+            continue
+          }
+          if (ch === '"') {
+            multilineLiteral = null
+            i++
+            continue
+          }
+          i++
+          continue
+        }
+        if (line.startsWith(multilineLiteral.terminator, i)) {
+          i += multilineLiteral.terminator.length
+          multilineLiteral = null
           continue
         }
         i++
@@ -76,13 +129,19 @@ export function extractSlashComments(text: string): ExtractedComments {
         continue
       }
 
+      const boundedLiteral = multilineLiteralAt(line, i)
+      if (boundedLiteral !== null) {
+        multilineLiteral = boundedLiteral.literal
+        i = boundedLiteral.end
+        continue
+      }
       if (line.startsWith('"""', i)) {
-        multilineQuote = '"""'
+        multilineLiteral = { kind: "literal", terminator: '"""' }
         i += 3
         continue
       }
       if (ch === "`") {
-        multilineQuote = "`"
+        multilineLiteral = { kind: "escaped", terminator: "`" }
         i++
         continue
       }
@@ -122,19 +181,64 @@ interface Heredoc {
   readonly stripTabs: boolean
 }
 
-const HEREDOC = /^<<(-)?[ \t]*(?:'([^']+)'|"([^"]+)"|\\([A-Za-z_][\w]*)|([A-Za-z_][\w]*))/
+interface ParsedHeredoc extends Heredoc {
+  readonly end: number
+}
 
-export function extractHashComments(text: string): ExtractedComments {
-  let quote: "'" | '"' | "'''" | '"""' | null = null
+const parseHeredoc = (line: string, start: number): ParsedHeredoc | null => {
+  if (!line.startsWith("<<", start) || line[start + 2] === "<") return null
+  let index = start + 2
+  let stripTabs = false
+  if (line[index] === "-") {
+    stripTabs = true
+    index++
+  }
+  while (line[index] === " " || line[index] === "\t") index++
+
+  let delimiter = ""
+  while (index < line.length && !/[\s;&|()<>]/.test(line[index] as string)) {
+    const ch = line[index] as string
+    if (ch === "'" || ch === '"') {
+      const quote = ch
+      const close = line.indexOf(quote, index + 1)
+      if (close === -1) return null
+      delimiter += line.slice(index + 1, close)
+      index = close + 1
+      continue
+    }
+    if (ch === "\\") {
+      if (index + 1 >= line.length) return null
+      delimiter += line[index + 1] as string
+      index += 2
+      continue
+    }
+    delimiter += ch
+    index++
+  }
+
+  return delimiter === "" ? null : { delimiter, stripTabs, end: index }
+}
+
+const isShellCommentStart = (line: string, index: number): boolean =>
+  index === 0 || /[\s;|&()]/.test(line[index - 1] ?? "")
+
+export function extractHashComments(
+  text: string,
+  dialect: SourceDialect = "general",
+): ExtractedComments {
+  let multilineQuote: "'''" | '"""' | null = null
+  let shellQuote: "'" | '"' | null = null
   let parameterDepth = 0
   let arithmeticDepth = 0
   const heredocs: Heredoc[] = []
   const contentStarts: number[] = []
+  const shell = dialect === "shell"
 
   const lines = text.split("\n").map((line, lineIndex) => {
     const activeHeredoc = heredocs[0]
     if (activeHeredoc !== undefined) {
-      const candidate = activeHeredoc.stripTabs ? line.replace(/^\t+/, "") : line
+      const normalized = line.endsWith("\r") ? line.slice(0, -1) : line
+      const candidate = activeHeredoc.stripTabs ? normalized.replace(/^\t+/, "") : normalized
       if (candidate === activeHeredoc.delimiter) heredocs.shift()
       contentStarts.push(line.length)
       return blankLine(line)
@@ -148,77 +252,87 @@ export function extractHashComments(text: string): ExtractedComments {
     const out = new Array<string>(line.length).fill(" ")
     const pendingHeredocs: Heredoc[] = []
     let contentStart = line.length
+    let lineQuote: "'" | '"' | null = null
     let i = 0
 
     while (i < line.length) {
       const ch = line[i] as string
 
-      if (quote !== null) {
-        if (ch === "\\" && quote !== "'") {
-          i += 2
-          continue
-        }
-        if (quote === "'" && line.startsWith("''", i)) {
-          i += 2
-          continue
-        }
-        if (line.startsWith(quote, i)) {
-          i += quote.length
-          quote = null
+      if (multilineQuote !== null) {
+        if (line.startsWith(multilineQuote, i)) {
+          i += multilineQuote.length
+          multilineQuote = null
           continue
         }
         i++
         continue
       }
 
-      if (line.startsWith("'''", i) || line.startsWith('"""', i)) {
-        quote = line.slice(i, i + 3) as "'''" | '"""'
+      if (shellQuote !== null) {
+        if (ch === "\\" && shellQuote === '"') {
+          i += 2
+          continue
+        }
+        if (ch === shellQuote) shellQuote = null
+        i++
+        continue
+      }
+
+      if (lineQuote !== null) {
+        if (ch === "\\" && lineQuote === '"') {
+          i += 2
+          continue
+        }
+        if (ch === lineQuote) lineQuote = null
+        i++
+        continue
+      }
+
+      if (!shell && (line.startsWith("'''", i) || line.startsWith('"""', i))) {
+        multilineQuote = line.slice(i, i + 3) as "'''" | '"""'
         i += 3
         continue
       }
       if (ch === '"' || ch === "'") {
-        quote = ch
+        if (shell) shellQuote = ch
+        else lineQuote = ch
         i++
         continue
       }
-      if (line.startsWith("${", i)) {
+      if (shell && line.startsWith("${", i)) {
         parameterDepth++
         i += 2
         continue
       }
-      if (parameterDepth > 0 && ch === "}") {
+      if (shell && parameterDepth > 0 && ch === "}") {
         parameterDepth--
         i++
         continue
       }
-      if (line.startsWith("$((", i)) {
+      if (shell && line.startsWith("$((", i)) {
         arithmeticDepth++
         i += 3
         continue
       }
-      if (arithmeticDepth > 0 && line.startsWith("))", i)) {
+      if (shell && arithmeticDepth > 0 && line.startsWith("))", i)) {
         arithmeticDepth--
         i += 2
         continue
       }
-      if (parameterDepth === 0 && arithmeticDepth === 0 && line.startsWith("<<", i)) {
-        if (line[i + 2] !== "<") {
-          const match = line.slice(i).match(HEREDOC)
-          if (match !== null) {
-            pendingHeredocs.push({
-              delimiter: (match[2] ?? match[3] ?? match[4] ?? match[5]) as string,
-              stripTabs: match[1] !== undefined,
-            })
-            i += match[0].length
-            continue
-          }
+      if (shell && parameterDepth === 0 && arithmeticDepth === 0 && line.startsWith("<<", i)) {
+        const heredoc = parseHeredoc(line, i)
+        if (heredoc !== null) {
+          pendingHeredocs.push({ delimiter: heredoc.delimiter, stripTabs: heredoc.stripTabs })
+          i = heredoc.end
+          continue
         }
       }
       if (
         ch === "#" &&
         parameterDepth === 0 &&
         arithmeticDepth === 0 &&
-        line[i - 1] !== "$"
+        line[i - 1] !== "$" &&
+        (!shell || isShellCommentStart(line, i))
       ) {
         let j = i + 1
         while (line[j] === "#") j++

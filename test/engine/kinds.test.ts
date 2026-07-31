@@ -67,12 +67,7 @@ describe("lint slash-source: comment extraction", () => {
   })
 
   test("does not lint comment markers inside multi-line template literals", () => {
-    const text = [
-      "const s = `first line",
-      `// ${words(30)}.`,
-      "`",
-      `// ${words(30)}.`,
-    ].join("\n")
+    const text = ["const s = `first line", `// ${words(30)}.`, "`", `// ${words(30)}.`].join("\n")
     const report = lint("slash-source", text)
 
     expect(report.violations).toHaveLength(1)
@@ -101,13 +96,48 @@ describe("lint slash-source: comment extraction", () => {
     expect(report.violations[0]).toMatchObject({ line: 5, column: 4 })
   })
 
-  test("applies Markdown fences after extracting doc comments", () => {
+  test("does not lint comment markers inside C# verbatim strings", () => {
     const text = [
-      "/// ```text",
-      `/// ${words(30)}.`,
-      "/// ```",
-      `/// ${words(30)}.`,
+      'var value = @"first line',
+      `// ${words(30)}.`,
+      'embedded "" quote',
+      '";',
+      `// ${words(30)}.`,
     ].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 5, column: 4 })
+  })
+
+  test("does not lint comment markers inside Rust raw strings", () => {
+    const text = [
+      'let value = r##"first line',
+      `// ${words(30)}.`,
+      '"##;',
+      `// ${words(30)}.`,
+    ].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 4 })
+  })
+
+  test("does not lint comment markers inside C++ raw strings", () => {
+    const text = [
+      'auto value = R"tag(first line',
+      `// ${words(30)}.`,
+      ')tag";',
+      `// ${words(30)}.`,
+    ].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 4 })
+  })
+
+  test("applies Markdown fences after extracting doc comments", () => {
+    const text = ["/// ```text", `/// ${words(30)}.`, "/// ```", `/// ${words(30)}.`].join("\n")
     const report = lint("slash-source", text)
 
     expect(report.violations).toHaveLength(1)
@@ -151,12 +181,7 @@ describe("lint hash-source: comment extraction", () => {
   })
 
   test("does not lint comment markers inside multi-line string literals", () => {
-    const text = [
-      'value = """first line',
-      `# ${words(30)}.`,
-      '"""',
-      `# ${words(30)}.`,
-    ].join("\n")
+    const text = ['value = """first line', `# ${words(30)}.`, '"""', `# ${words(30)}.`].join("\n")
     const report = lint("hash-source", text)
 
     expect(report.violations).toHaveLength(1)
@@ -166,7 +191,13 @@ describe("lint hash-source: comment extraction", () => {
   test("does not treat a shell parameter operator as a comment", () => {
     const text = `trimmed=\${name#${words(30)}}`
 
-    expect(lint("hash-source", text).violations).toHaveLength(0)
+    expect(lint("hash-source", text, { sourceDialect: "shell" }).violations).toHaveLength(0)
+  })
+
+  test("does not treat a mid-token shell hash as a comment", () => {
+    const text = `echo prefix# ${words(30)}.`
+
+    expect(lint("hash-source", text, { sourceDialect: "shell" }).violations).toHaveLength(0)
   })
 
   test("recognizes a trailing comment without leading whitespace", () => {
@@ -178,26 +209,31 @@ describe("lint hash-source: comment extraction", () => {
   })
 
   test("does not lint hash markers in shell heredoc payloads", () => {
-    const text = [
-      "cat <<'EOF'",
-      `# ${words(30)}.`,
-      "EOF",
-      `# ${words(30)}.`,
-    ].join("\n")
+    const text = ["cat <<'EOF'", `# ${words(30)}.`, "EOF", `# ${words(30)}.`].join("\n")
+    const report = lint("hash-source", text, { sourceDialect: "shell" })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 3 })
+  })
+
+  test("does not infer a shell heredoc from Python shift syntax", () => {
+    const text = ["result = value << LIMIT", `# ${words(30)}.`].join("\n")
     const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 2, column: 3 })
+  })
+
+  test("recognizes numeric shell heredocs and CRLF terminators", () => {
+    const text = ["cat <<123\r", `# ${words(30)}.\r`, "123\r", `# ${words(30)}.`].join("\n")
+    const report = lint("hash-source", text, { sourceDialect: "shell" })
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 4, column: 3 })
   })
 
   test("applies Markdown indented blocks after extracting comments", () => {
-    const text = [
-      "# Intro.",
-      "#",
-      `#     ${words(30)}.`,
-      "#",
-      `# ${words(30)}.`,
-    ].join("\n")
+    const text = ["# Intro.", "#", `#     ${words(30)}.`, "#", `# ${words(30)}.`].join("\n")
     const report = lint("hash-source", text)
 
     expect(report.violations).toHaveLength(1)
@@ -287,13 +323,7 @@ describe("lint prose-file: hardened markdown stripping", () => {
   })
 
   test("a fence marker with trailing text does not close a fence", () => {
-    const text = [
-      "~~~",
-      "~~~not-a-close",
-      `${words(40)}.`,
-      "~~~",
-      `${words(30)}.`,
-    ].join("\n")
+    const text = ["~~~", "~~~not-a-close", `${words(40)}.`, "~~~", `${words(30)}.`].join("\n")
     const report = lint("prose-file", text)
 
     expect(report.violations).toHaveLength(1)
@@ -309,12 +339,7 @@ describe("lint prose-file: hardened markdown stripping", () => {
   })
 
   test("recognizes fenced code inside blockquote containers", () => {
-    const text = [
-      "> ```text",
-      `> ${words(30)}.`,
-      "> ```",
-      `${words(30)}.`,
-    ].join("\n")
+    const text = ["> ```text", `> ${words(30)}.`, "> ```", `${words(30)}.`].join("\n")
     const report = lint("prose-file", text)
 
     expect(report.violations).toHaveLength(1)
@@ -327,6 +352,30 @@ describe("lint prose-file: hardened markdown stripping", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 5, column: 1 })
+  })
+
+  test("ends an unclosed fence when its blockquote container ends", () => {
+    const text = ["> ~~~", `> ${words(30)}.`, `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 1 })
+  })
+
+  test("recognizes fenced code inside list containers", () => {
+    const text = ["- ~~~", `  ${words(30)}.`, "  ~~~", `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
+  })
+
+  test("ends an unclosed fence when its list container ends", () => {
+    const text = ["- ~~~", `  ${words(30)}.`, `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 1 })
   })
 
   test("does not pair unmatched backtick runs of different lengths", () => {

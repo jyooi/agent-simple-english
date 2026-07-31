@@ -1,18 +1,29 @@
 const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 const INDENTED = /^(?: {4,}|\t)/
+const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]{1,4})/
 
 const blankLine = (line: string): string => " ".repeat(line.length)
+
+interface Container {
+  readonly quoteDepth: number
+  readonly listIndent: number
+}
 
 interface MarkdownContent {
   readonly text: string
   readonly start: number
+  readonly container: Container
 }
 
-const markdownContent = (line: string, contentStart: number): MarkdownContent => {
-  let index = Math.min(contentStart, line.length)
-
-  while (index < line.length) {
+const consumeBlockquotes = (
+  line: string,
+  initial: number,
+  requiredDepth?: number,
+): { index: number; depth: number } => {
+  let index = initial
+  let depth = 0
+  while (index < line.length && (requiredDepth === undefined || depth < requiredDepth)) {
     let marker = index
     let spaces = 0
     while (spaces < 3 && line[marker] === " ") {
@@ -20,11 +31,57 @@ const markdownContent = (line: string, contentStart: number): MarkdownContent =>
       spaces++
     }
     if (line[marker] !== ">") break
+    depth++
     index = marker + 1
     if (line[index] === " " || line[index] === "\t") index++
   }
+  return { index, depth }
+}
 
-  return { text: line.slice(index), start: index }
+const markdownContent = (line: string, contentStart: number): MarkdownContent => {
+  const base = Math.min(contentStart, line.length)
+  const blockquotes = consumeBlockquotes(line, base)
+  let index = blockquotes.index
+  let listIndent = 0
+
+  while (index < line.length) {
+    const match = line.slice(index).match(LIST_MARKER)
+    if (match === null) break
+    const width = match[0].length
+    listIndent += width
+    index += width
+  }
+
+  return {
+    text: line.slice(index),
+    start: index,
+    container: { quoteDepth: blockquotes.depth, listIndent },
+  }
+}
+
+const contentWithin = (
+  line: string,
+  contentStart: number,
+  container: Container,
+): MarkdownContent | null => {
+  const base = Math.min(contentStart, line.length)
+  if (line.slice(base).trim() === "") {
+    return { text: "", start: line.length, container }
+  }
+
+  const blockquotes = consumeBlockquotes(line, base, container.quoteDepth)
+  if (blockquotes.depth !== container.quoteDepth) return null
+  if (container.quoteDepth === 0 && line.slice(base).match(/^ {0,3}>/) !== null) return null
+
+  let index = blockquotes.index
+  let remaining = container.listIndent
+  while (remaining > 0 && (line[index] === " " || line[index] === "\t")) {
+    index++
+    remaining--
+  }
+  if (remaining > 0) return null
+
+  return { text: line.slice(index), start: index, container }
 }
 
 const openingFence = (line: string): string | null => {
@@ -87,27 +144,37 @@ const blankInlineCode = (text: string): string => {
   return output.join("")
 }
 
+interface FenceState {
+  readonly marker: string
+  readonly container: Container
+}
+
 export function blankMarkdownCode(
   inputLines: readonly string[],
   contentStarts: readonly number[] = inputLines.map(() => 0),
 ): string[] {
-  let fence: string | null = null
+  let fence: FenceState | null = null
   let afterBlank = true
   let inIndented = false
   const inlineEligible: boolean[] = []
   const lines = inputLines.map((line, index) => {
-    const content = markdownContent(line, contentStarts[index] ?? 0)
-    const visibleLine = `${" ".repeat(content.start)}${line.slice(content.start)}`
+    const contentStart = contentStarts[index] ?? 0
 
     if (fence !== null) {
-      if (closesFence(content.text, fence)) fence = null
-      inlineEligible.push(false)
-      return blankLine(line)
+      const contained = contentWithin(line, contentStart, fence.container)
+      if (contained !== null) {
+        if (closesFence(contained.text, fence.marker)) fence = null
+        inlineEligible.push(false)
+        return blankLine(line)
+      }
+      fence = null
     }
 
+    const content = markdownContent(line, contentStart)
+    const visibleLine = `${" ".repeat(content.start)}${line.slice(content.start)}`
     const marker = openingFence(content.text)
     if (marker !== null) {
-      fence = marker
+      fence = { marker, container: content.container }
       afterBlank = false
       inIndented = false
       inlineEligible.push(false)
