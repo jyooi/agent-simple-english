@@ -26,11 +26,13 @@ interface ExtensionContextStub {
 }
 
 class ExtensionApiStub {
-  readonly handlers = new Map<string, EventHandler>()
+  readonly handlers = new Map<string, EventHandler[]>()
   readonly tools = new Map<string, ToolHandler>()
 
   on(event: string, handler: EventHandler): void {
-    this.handlers.set(event, handler)
+    const handlers = this.handlers.get(event) ?? []
+    handlers.push(handler)
+    this.handlers.set(event, handlers)
   }
 
   registerTool(tool: ToolHandler): void {
@@ -38,9 +40,23 @@ class ExtensionApiStub {
   }
 
   async emit(event: string, payload: Record<string, unknown>, context: ExtensionContextStub) {
-    const handler = this.handlers.get(event)
-    if (handler === undefined) throw new Error(`No handler registered for ${event}`)
-    return handler(payload, context)
+    const handlers = this.handlers.get(event)
+    if (handlers === undefined) throw new Error(`No handler registered for ${event}`)
+    let result: unknown
+    for (const handler of handlers) {
+      const next = await handler(payload, context)
+      if (next !== undefined) result = next
+      if (
+        event === "tool_call" &&
+        typeof next === "object" &&
+        next !== null &&
+        "block" in next &&
+        next.block === true
+      ) {
+        return next
+      }
+    }
+    return result
   }
 
   async executeTool(
@@ -144,60 +160,75 @@ describe.sequential("pi extension wiring", () => {
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {
-    const { pi, context } = await startExtension()
+    const { cwd, pi, context } = await startExtension()
 
-    const blocked = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-1",
-        input: { path: "notes.md", content: "This isn't permitted." },
-      },
+    const blocked = await pi
+      .executeTool(
+        "write",
+        "write-1",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      )
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      )
+
+    expect(blocked).toBeInstanceOf(Error)
+    expect(blocked?.message).toContain("line 1, column 6")
+    expect(blocked?.message).toContain("[contraction]")
+    expect(blocked?.message).toContain("Suggested fix:")
+
+    await pi.executeTool(
+      "write",
+      "write-2",
+      { path: "notes.md", content: "This is permitted." },
       context,
     )
 
-    expect(blocked).toMatchObject({ block: true })
-    expect(blocked).toMatchObject({ reason: expect.stringContaining("line 1, column 6") })
-    expect(blocked).toMatchObject({ reason: expect.stringContaining("[contraction]") })
-    expect(blocked).toMatchObject({ reason: expect.stringContaining("Suggested fix:") })
+    expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This is permitted.")
+  })
 
-    const permitted = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-2",
-        input: { path: "notes.md", content: "This is permitted." },
-      },
-      context,
-    )
+  test("gates write input after later tool-call handlers mutate it", async () => {
+    const { cwd, pi, context } = await startExtension()
+    pi.on("tool_call", (event) => {
+      if (event.toolName !== "write") return undefined
+      const input = event.input as Record<string, unknown>
+      input.path = "notes.md"
+      input.content = "This isn't permitted."
+      return undefined
+    })
 
-    expect(permitted).toBeUndefined()
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-mutated",
+        { path: "source.ts", content: `const message = "This isn't prose."` },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    await expect(readFile(join(cwd, "notes.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   test("uses the file extension to lint only prose comments in source files", async () => {
     const { pi, context } = await startExtension()
 
-    const stringLiteral = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-source-1",
-        input: { path: "source.ts", content: `const message = "This isn't prose."` },
-      },
-      context,
-    )
-    const comment = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-source-2",
-        input: { path: "source.ts", content: "// This isn't permitted." },
-      },
-      context,
-    )
-
-    expect(stringLiteral).toBeUndefined()
-    expect(comment).toMatchObject({ block: true })
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-source-1",
+        { path: "source.ts", content: `const message = "This isn't prose."` },
+        context,
+      ),
+    ).resolves.toBeDefined()
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-source-2",
+        { path: "source.ts", content: "// This isn't permitted." },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
   })
 
   test("lints edits against the previous file and ignores unchanged violations", async () => {
@@ -309,17 +340,14 @@ describe.sequential("pi extension wiring", () => {
   test("passes soft violations and shows warning feedback", async () => {
     const { pi, context, notifications } = await startExtension()
 
-    const result = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-soft",
-        input: { path: "notes.md", content: "It is important to note that the valve is open." },
-      },
+    const result = await pi.executeTool(
+      "write",
+      "write-soft",
+      { path: "notes.md", content: "It is important to note that the valve is open." },
       context,
     )
 
-    expect(result).toBeUndefined()
+    expect(result).toBeDefined()
     expect(notifications).toContainEqual({
       level: "warning",
       message: expect.stringContaining("[hedging]"),
@@ -352,17 +380,14 @@ describe.sequential("pi extension wiring", () => {
       trusted: false,
     })
 
-    const result = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-untrusted-config",
-        input: { path: "notes.md", content: "This isn't permitted." },
-      },
-      context,
-    )
-
-    expect(result).toMatchObject({ block: true })
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-untrusted-config",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
   })
 
   test("uses project rule settings over global settings in the extension context", async () => {
@@ -371,17 +396,14 @@ describe.sequential("pi extension wiring", () => {
       projectConfig: { rules: { contraction: "soft" } },
     })
 
-    const result = await pi.emit(
-      "tool_call",
-      {
-        toolName: "write",
-        toolCallId: "write-config",
-        input: { path: "notes.md", content: "This isn't blocked." },
-      },
+    const result = await pi.executeTool(
+      "write",
+      "write-config",
+      { path: "notes.md", content: "This isn't blocked." },
       context,
     )
 
-    expect(result).toBeUndefined()
+    expect(result).toBeDefined()
     expect(notifications).toContainEqual({
       level: "warning",
       message: expect.stringContaining("[contraction]"),

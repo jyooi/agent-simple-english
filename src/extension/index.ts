@@ -1,11 +1,12 @@
 import { constants } from "node:fs"
-import { access, readFile, writeFile } from "node:fs/promises"
+import { access, mkdir, readFile, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
 import {
   createEditToolDefinition,
+  createWriteToolDefinition,
   type ExtensionAPI,
   type ExtensionContext,
   type ToolCallEventResult,
-  type WriteToolInput,
 } from "@earendil-works/pi-coding-agent"
 import { Effect } from "effect"
 import { loadConfig } from "../config/load.ts"
@@ -147,6 +148,38 @@ function lintProposedText(
   }
 }
 
+function createGatedWriteTool(cwd: string, state: SessionState) {
+  const definition = createWriteToolDefinition(cwd)
+  const execute: typeof definition.execute = async (...args) => {
+    const [toolCallId, input, _signal, _onUpdate, ctx] = args
+    const implementation = createWriteToolDefinition(cwd, {
+      operations: {
+        mkdir: async () => undefined,
+        writeFile: async (path, content) => {
+          if (!state.ready) {
+            throw new Error(
+              `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+            )
+          }
+          const result = lintProposedText(
+            state,
+            ctx,
+            "write",
+            toolCallId,
+            input.path,
+            content,
+          )
+          if (result?.block) throw new Error(result.reason)
+          await mkdir(dirname(path), { recursive: true })
+          await writeFile(path, content, "utf8")
+        },
+      },
+    })
+    return implementation.execute(...args)
+  }
+  return { ...definition, execute }
+}
+
 function createGatedEditTool(cwd: string, state: SessionState) {
   const definition = createEditToolDefinition(cwd)
   const execute: typeof definition.execute = async (...args) => {
@@ -192,6 +225,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     state.ready = false
     state.error = undefined
     state.pendingWarnings.clear()
+    pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
     try {
       state.config = await Effect.runPromise(
@@ -213,22 +247,13 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     systemPrompt: `${event.systemPrompt}\n\n${ruleSummary(state.config)}`,
   }))
 
-  pi.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call", async (event) => {
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
-    if (!state.ready) {
-      return {
-        block: true,
-        reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
-      }
+    if (state.ready) return undefined
+    return {
+      block: true,
+      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
     }
-
-    if (event.toolName === "write") {
-      const input = event.input as WriteToolInput
-      if (typeof input.path !== "string" || typeof input.content !== "string") return undefined
-      return lintProposedText(state, ctx, "write", event.toolCallId, input.path, input.content)
-    }
-
-    return undefined
   })
 
   pi.on("tool_result", (event) => {
