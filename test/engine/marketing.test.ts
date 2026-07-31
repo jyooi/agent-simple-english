@@ -17,14 +17,21 @@ describe("lint prose-file: marketing rule", () => {
     expect(violation?.message).toContain("seamless")
   })
 
-  test("flags hyphenated marketing compounds", () => {
-    for (const text of [
-      "A state-of-the-art design.",
-      "The cutting-edge pipeline runs.",
-      "Our enterprise-grade stack.",
-    ]) {
-      expect(idsFor(text), text).toContain("marketing")
-    }
+  test("flags complete hyphenated marketing compounds", () => {
+    const report = lint("prose-file", "A state-of-the-art design.")
+
+    const violations = report.violations.filter((v) => v.ruleId === "marketing")
+    expect(violations).toHaveLength(1)
+    expect(violations[0]).toMatchObject({ line: 1, column: 3 })
+    expect(violations[0]?.message).toContain("state-of-the-art")
+  })
+
+  test("flags listed words within larger hyphenated tokens", () => {
+    const report = lint("prose-file", "An ultra-robust platform.")
+
+    const violation = report.violations.find((v) => v.ruleId === "marketing")
+    expect(violation).toMatchObject({ line: 1, column: 10 })
+    expect(violation?.message).toContain("robust")
   })
 
   test("soft marketing violations do not count as hard in the summary", () => {

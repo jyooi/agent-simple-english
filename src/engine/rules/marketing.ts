@@ -28,10 +28,7 @@ const MARKETING_WORDS = [
   "empowers",
 ]
 
-// A hyphen satisfies \b, so \brobust\b would also match inside "ultra-robust".
-// Excluding adjacent hyphens makes hyphenated compounds match only as whole
-// tokens.
-const MARKETING_PATTERN = new RegExp(`(?<![\\w-])(?:${MARKETING_WORDS.join("|")})(?![\\w-])`, "gi")
+const MARKETING_PATTERN = new RegExp(`\\b(?:${MARKETING_WORDS.join("|")})\\b`, "gi")
 
 export function marketing(lines: readonly string[]): Violation[] {
   return scanLines(lines, MARKETING_PATTERN).map((match) => ({
