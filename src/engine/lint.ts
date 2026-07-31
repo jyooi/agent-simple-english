@@ -399,22 +399,22 @@ function normalizeRanges(ranges: readonly ChangedRange[]): ChangedRange[] {
 function changedSentenceIdentityIndexes(
   previousSentences: readonly Sentence[],
   currentSentences: readonly Sentence[],
+  previousProse: string,
   currentProse: string,
   changes: TextChanges,
 ): ReadonlySet<number> {
   const insertedRanges = normalizeRanges(changes.ranges)
-  const retainedOffsets = [
-    ...nearestRetainedProseBefore(
-      currentProse,
-      changes.retained,
-      insertedRanges.map((range) => range.start),
-    ),
-    ...nearestRetainedProseAfter(
-      currentProse,
-      changes.retained,
-      insertedRanges.map((range) => range.end),
-    ),
-  ]
+  const before = nearestRetainedProseBefore(
+    currentProse,
+    changes.retained,
+    insertedRanges.map((range) => range.start),
+  )
+  const after = nearestRetainedProseAfter(
+    currentProse,
+    changes.retained,
+    insertedRanges.map((range) => range.end),
+  )
+  const retainedOffsets = [...before, ...after]
   const currentIndexes = containingSentenceIndexes(
     currentSentences,
     retainedOffsets.map((offset) => offset?.current),
@@ -423,21 +423,92 @@ function changedSentenceIdentityIndexes(
     previousSentences,
     retainedOffsets.map((offset) => offset?.previous),
   )
+  const deletionBeforeOffsets = nearestNonWhitespaceBefore(
+    previousProse,
+    changes.deletions.map((deletion) => deletion.previousEnd),
+  ).map((offset, index) =>
+    offset !== undefined && offset >= (changes.deletions[index]?.previousStart ?? 0)
+      ? offset
+      : undefined,
+  )
+  const deletionAfterOffsets = nearestNonWhitespaceAfter(
+    previousProse,
+    changes.deletions.map((deletion) => deletion.previousStart),
+  ).map((offset, index) =>
+    offset !== undefined && offset < (changes.deletions[index]?.previousEnd ?? 0)
+      ? offset
+      : undefined,
+  )
+  const deletionBeforeIndexes = containingSentenceIndexes(
+    previousSentences,
+    deletionBeforeOffsets,
+  )
+  const deletionAfterIndexes = containingSentenceIndexes(previousSentences, deletionAfterOffsets)
+  const deletionEdges = changes.deletions
+    .map((deletion, index) => ({
+      currentOffset: deletion.currentOffset,
+      beforeSentence: deletionBeforeIndexes[index] ?? -1,
+      afterSentence: deletionAfterIndexes[index] ?? -1,
+    }))
+    .sort((left, right) => left.currentOffset - right.currentOffset)
   const changed = new Set<number>()
+  let deletionIndex = 0
 
-  for (let index = 0; index < retainedOffsets.length; index++) {
-    const currentIndex = currentIndexes[index]
-    const previousIndex = previousIndexes[index]
-    if (
-      currentIndex === undefined ||
-      currentIndex === -1 ||
-      previousIndex === undefined ||
-      previousIndex === -1
-    ) {
-      continue
+  for (let rangeIndex = 0; rangeIndex < insertedRanges.length; rangeIndex++) {
+    const range = insertedRanges[rangeIndex]
+    if (!range) continue
+    const beforeOffset = before[rangeIndex]
+    const afterOffset = after[rangeIndex]
+    const beforeCurrent = currentIndexes[rangeIndex] ?? -1
+    const afterCurrent = currentIndexes[insertedRanges.length + rangeIndex] ?? -1
+    const beforePrevious = previousIndexes[rangeIndex] ?? -1
+    const afterPrevious = previousIndexes[insertedRanges.length + rangeIndex] ?? -1
+    const hasBefore = beforeOffset !== undefined && beforeCurrent !== -1 && beforePrevious !== -1
+    const hasAfter = afterOffset !== undefined && afterCurrent !== -1 && afterPrevious !== -1
+
+    if (hasBefore && hasAfter) {
+      const previousTogether = beforePrevious === afterPrevious
+      const currentTogether = beforeCurrent === afterCurrent
+      if (previousTogether !== currentTogether) {
+        changed.add(beforeCurrent)
+        changed.add(afterCurrent)
+      } else if (
+        previousTogether &&
+        currentTogether &&
+        beforeOffset.previous + 1 === afterOffset.previous &&
+        beforeOffset.current + 1 < afterOffset.current
+      ) {
+        let separatorOnly = true
+        for (let offset = range.start; offset < range.end; offset++) {
+          if (!/\s/u.test(currentProse[offset] ?? "")) {
+            separatorOnly = false
+            break
+          }
+        }
+        if (separatorOnly) changed.add(beforeCurrent)
+      }
     }
-    if (currentSentences[currentIndex]?.text !== previousSentences[previousIndex]?.text) {
-      changed.add(currentIndex)
+
+    while (
+      deletionIndex < deletionEdges.length &&
+      (deletionEdges[deletionIndex]?.currentOffset ?? 0) < range.start
+    ) {
+      deletionIndex++
+    }
+    for (
+      let localDeletion = deletionIndex;
+      localDeletion < deletionEdges.length &&
+      (deletionEdges[localDeletion]?.currentOffset ?? Number.POSITIVE_INFINITY) <= range.end;
+      localDeletion++
+    ) {
+      const deletion = deletionEdges[localDeletion]
+      if (!deletion) continue
+      if (!hasBefore && hasAfter && deletion.beforeSentence === afterPrevious) {
+        changed.add(afterCurrent)
+      }
+      if (hasBefore && !hasAfter && deletion.afterSentence === beforePrevious) {
+        changed.add(beforeCurrent)
+      }
     }
   }
 
@@ -529,7 +600,13 @@ function sentenceSelector(text: string, previousText: string | undefined): Sente
       sentences,
       changedRanges,
       mergedBoundaries,
-      changedSentenceIdentityIndexes(previousSentences, sentences, currentProse, changes),
+      changedSentenceIdentityIndexes(
+        previousSentences,
+        sentences,
+        previousProse,
+        currentProse,
+        changes,
+      ),
     )
 }
 

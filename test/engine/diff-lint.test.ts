@@ -167,6 +167,22 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("an excluded-code insertion does not select unrelated deletion-only prose", () => {
+    const previous = `${words(15)}  ${words(15)}.\n\n\`\`\`\nconst oldValue = 1;\n\`\`\``
+    const current = `${words(15)} ${words(15)}.\n\n\`\`\`\nconst newValue = 1;\n\`\`\``
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
+  test("a prose insertion stays selected beside unrelated deletion-only prose", () => {
+    const previous = `${words(15)}  ${words(15)}.\n\n${words(25)}.`
+    const current = `${words(15)} ${words(15)}.\n\nextra ${words(25)}.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 1 })
+  })
+
   test("deleting one paragraph does not surface untouched pre-existing violations", () => {
     const previous = `${words(30)}.\n\n${words(28)}.`
     const current = `${words(28)}.`
