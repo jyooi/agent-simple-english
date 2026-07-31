@@ -6,7 +6,7 @@ export interface Paragraph {
 const LIST_MARKER = /^(?:[-*+]|\d+[.)])\s+/
 
 type LineKind = "blank" | "block-boundary" | "blockquote" | "list-item" | "prose"
-type ParagraphKind = "blockquote" | "list-item" | "prose"
+type ParagraphKind = "blockquote" | "blockquote-list-item" | "list-item" | "prose"
 
 const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
 const BLOCKQUOTE = /^ {0,3}>[ \t]?/
@@ -50,15 +50,25 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
         break
       case "blockquote": {
         const content = blockquoteContent(raw) ?? ""
-        if (content.trim() === "") {
+        const contentKind = classify(content)
+        if (contentKind === "blank" || contentKind === "block-boundary") {
           close()
           break
         }
-        if (open?.kind !== "blockquote") close()
+        if (contentKind === "list-item") {
+          close()
+          open = {
+            line: index + 1,
+            lines: [listItemContent(content) ?? ""],
+            kind: "blockquote-list-item",
+          }
+          break
+        }
+        if (open?.kind !== "blockquote" && open?.kind !== "blockquote-list-item") close()
         if (!open) {
           open = { line: index + 1, lines: [], kind: "blockquote" }
         }
-        open.lines.push(content)
+        open.lines.push(open.kind === "blockquote-list-item" ? content.trimStart() : content)
         break
       }
       case "list-item":
