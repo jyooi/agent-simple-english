@@ -641,6 +641,53 @@ describe.sequential("pi extension wiring", () => {
     expect(update.assistantMessageEvent.delta).toBe("")
     expect(update.assistantMessageEvent.partial.content).toEqual([])
 
+    const thinking = {
+      ...assistantMessage(""),
+      content: [{ type: "thinking", thinking: "This isn't permitted." }],
+    }
+    await pi.emit("message_start", { message: thinking }, context)
+    expect(thinking.content).toEqual([])
+
+    const thinkingPartial = {
+      ...assistantMessage(""),
+      content: [{ type: "thinking", thinking: "This isn't permitted." }],
+    }
+    const thinkingUpdate = {
+      message: thinkingPartial,
+      assistantMessageEvent: {
+        type: "thinking_delta",
+        contentIndex: 0,
+        delta: "This isn't permitted.",
+        partial: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+        },
+      },
+    }
+    await pi.emit("message_update", thinkingUpdate, context)
+    expect(thinkingPartial.content).toEqual([])
+    expect(thinkingUpdate.assistantMessageEvent.delta).toBe("")
+    expect(thinkingUpdate.assistantMessageEvent.partial.content).toEqual([])
+
+    const thinkingEnd = {
+      message: {
+        ...assistantMessage(""),
+        content: [{ type: "thinking", thinking: "This isn't permitted." }],
+      },
+      assistantMessageEvent: {
+        type: "thinking_end",
+        contentIndex: 0,
+        content: "This isn't permitted.",
+        partial: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+        },
+      },
+    }
+    await pi.emit("message_update", thinkingEnd, context)
+    expect(thinkingEnd.assistantMessageEvent.content).toBe("")
+    expect(thinkingEnd.assistantMessageEvent.partial.content).toEqual([])
+
     const finalized = await pi.finalizeAssistant(
       assistantMessage("This isn't permitted."),
       context,
@@ -699,9 +746,43 @@ describe.sequential("pi extension wiring", () => {
     await pi.executeTool("say", "say-approved", { text: "Open the valve." }, context)
 
     const runner = boundaryRunner(context.sessionManager, {
-      message_end: [() => ({ message: assistantMessage("This isn't permitted.") })],
+      message_end: [() => ({
+        message: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+        },
+      })],
+      message_update: [(event) => {
+        const update = event.assistantMessageEvent as {
+          delta: string
+          partial: ReturnType<typeof assistantMessage>
+        }
+        update.delta = "This isn't permitted."
+        update.partial = {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+        } as never
+      }],
       tool_result: [() => ({ content: [{ type: "text", text: "This isn't permitted." }] })],
     })
+    const streamedThinking = {
+      type: "message_update",
+      message: {
+        ...assistantMessage(""),
+        content: [{ type: "thinking", thinking: "Open the valve." }],
+      },
+      assistantMessageEvent: {
+        type: "thinking_delta",
+        contentIndex: 0,
+        delta: "Open the valve.",
+        partial: {
+          ...assistantMessage(""),
+          content: [{ type: "thinking", thinking: "Open the valve." }],
+        },
+      },
+    }
+    await runner.emit(streamedThinking as never)
+
     const assistant = assistantMessage("Open the valve.")
     const finalized = await runner.emitMessageEnd({ type: "message_end", message: assistant } as never)
     const result = await runner.emitToolResult({
@@ -714,6 +795,9 @@ describe.sequential("pi extension wiring", () => {
       isError: false,
     })
 
+    expect(streamedThinking.message.content).toEqual([])
+    expect(streamedThinking.assistantMessageEvent.delta).toBe("")
+    expect(streamedThinking.assistantMessageEvent.partial.content).toEqual([])
     expect(finalized?.content).toEqual([])
     expect(result).toMatchObject({
       content: [{ type: "text", text: "Open the valve." }],

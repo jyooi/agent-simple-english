@@ -206,12 +206,12 @@ function captureAndRedactSayArguments(
   replaceRecord(argumentsValue, { text: REDACTED_SAY_TEXT })
 }
 
-function contentWithoutText(
+function contentWithoutReplyProse(
   state: SessionState,
   message: AssistantMessage,
 ): AssistantMessage["content"] {
   return message.content.filter((block) => {
-    if (block.type === "text") return false
+    if (block.type === "text" || block.type === "thinking") return false
     if (block.type === "toolCall" && block.name === "say") {
       captureAndRedactSayArguments(state, block.id, block.arguments)
     }
@@ -219,21 +219,27 @@ function contentWithoutText(
   })
 }
 
-function suppressAssistantText(state: SessionState, message: Message): void {
-  if (message.role === "assistant") message.content = contentWithoutText(state, message)
+function suppressAssistantReply(state: SessionState, message: Message): void {
+  if (message.role === "assistant") message.content = contentWithoutReplyProse(state, message)
 }
 
-function suppressAssistantTextUpdate(state: SessionState, event: MessageUpdateEvent): void {
-  suppressAssistantText(state, event.message)
+function suppressAssistantReplyUpdate(state: SessionState, event: MessageUpdateEvent): void {
+  suppressAssistantReply(state, event.message)
   const update = event.assistantMessageEvent
-  if ("partial" in update) suppressAssistantText(state, update.partial)
-  if (update.type === "text_delta" || update.type === "toolcall_delta") update.delta = ""
-  if (update.type === "text_end") update.content = ""
+  if ("partial" in update) suppressAssistantReply(state, update.partial)
+  if (
+    update.type === "text_delta" ||
+    update.type === "thinking_delta" ||
+    update.type === "toolcall_delta"
+  ) {
+    update.delta = ""
+  }
+  if (update.type === "text_end" || update.type === "thinking_end") update.content = ""
   if (update.type === "toolcall_end" && update.toolCall.name === "say") {
     captureAndRedactSayArguments(state, update.toolCall.id, update.toolCall.arguments)
   }
-  if (update.type === "done") suppressAssistantText(state, update.message)
-  if (update.type === "error") suppressAssistantText(state, update.error)
+  if (update.type === "done") suppressAssistantReply(state, update.message)
+  if (update.type === "error") suppressAssistantReply(state, update.error)
 }
 
 function strictSayContent(state: SessionState, toolCallId: string) {
@@ -251,7 +257,7 @@ function strictSayContent(state: SessionState, toolCallId: string) {
 function enforceStrictMessage(state: SessionState, message: Message): void {
   if (!state.enabled || !state.strict) return
   if (message.role === "assistant") {
-    suppressAssistantText(state, message)
+    suppressAssistantReply(state, message)
     return
   }
   if (message.role !== "toolResult" || message.toolName !== "say") return
@@ -263,7 +269,7 @@ function enforceStrictEvent(state: SessionState, event: Record<string, unknown>)
   if (isRecord(event.message) && "role" in event.message) {
     enforceStrictMessage(state, event.message as Message)
   }
-  if (event.type === "message_update") suppressAssistantTextUpdate(state, event as MessageUpdateEvent)
+  if (event.type === "message_update") suppressAssistantReplyUpdate(state, event as MessageUpdateEvent)
   if (
     (event.type === "tool_execution_start" || event.type === "tool_execution_update") &&
     event.toolName === "say" &&
@@ -747,7 +753,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   })
 
   pi.on("message_update", (event) => {
-    if (state.enabled && state.strict) suppressAssistantTextUpdate(state, event)
+    if (state.enabled && state.strict) suppressAssistantReplyUpdate(state, event)
   })
 
   pi.on("message_end", (event) => {
