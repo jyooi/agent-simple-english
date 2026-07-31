@@ -185,6 +185,34 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations[0]?.message).toContain(`not \"${found}\"`)
   })
 
+  test.each([
+    ["xapproximately.", "approximately."],
+    ["approximatelyx", "approximately"],
+  ])("deleting prose at a sentence edge can create a dictionary violation: %s", (previous, current) => {
+    const report = lint("prose-file", current, { previousText: previous, dictionary })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]?.message).toContain('not "approximately"')
+  })
+
+  test.each([
+    [" approximately.", "approximately."],
+    ["approximately. ", "approximately."],
+  ])("deleting whitespace at a sentence edge does not report an existing violation: %s", (previous, current) => {
+    expect(
+      lint("prose-file", current, { previousText: previous, dictionary }).violations,
+    ).toHaveLength(0)
+  })
+
+  test.each([
+    ["Remove this sentence. Approximately.", "Approximately."],
+    ["Approximately. Remove this sentence.", "Approximately."],
+  ])("deleting a complete sentence at an edge does not report its neighbor: %s", (previous, current) => {
+    expect(
+      lint("prose-file", current, { previousText: previous, dictionary }).violations,
+    ).toHaveLength(0)
+  })
+
   test("deleting duplicate internal whitespace does not report an existing violation", () => {
     const previous = "Do this prior  to assembly."
     const current = "Do this prior to assembly."

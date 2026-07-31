@@ -359,8 +359,16 @@ function containingSentenceIndexes(
 }
 
 interface DeletionBoundary {
-  readonly before: number
-  readonly after: number
+  readonly before?: number
+  readonly after?: number
+}
+
+function deletionBoundaryStart(boundary: DeletionBoundary): number {
+  return boundary.before ?? boundary.after ?? Number.POSITIVE_INFINITY
+}
+
+function deletionBoundaryEnd(boundary: DeletionBoundary): number {
+  return boundary.after ?? boundary.before ?? Number.NEGATIVE_INFINITY
 }
 
 function deletionBoundaries(
@@ -368,7 +376,7 @@ function deletionBoundaries(
   currentProse: string,
   previousSentences: readonly Sentence[],
   changes: TextChanges,
-): MergedBoundary[] {
+): DeletionBoundary[] {
   const previousStarts = changes.deletions.map((deletion) => deletion.previousStart)
   const previousEnds = changes.deletions.map((deletion) => deletion.previousEnd)
   const currentOffsets = changes.deletions.map((deletion) => deletion.currentOffset)
@@ -376,31 +384,66 @@ function deletionBoundaries(
   const oldAfter = nearestNonWhitespaceAfter(previousProse, previousEnds)
   const newBefore = nearestNonWhitespaceBefore(currentProse, currentOffsets)
   const newAfter = nearestNonWhitespaceAfter(currentProse, currentOffsets)
+  const deletedFirst = nearestNonWhitespaceAfter(previousProse, previousStarts).map(
+    (offset, index) =>
+      offset !== undefined && offset < (changes.deletions[index]?.previousEnd ?? 0)
+        ? offset
+        : undefined,
+  )
+  const deletedLast = nearestNonWhitespaceBefore(previousProse, previousEnds).map(
+    (offset, index) =>
+      offset !== undefined && offset >= (changes.deletions[index]?.previousStart ?? 0)
+        ? offset
+        : undefined,
+  )
   const oldBeforeSentences = containingSentenceIndexes(previousSentences, oldBefore)
   const oldAfterSentences = containingSentenceIndexes(previousSentences, oldAfter)
+  const deletedFirstSentences = containingSentenceIndexes(previousSentences, deletedFirst)
+  const deletedLastSentences = containingSentenceIndexes(previousSentences, deletedLast)
   const boundaries: DeletionBoundary[] = []
 
   for (let index = 0; index < changes.deletions.length; index++) {
     const deletion = changes.deletions[index]
     const before = newBefore[index]
     const after = newAfter[index]
-    if (
-      deletion === undefined ||
-      oldBefore[index] === undefined ||
-      oldAfter[index] === undefined ||
-      before === undefined ||
-      after === undefined
-    ) {
+    if (deletion === undefined || (before === undefined && after === undefined)) continue
+
+    const beforeSentence = oldBeforeSentences[index] ?? -1
+    const afterSentence = oldAfterSentences[index] ?? -1
+    const deletedProse = previousProse.slice(deletion.previousStart, deletion.previousEnd)
+
+    if (before !== undefined && after !== undefined) {
+      if (beforeSentence === -1 || afterSentence === -1) continue
+      const previousTogether = beforeSentence === afterSentence
+      if (previousTogether && !/\S/u.test(deletedProse) && before + 1 < after) continue
+      boundaries.push({ before, after })
       continue
     }
-    const beforeSentence = oldBeforeSentences[index]
-    const previousTogether = beforeSentence !== -1 && beforeSentence === oldAfterSentences[index]
-    const deletedProse = previousProse.slice(deletion.previousStart, deletion.previousEnd)
-    if (previousTogether && !/\S/u.test(deletedProse) && before + 1 < after) continue
-    boundaries.push({ before, after })
+
+    if (!/\S/u.test(deletedProse)) continue
+    if (
+      before === undefined &&
+      after !== undefined &&
+      afterSentence !== -1 &&
+      deletedLastSentences[index] === afterSentence
+    ) {
+      boundaries.push({ after })
+    }
+    if (
+      after === undefined &&
+      before !== undefined &&
+      beforeSentence !== -1 &&
+      deletedFirstSentences[index] === beforeSentence
+    ) {
+      boundaries.push({ before })
+    }
   }
 
-  return boundaries.sort((left, right) => left.before - right.before || left.after - right.after)
+  return boundaries.sort(
+    (left, right) =>
+      deletionBoundaryStart(left) - deletionBoundaryStart(right) ||
+      deletionBoundaryEnd(left) - deletionBoundaryEnd(right),
+  )
 }
 
 function normalizeRanges(ranges: readonly ChangedRange[]): ChangedRange[] {
@@ -579,7 +622,7 @@ function selectChangedSentences(
 
     while (
       boundaryIndex < deletionBoundaries.length &&
-      (deletionBoundaries[boundaryIndex]?.before ?? 0) < sentence.startOffset
+      deletionBoundaryEnd(deletionBoundaries[boundaryIndex] ?? {}) < sentence.startOffset
     ) {
       boundaryIndex++
     }
@@ -587,10 +630,14 @@ function selectChangedSentences(
     let containsBoundary = false
     while (
       nextBoundary < deletionBoundaries.length &&
-      (deletionBoundaries[nextBoundary]?.before ?? Number.POSITIVE_INFINITY) < sentence.endOffset
+      deletionBoundaryStart(deletionBoundaries[nextBoundary] ?? {}) < sentence.endOffset
     ) {
       const boundary = deletionBoundaries[nextBoundary]
-      if (boundary && contains(sentence, boundary.before) && contains(sentence, boundary.after)) {
+      if (
+        boundary &&
+        (boundary.before === undefined || contains(sentence, boundary.before)) &&
+        (boundary.after === undefined || contains(sentence, boundary.after))
+      ) {
         containsBoundary = true
       }
       nextBoundary++
