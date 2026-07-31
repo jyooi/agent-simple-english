@@ -23,10 +23,19 @@ const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Viol
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const violations = linters[kind](text, {
+  const raw = linters[kind](text, {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     tagger: options.tagger,
-  }).sort((a, b) => a.line - b.line || a.column - b.column)
+  })
+  const violations = raw
+    .flatMap((violation) => {
+      const setting = options.rules?.[violation.ruleId]
+      if (setting === undefined) {
+        return [violation]
+      }
+      return setting === "off" ? [] : [{ ...violation, severity: setting }]
+    })
+    .sort((a, b) => a.line - b.line || a.column - b.column)
   return {
     violations,
     summary: {

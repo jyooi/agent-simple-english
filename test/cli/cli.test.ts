@@ -1,36 +1,5 @@
-import { execFile } from "node:child_process"
-import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
-
-const repoRoot = fileURLToPath(new URL("../..", import.meta.url))
-
-interface CliResult {
-  code: number
-  stdout: string
-  stderr: string
-}
-
-async function runCli(args: string[], stdin?: string): Promise<CliResult> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      "bun",
-      ["src/cli/main.ts", ...args],
-      { cwd: repoRoot },
-      (error, stdout, stderr) => {
-        const code = error && typeof error.code === "number" ? error.code : 0
-        if (error && typeof error.code !== "number") {
-          reject(error)
-          return
-        }
-        resolve({ code, stdout, stderr })
-      },
-    )
-    if (stdin !== undefined) {
-      child.stdin?.write(stdin)
-    }
-    child.stdin?.end()
-  })
-}
+import { runCli } from "./run-cli.ts"
 
 describe("simple-english CLI", () => {
   test("exits 0 on a clean file", async () => {
@@ -51,7 +20,7 @@ describe("simple-english CLI", () => {
 
   test("lints stdin when no paths are given", async () => {
     const longSentence = `${Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ")}.`
-    const result = await runCli([], longSentence)
+    const result = await runCli([], { stdin: longSentence })
 
     expect(result.code).toBe(1)
     expect(result.stdout).toContain("<stdin>:1:1")
@@ -59,7 +28,7 @@ describe("simple-english CLI", () => {
   })
 
   test("exits 0 on clean stdin", async () => {
-    const result = await runCli([], "A short sentence.")
+    const result = await runCli([], { stdin: "A short sentence." })
 
     expect(result.code).toBe(0)
   })
@@ -85,7 +54,7 @@ describe("simple-english CLI", () => {
   })
 
   test("--json on clean input emits an empty report and exits 0", async () => {
-    const result = await runCli(["--json"], "A short sentence.")
+    const result = await runCli(["--json"], { stdin: "A short sentence." })
 
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({
@@ -95,7 +64,7 @@ describe("simple-english CLI", () => {
   })
 
   test("exits 1 on progressive tense, a hard violation", async () => {
-    const result = await runCli([], "The pump is running.")
+    const result = await runCli([], { stdin: "The pump is running." })
 
     expect(result.code).toBe(1)
     expect(result.stdout).toContain("<stdin>:1:10 verb-progressive")
@@ -103,7 +72,7 @@ describe("simple-english CLI", () => {
   })
 
   test("prints passive voice but exits 0 because it is soft", async () => {
-    const result = await runCli([], "The bolt was removed.")
+    const result = await runCli([], { stdin: "The bolt was removed." })
 
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("<stdin>:1:10 verb-passive")

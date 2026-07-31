@@ -1,11 +1,14 @@
+import type { RuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
 
 export type LintKind = "prose-file"
 
 export type Severity = "hard" | "soft"
 
+export type RuleSetting = Severity | "off"
+
 export interface Violation {
-  readonly ruleId: string
+  readonly ruleId: RuleId
   readonly severity: Severity
   readonly message: string
   readonly line: number
@@ -13,6 +16,7 @@ export interface Violation {
 }
 
 export interface LintOptions {
+  readonly rules?: Partial<Record<RuleId, RuleSetting>>
   readonly maxSentenceWords?: number
   // POS tagger for the verb-form rules; when absent those rules do not run.
   readonly tagger?: Tagger
