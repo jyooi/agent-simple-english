@@ -14,6 +14,7 @@ const dictionary = {
   entries: [
     { unapproved: ["attempt", "attempts"], suggestions: ["try"], partsOfSpeech: ["VERB"] },
     { unapproved: ["approximately"], suggestions: ["about"] },
+    { unapproved: ["prior to"], suggestions: ["before"] },
   ],
 } as const satisfies Dictionary
 
@@ -78,6 +79,30 @@ describe("lint prose-file: dictionary rule", () => {
       suggestions: ["about"],
       column: 7,
     })
+  })
+
+  test("matches phrases across Markdown soft line breaks at the source position", () => {
+    const report = lint("prose-file", "Start here.\nUse this prior\n  to assembly.", { dictionary })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: 'Use "before", not "prior to".',
+        suggestions: ["before"],
+        line: 2,
+        column: 10,
+      },
+    ])
+  })
+
+  test("does not match phrases across paragraph or hard line breaks", () => {
+    expect(lint("prose-file", "Do this prior\n\nto assembly.", { dictionary }).violations).toEqual(
+      [],
+    )
+    expect(lint("prose-file", "Do this prior  \nto assembly.", { dictionary }).violations).toEqual(
+      [],
+    )
   })
 
   test("skips POS-aware entries when no tagger is available", () => {

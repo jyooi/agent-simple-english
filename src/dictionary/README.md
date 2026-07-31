@@ -10,4 +10,5 @@
 
 The rule checks an entry with `partsOfSpeech` only when an injected tagger returns one of those tags.
 The rule checks an entry without `partsOfSpeech` by word or phrase alone.
-See [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for source attribution and license notices.
+The bundled data contains only the `dictionary/not-approved-word` entries from the pinned pi-ste `word_entries()` and `phrase_entries()` functions.
+See [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for exact source and license details.

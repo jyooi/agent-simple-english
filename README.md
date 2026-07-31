@@ -50,8 +50,9 @@ If that file cannot be read or validated, the CLI prints a dictionary error and 
 
 ## Attribution
 
-The vendored dictionary data is converted from [`ctotheameron/pi-ste`](https://github.com/ctotheameron/pi-ste) at commit `18a8cc686be2cc0e680705daf2327fb0d1ef93ce` and is used under the MIT License.
-The upstream attribution and ASD-STE100 redistribution note are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The vendored dictionary data is converted only from the `dictionary/not-approved-word` word and phrase entries in [`ctotheameron/pi-ste`](https://github.com/ctotheameron/pi-ste) at commit `18a8cc686be2cc0e680705daf2327fb0d1ef93ce`.
+The package at that commit declares the MIT License.
+Exact source details and the ASD-STE100 redistribution note are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Development
 

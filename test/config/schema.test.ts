@@ -32,9 +32,9 @@ describe("config schema", () => {
     expect(result._tag).toBe("Right")
   })
 
-  test("accepts every severity setting", () => {
+  test("accepts every severity setting for the dictionary rule", () => {
     for (const setting of ["hard", "soft", "off"]) {
-      expect(decode({ rules: { "sentence-length": setting } })._tag).toBe("Right")
+      expect(decode({ rules: { "dictionary-not-approved-word": setting } })._tag).toBe("Right")
     }
   })
 

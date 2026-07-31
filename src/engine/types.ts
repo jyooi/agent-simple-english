@@ -1,8 +1,6 @@
 import type { Dictionary } from "../dictionary/schema.ts"
-import type { RuleId as RegisteredRuleId } from "./rules/registry.ts"
+import type { RuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
-
-export type RuleId = RegisteredRuleId | "dictionary-not-approved-word"
 
 export type LintKind = "prose-file"
 
