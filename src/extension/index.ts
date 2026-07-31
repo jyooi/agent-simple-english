@@ -383,8 +383,15 @@ function restoreReplyState(state: SessionState, ctx: ExtensionContext): void {
   const branch = ctx.sessionManager.getBranch()
   for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index]
-    if (entry?.type !== "message" || entry.message.role !== "assistant") continue
-    const textBlocks = entry.message.content.filter((block) => block.type === "text")
+    if (entry?.type !== "message") continue
+    const message = entry.message
+    if (
+      message.role !== "assistant" &&
+      (message.role !== "toolResult" || message.toolName !== "say" || message.isError)
+    ) {
+      continue
+    }
+    const textBlocks = message.content.filter((block) => block.type === "text")
     if (textBlocks.length === 0) continue
     updateReplyState(state, ctx, textBlocks.map((block) => block.text).join("\n"))
     return

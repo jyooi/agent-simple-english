@@ -315,6 +315,24 @@ async function executeBash(
   )
 }
 
+function sayResultEntry(text: string, id = "say-result") {
+  return {
+    type: "message",
+    id,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: {
+      role: "toolResult",
+      toolCallId: "say-approved",
+      toolName: "say",
+      content: [{ type: "text", text }],
+      details: {},
+      isError: false,
+      timestamp: Date.now(),
+    },
+  }
+}
+
 describe.sequential("pi extension wiring", () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
@@ -1061,6 +1079,20 @@ describe.sequential("pi extension wiring", () => {
         }),
       ]),
     })
+  })
+
+  test("restores the latest successful strict say reply", async () => {
+    const { pi, context, widgets } = await startExtension({
+      branch: [
+        assistantEntry("This isn't permitted.", "old-reply"),
+        sayResultEntry("Open the valve."),
+      ],
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+      sessionStartReason: "resume",
+    })
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
   test("keeps reply checking cleared during disabled tree navigation", async () => {
