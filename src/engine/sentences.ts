@@ -5,6 +5,10 @@ export interface Sentence {
   readonly endLine: number
   readonly startOffset: number
   readonly endOffset: number
+  readonly contentRanges: readonly {
+    readonly start: number
+    readonly end: number
+  }[]
 }
 
 const CLOSING_DELIMITERS = new Set([
@@ -197,7 +201,20 @@ export function segmentSentences(
     startOffset: number
     endOffset: number
     parts: string[]
+    contentRanges: Array<{ start: number; end: number }>
   } | null = null
+
+  const appendPart = (part: string, startOffset: number) => {
+    if (!open) return
+    const leadingWhitespace = part.length - part.trimStart().length
+    const text = part.trim()
+    open.parts.push(text)
+    if (text === "") return
+    const start = startOffset + leadingWhitespace
+    const end = start + text.length
+    open.contentRanges.push({ start, end })
+    open.endOffset = end
+  }
 
   const close = () => {
     if (!open) return
@@ -210,6 +227,7 @@ export function segmentSentences(
         endLine: open.endLine,
         startOffset: open.startOffset,
         endOffset: open.endOffset,
+        contentRanges: open.contentRanges,
       })
     }
     open = null
@@ -233,11 +251,11 @@ export function segmentSentences(
           startOffset,
           endOffset: startOffset,
           parts: [],
+          contentRanges: [],
         }
       }
       open.endLine = index + 1
-      open.parts.push(part.trim())
-      open.endOffset = (lineOffsets[index] ?? 0) + end
+      appendPart(part, (lineOffsets[index] ?? 0) + offset)
       close()
       offset = end
     }
@@ -254,11 +272,11 @@ export function segmentSentences(
           startOffset,
           endOffset: startOffset,
           parts: [],
+          contentRanges: [],
         }
       }
       open.endLine = index + 1
-      open.parts.push(rest.trim())
-      open.endOffset = (lineOffsets[index] ?? 0) + raw.trimEnd().length
+      appendPart(rest, (lineOffsets[index] ?? 0) + offset)
     }
   })
   close()

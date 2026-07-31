@@ -318,9 +318,20 @@ function selectChangedSentences(
     ) {
       rangeIndex++
     }
-    const range = changedRanges[rangeIndex]
-    const intersectsRange =
-      range !== undefined && range.start < sentence.endOffset && range.end > sentence.startOffset
+    let intersectsRange = false
+    for (const contentRange of sentence.contentRanges) {
+      while (
+        rangeIndex < changedRanges.length &&
+        (changedRanges[rangeIndex]?.end ?? 0) <= contentRange.start
+      ) {
+        rangeIndex++
+      }
+      const range = changedRanges[rangeIndex]
+      if (range && range.start < contentRange.end && range.end > contentRange.start) {
+        intersectsRange = true
+        break
+      }
+    }
 
     while (
       boundaryIndex < mergedBoundaries.length &&

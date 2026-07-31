@@ -56,6 +56,22 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("changing a line ending within a multi-line sentence does not report it", () => {
+    const previous = `${words(15)}\n${words(15)}.`
+    const current = `${words(15)}\r\n${words(15)}.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
+  test("editing content within a multi-line sentence reports it", () => {
+    const previous = `${words(15)}\n${words(15)}.`
+    const current = `${words(15)}\n${words(14)} changed.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
   test("appending whitespace does not report an unchanged unterminated sentence", () => {
     const previous = words(30)
     const current = `${previous} `
