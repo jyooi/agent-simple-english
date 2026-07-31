@@ -54,6 +54,7 @@ interface SessionState {
   tagger?: Tagger
   error?: string
   ready: boolean
+  pendingReplyFeedback?: string
   readonly pendingWarnings: Map<string, string>
 }
 
@@ -97,14 +98,60 @@ function suggestedFix(violation: Violation): string {
   return fixes[violation.ruleId]
 }
 
-function formatViolations(path: string, heading: string, violations: readonly Violation[]): string {
-  const details = violations
+function violationDetails(violations: readonly Violation[]): string {
+  return violations
     .map(
       (violation) =>
         `- line ${violation.line}, column ${violation.column} [${violation.ruleId}]: ${violation.message} Suggested fix: ${suggestedFix(violation)}`,
     )
     .join("\n")
-  return `${heading} ${path}:\n${details}`
+}
+
+function formatViolations(path: string, heading: string, violations: readonly Violation[]): string {
+  return `${heading} ${path}:\n${violationDetails(violations)}`
+}
+
+function formatReplyFeedback(violations: readonly Violation[]): string {
+  return `STE feedback for your previous reply:\n${violationDetails(violations)}`
+}
+
+function updateReplyState(state: SessionState, ctx: ExtensionContext, text?: string): void {
+  state.pendingReplyFeedback = undefined
+  if (text === undefined) {
+    if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
+    return
+  }
+
+  const report = lint("prose-file", text, {
+    ...state.config,
+    dictionary: state.dictionary,
+    tagger: state.tagger,
+  })
+  const hard = report.violations.filter((violation) => violation.severity === "hard")
+  const softCount = report.summary.total - report.summary.hard
+  state.pendingReplyFeedback = hard.length === 0 ? undefined : formatReplyFeedback(hard)
+  if (!ctx.hasUI) return
+
+  const status =
+    report.summary.total === 0
+      ? "STE reply: clean"
+      : `STE reply: ${report.summary.hard} hard, ${softCount} soft`
+  ctx.ui.setWidget("simple-english-reply", [status])
+}
+
+function restoreReplyState(state: SessionState, ctx: ExtensionContext): void {
+  const branch = ctx.sessionManager.getBranch()
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index]
+    if (entry?.type !== "message" || entry.message.role !== "assistant") continue
+    const text = entry.message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n")
+    updateReplyState(state, ctx, text)
+    return
+  }
+  updateReplyState(state, ctx)
 }
 
 function notifyWarnings(
@@ -219,6 +266,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     state.ready = false
     state.error = undefined
     state.pendingWarnings.clear()
+    updateReplyState(state, ctx)
     pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
     try {
@@ -228,6 +276,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
       )
       state.tagger = makeWinkTagger()
       state.ready = true
+      restoreReplyState(state, ctx)
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error)
       if (ctx.hasUI)
@@ -235,9 +284,40 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
   })
 
+  pi.on("session_tree", (_event, ctx) => {
+    if (state.ready) restoreReplyState(state, ctx)
+  })
+
   pi.on("before_agent_start", (event) => ({
     systemPrompt: `${event.systemPrompt}\n\n${ruleSummary(state.config)}`,
   }))
+
+  pi.on("turn_end", (event, ctx) => {
+    if (!state.ready || event.message.role !== "assistant") return
+    const text = event.message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n")
+    updateReplyState(state, ctx, text)
+  })
+
+  pi.on("context", (event) => {
+    const feedback = state.pendingReplyFeedback
+    if (feedback === undefined) return undefined
+    state.pendingReplyFeedback = undefined
+    return {
+      messages: [
+        ...event.messages,
+        {
+          role: "custom" as const,
+          customType: "simple-english-reply-feedback",
+          content: feedback,
+          display: false,
+          timestamp: Date.now(),
+        },
+      ],
+    }
+  })
 
   pi.on("tool_call", async (event) => {
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
