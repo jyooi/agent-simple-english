@@ -10,6 +10,7 @@ import {
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent"
 import { Effect } from "effect"
+import { Type } from "typebox"
 import { loadConfig } from "../config/load.ts"
 import type { SteConfig } from "../config/schema.ts"
 import { loadDictionary } from "../dictionary/load.ts"
@@ -18,7 +19,7 @@ import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { RuleId } from "../engine/rules/registry.ts"
 import type { Tagger } from "../engine/tagger.ts"
-import type { RuleSetting, Violation } from "../engine/types.ts"
+import type { LintReport, RuleSetting, Violation } from "../engine/types.ts"
 import { makeWinkTagger } from "../tagger/wink.ts"
 import { blankCommitMetadata, findCommitInvocations } from "./commit-message.ts"
 
@@ -54,11 +55,25 @@ interface SessionState {
   config: SteConfig
   dictionary?: Dictionary
   tagger?: Tagger
+  enabled: boolean
   error?: string
   ready: boolean
+  strict: boolean
   pendingReplyFeedback?: string
   readonly pendingWarnings: Map<string, string>
 }
+
+const STRICT_MODE_NOTE = [
+  "## Simplified Technical English: strict mode",
+  "",
+  "Send every user-facing reply through the `say` tool.",
+  "Write no prose outside that tool.",
+  "Call `say` as your final action.",
+  "A hard violation blocks the call before the user reads the text.",
+  "Read the feedback, rewrite the text, and call `say` again.",
+].join("\n")
+
+let sharedTagger: Tagger | undefined
 
 function resolvedSetting(config: SteConfig, ruleId: RuleId): RuleSetting {
   return config.rules?.[ruleId] ?? DEFAULT_RULE_SETTINGS[ruleId]
@@ -77,6 +92,25 @@ function ruleSummary(config: SteConfig): string {
     })
     .join("\n")
   return `## Simplified Technical English\n\nFollow these STE rules in prose that you write or edit:\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
+}
+
+function statusSummary(state: SessionState): string {
+  const counts: Record<RuleSetting, number> = { hard: 0, soft: 0, off: 0 }
+  for (const ruleId of Object.keys(RULE_SUMMARIES) as RuleId[]) {
+    counts[resolvedSetting(state.config, ruleId)]++
+  }
+  const mode = !state.enabled ? "disabled" : state.strict ? "strict" : "enabled"
+  const dictionary =
+    state.dictionary !== undefined
+      ? "loaded"
+      : state.error !== undefined
+        ? `failed (${state.error})`
+        : "not loaded"
+  return [
+    `Mode: ${mode}`,
+    `Rules: ${counts.hard} hard, ${counts.soft} soft, ${counts.off} off`,
+    `Dictionary: ${dictionary}`,
+  ].join("\n")
 }
 
 function suggestedFix(violation: Violation): string {
@@ -117,21 +151,24 @@ function formatReplyFeedback(violations: readonly Violation[]): string {
   return `STE feedback for your previous reply:\n${violationDetails(violations)}`
 }
 
-function updateReplyState(state: SessionState, ctx: ExtensionContext, text?: string): void {
-  state.pendingReplyFeedback = undefined
-  if (text === undefined) {
-    if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
-    return
-  }
-
-  const report = lint("prose-file", text, {
+function lintReply(state: SessionState, text: string): LintReport {
+  return lint("prose-file", text, {
     ...state.config,
     dictionary: state.dictionary,
     tagger: state.tagger,
   })
+}
+
+function showReplyReport(
+  state: SessionState,
+  ctx: ExtensionContext,
+  report: LintReport,
+  queueFeedback: boolean,
+): void {
   const hard = report.violations.filter((violation) => violation.severity === "hard")
   const softCount = report.summary.total - report.summary.hard
-  state.pendingReplyFeedback = hard.length === 0 ? undefined : formatReplyFeedback(hard)
+  state.pendingReplyFeedback =
+    queueFeedback && hard.length > 0 ? formatReplyFeedback(hard) : undefined
   if (!ctx.hasUI) return
 
   const status =
@@ -141,16 +178,23 @@ function updateReplyState(state: SessionState, ctx: ExtensionContext, text?: str
   ctx.ui.setWidget("simple-english-reply", [status])
 }
 
+function updateReplyState(state: SessionState, ctx: ExtensionContext, text?: string): void {
+  state.pendingReplyFeedback = undefined
+  if (text === undefined) {
+    if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
+    return
+  }
+  showReplyReport(state, ctx, lintReply(state, text), true)
+}
+
 function restoreReplyState(state: SessionState, ctx: ExtensionContext): void {
   const branch = ctx.sessionManager.getBranch()
   for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index]
     if (entry?.type !== "message" || entry.message.role !== "assistant") continue
-    const text = entry.message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-    updateReplyState(state, ctx, text)
+    const textBlocks = entry.message.content.filter((block) => block.type === "text")
+    if (textBlocks.length === 0) continue
+    updateReplyState(state, ctx, textBlocks.map((block) => block.text).join("\n"))
     return
   }
   updateReplyState(state, ctx)
@@ -249,11 +293,34 @@ function createGatedBashTool(cwd: string, state: SessionState) {
   const definition = createBashToolDefinition(cwd)
   const execute: typeof definition.execute = async (...args) => {
     const [toolCallId, input, _signal, _onUpdate, ctx] = args
-    const result = lintCommitCommand(state, ctx, toolCallId, input.command)
-    if (result?.block) throw new Error(result.reason)
+    if (state.enabled) {
+      const result = lintCommitCommand(state, ctx, toolCallId, input.command)
+      if (result?.block) throw new Error(result.reason)
+    }
     return definition.execute(...args)
   }
   return { ...definition, execute }
+}
+
+function lintStrictReply(
+  state: SessionState,
+  ctx: ExtensionContext,
+  text: string,
+): ToolCallEventResult | undefined {
+  if (!state.ready) {
+    return {
+      block: true,
+      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+    }
+  }
+  const report = lintReply(state, text)
+  showReplyReport(state, ctx, report, false)
+  const hard = report.violations.filter((violation) => violation.severity === "hard")
+  if (hard.length === 0) return undefined
+  return {
+    block: true,
+    reason: formatViolations("reply", "STE blocked", hard),
+  }
 }
 
 function createGatedWriteTool(cwd: string, state: SessionState) {
@@ -264,13 +331,15 @@ function createGatedWriteTool(cwd: string, state: SessionState) {
       operations: {
         mkdir: async () => undefined,
         writeFile: async (path, content) => {
-          if (!state.ready) {
-            throw new Error(
-              `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
-            )
+          if (state.enabled) {
+            if (!state.ready) {
+              throw new Error(
+                `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+              )
+            }
+            const result = lintProposedText(state, ctx, "write", toolCallId, input.path, content)
+            if (result?.block) throw new Error(result.reason)
           }
-          const result = lintProposedText(state, ctx, "write", toolCallId, input.path, content)
-          if (result?.block) throw new Error(result.reason)
           await mkdir(dirname(path), { recursive: true })
           if (signal?.aborted) throw new Error("Operation aborted")
           await writeFile(path, content, "utf8")
@@ -296,21 +365,23 @@ function createGatedEditTool(cwd: string, state: SessionState) {
           return content
         },
         writeFile: async (path, content) => {
-          if (!state.ready) {
-            throw new Error(
-              `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+          if (state.enabled) {
+            if (!state.ready) {
+              throw new Error(
+                `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+              )
+            }
+            const result = lintProposedText(
+              state,
+              ctx,
+              "edit",
+              toolCallId,
+              input.path,
+              content,
+              previousText,
             )
+            if (result?.block) throw new Error(result.reason)
           }
-          const result = lintProposedText(
-            state,
-            ctx,
-            "edit",
-            toolCallId,
-            input.path,
-            content,
-            previousText,
-          )
-          if (result?.block) throw new Error(result.reason)
           await writeFile(path, content, "utf8")
         },
       },
@@ -321,9 +392,83 @@ function createGatedEditTool(cwd: string, state: SessionState) {
 }
 
 export default function simpleEnglishExtension(pi: ExtensionAPI): void {
-  const state: SessionState = { config: {}, ready: false, pendingWarnings: new Map() }
+  const state: SessionState = {
+    config: {},
+    enabled: true,
+    ready: false,
+    strict: false,
+    pendingWarnings: new Map(),
+  }
+
+  const setSayActive = (active: boolean): void => {
+    const tools = pi.getActiveTools().filter((name) => name !== "say")
+    pi.setActiveTools(active ? [...tools, "say"] : tools)
+  }
+
+  pi.registerCommand("ste", {
+    description: "Toggle STE enforcement or show status. Use strict to gate replies.",
+    handler: async (args, ctx) => {
+      const command = args.trim().toLowerCase()
+      if (command === "status") {
+        ctx.ui.notify(statusSummary(state), "info")
+        return
+      }
+      if (command === "strict" || command === "strict on") {
+        state.enabled = true
+        state.strict = true
+        setSayActive(true)
+        ctx.ui.notify("STE strict mode enabled. Send every reply through the say tool.", "info")
+        return
+      }
+      if (command === "strict off") {
+        state.strict = false
+        setSayActive(false)
+        ctx.ui.notify("STE strict mode disabled.", "info")
+        return
+      }
+      if (command !== "" && command !== "on" && command !== "off") {
+        ctx.ui.notify("Usage: /ste [on|off|status|strict|strict off]", "warning")
+        return
+      }
+
+      state.enabled = command === "on" || (command === "" && !state.enabled)
+      if (!state.enabled) {
+        state.strict = false
+        setSayActive(false)
+        state.pendingReplyFeedback = undefined
+        state.pendingWarnings.clear()
+        if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
+      }
+      ctx.ui.notify(`STE enforcement ${state.enabled ? "enabled" : "disabled"}.`, "info")
+    },
+  })
+
+  pi.registerTool({
+    name: "say",
+    label: "Say",
+    description:
+      "Send prose to the user. In STE strict mode, use this tool for every user-facing reply.",
+    parameters: Type.Object({
+      text: Type.String({ description: "The complete user-facing reply" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (state.enabled && state.strict) {
+        const result = lintStrictReply(state, ctx, params.text)
+        if (result?.block) throw new Error(result.reason)
+      }
+      return {
+        content: [{ type: "text" as const, text: params.text }],
+        details: {},
+        terminate: true,
+      }
+    },
+  })
 
   pi.on("session_start", async (_event, ctx) => {
+    setSayActive(state.enabled && state.strict)
+    state.config = {}
+    state.dictionary = undefined
+    state.tagger = undefined
     state.ready = false
     state.error = undefined
     state.pendingWarnings.clear()
@@ -336,7 +481,8 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
       state.dictionary = await Effect.runPromise(
         loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
       )
-      state.tagger = makeWinkTagger()
+      sharedTagger ??= makeWinkTagger()
+      state.tagger = sharedTagger
       state.ready = true
       restoreReplyState(state, ctx)
     } catch (error) {
@@ -350,20 +496,22 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     if (state.ready) restoreReplyState(state, ctx)
   })
 
-  pi.on("before_agent_start", (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n${ruleSummary(state.config)}`,
-  }))
+  pi.on("before_agent_start", (event) => {
+    if (!state.enabled) return undefined
+    const additions = [ruleSummary(state.config)]
+    if (state.strict) additions.push(STRICT_MODE_NOTE)
+    return { systemPrompt: `${event.systemPrompt}\n\n${additions.join("\n\n")}` }
+  })
 
   pi.on("turn_end", (event, ctx) => {
-    if (!state.ready || event.message.role !== "assistant") return
-    const text = event.message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-    updateReplyState(state, ctx, text)
+    if (!state.enabled || !state.ready || event.message.role !== "assistant") return
+    const textBlocks = event.message.content.filter((block) => block.type === "text")
+    if (textBlocks.length === 0) return
+    updateReplyState(state, ctx, textBlocks.map((block) => block.text).join("\n"))
   })
 
   pi.on("context", (event) => {
+    if (!state.enabled) return undefined
     const feedback = state.pendingReplyFeedback
     if (feedback === undefined) return undefined
     state.pendingReplyFeedback = undefined
@@ -381,7 +529,15 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
   })
 
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, ctx) => {
+    if (!state.enabled) return undefined
+    if (event.toolName === "say" && state.strict) {
+      const text = (event.input as { text?: unknown }).text
+      if (typeof text !== "string") {
+        return { block: true, reason: "STE could not check the reply: say requires text." }
+      }
+      return lintStrictReply(state, ctx, text)
+    }
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
     if (state.ready) return undefined
     return {

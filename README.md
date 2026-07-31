@@ -24,6 +24,10 @@ After each finalized assistant reply, the extension lints its text as `prose-fil
 A latest-reply widget shows either a clean state or the hard and soft violation counts for the active branch, including after a session resume or tree navigation.
 Before the next model call, hidden feedback gives the model the details of hard reply violations only; soft reply violations stay in the widget.
 Reply linting uses the same Markdown code exclusions described below.
+Use `/ste` to disable or re-enable all write, edit, commit, and reply enforcement for the current session.
+Use `/ste status` to show the mode, configured rule counts by severity, and dictionary state.
+Use `/ste strict` to require user-facing replies through the gateable `say` tool, and use `/ste strict off` to restore normal replies.
+A strict reply with hard violations stays hidden until the agent sends a clean rewrite through `say`.
 A detected commit invocation whose message cannot be extracted fails closed and asks the agent to use a static message argument.
 A configuration or dictionary load error makes the extension fail closed and block `write`, `edit`, and detected `git commit` invocations for that session.
 

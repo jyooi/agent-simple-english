@@ -59,6 +59,11 @@ type ToolHandler = {
   ): unknown
 }
 
+type CommandHandler = {
+  readonly description: string
+  handler(args: string, context: ExtensionContextStub): unknown
+}
+
 interface CommitCommandFixture {
   readonly name: string
   readonly command: string
@@ -84,6 +89,8 @@ interface ExtensionContextStub {
 }
 
 class ExtensionApiStub {
+  readonly activeTools = new Set<string>()
+  readonly commands = new Map<string, CommandHandler>()
   readonly handlers = new Map<string, EventHandler[]>()
   readonly tools = new Map<string, ToolHandler>()
 
@@ -95,6 +102,26 @@ class ExtensionApiStub {
 
   registerTool(tool: ToolHandler): void {
     this.tools.set(tool.name, tool)
+    this.activeTools.add(tool.name)
+  }
+
+  getActiveTools(): string[] {
+    return [...this.activeTools]
+  }
+
+  setActiveTools(names: readonly string[]): void {
+    this.activeTools.clear()
+    for (const name of names) this.activeTools.add(name)
+  }
+
+  registerCommand(name: string, command: CommandHandler): void {
+    this.commands.set(name, command)
+  }
+
+  async runCommand(name: string, args: string, context: ExtensionContextStub) {
+    const command = this.commands.get(name)
+    if (command === undefined) throw new Error(`No command registered for ${name}`)
+    return command.handler(args, context)
   }
 
   async emit(event: string, payload: Record<string, unknown>, context: ExtensionContextStub) {
@@ -151,6 +178,7 @@ class ExtensionApiStub {
     }
     const tool = this.tools.get(toolName)
     if (tool === undefined) throw new Error(`No tool registered for ${toolName}`)
+    if (!this.activeTools.has(toolName)) throw new Error(`Tool is not active: ${toolName}`)
     return tool.execute(toolCallId, input as never, signal, undefined, context)
   }
 }
@@ -263,6 +291,7 @@ describe.sequential("pi extension wiring", () => {
     expect(manifest.pi.extensions).toEqual(["./src/extension/index.ts"])
     expect(manifest.dependencies).toMatchObject({
       effect: expect.any(String),
+      typebox: expect.any(String),
       "wink-eng-lite-web-model": expect.any(String),
       "wink-nlp": expect.any(String),
     })
@@ -403,6 +432,171 @@ describe.sequential("pi extension wiring", () => {
 
     expect(error?.message).toContain("line 3, column 6")
     expect(error?.message).toContain("[contraction]")
+  })
+
+  test("toggles write, commit, and reply enforcement for the session", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-enabled",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    await expect(
+      pi.emit(
+        "tool_call",
+        {
+          toolName: "bash",
+          toolCallId: "commit-enabled",
+          input: { command: `git commit -m "fix: This isn't permitted."` },
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ block: true })
+
+    await pi.runCommand("ste", "", context)
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-disabled",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).resolves.toBeDefined()
+    await expect(
+      pi.emit(
+        "tool_call",
+        {
+          toolName: "bash",
+          toolCallId: "commit-disabled",
+          input: { command: `git commit -m "fix: This isn't permitted."` },
+        },
+        context,
+      ),
+    ).resolves.toBeUndefined()
+    await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
+    expect(widgets.get("simple-english-reply")).toBeUndefined()
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+    await expect(
+      pi.emit("before_agent_start", { systemPrompt: "Base system prompt." }, context),
+    ).resolves.toBeUndefined()
+
+    await pi.runCommand("ste", "", context)
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-reenabled",
+        { path: "notes.md", content: "This isn't permitted." },
+        context,
+      ),
+    ).rejects.toThrow("[contraction]")
+    await expect(
+      pi.emit(
+        "tool_call",
+        {
+          toolName: "bash",
+          toolCallId: "commit-reenabled",
+          input: { command: `git commit -m "fix: This isn't permitted."` },
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ block: true })
+    await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
+  })
+
+  test("reports the mode, rule severity counts, and dictionary state", async () => {
+    const { pi, context, notifications } = await startExtension({
+      projectConfig: { rules: { contraction: "off", semicolon: "soft" } },
+    })
+
+    await pi.runCommand("ste", "status", context)
+
+    expect(notifications.at(-1)).toEqual({
+      level: "info",
+      message: expect.stringContaining("Mode: enabled"),
+    })
+    expect(notifications.at(-1)?.message).toContain("Rules: 6 hard, 4 soft, 1 off")
+    expect(notifications.at(-1)?.message).toContain("Dictionary: loaded")
+  })
+
+  test("gates strict replies through say until a clean rewrite passes", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+
+    await pi.runCommand("ste", "strict", context)
+    expect(pi.activeTools.has("say")).toBe(true)
+    const prompt = await pi.emit(
+      "before_agent_start",
+      { systemPrompt: "Base system prompt." },
+      context,
+    )
+    expect(prompt).toMatchObject({
+      systemPrompt: expect.stringContaining("Send every user-facing reply through the `say` tool"),
+    })
+
+    await expect(
+      pi.executeTool("say", "say-blocked", { text: "This isn't permitted." }, context),
+    ).rejects.toThrow("line 1, column 6 [contraction]")
+
+    await expect(
+      pi.executeTool("say", "say-clean", { text: "Open the valve." }, context),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: "Open the valve." }],
+      terminate: true,
+    })
+  })
+
+  test("gates strict say input after later tool-call handlers mutate it", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+    pi.on("tool_call", (event) => {
+      if (event.toolName === "say") {
+        const input = event.input as { text: string }
+        input.text = "This isn't permitted."
+      }
+    })
+
+    await expect(
+      pi.executeTool("say", "say-mutated", { text: "Open the valve." }, context),
+    ).rejects.toThrow("line 1, column 6 [contraction]")
+  })
+
+  test("turns strict mode off and restores normal assistant replies", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ste", "strict off", context)
+    expect(pi.activeTools.has("say")).toBe(false)
+
+    const prompt = await pi.emit(
+      "before_agent_start",
+      { systemPrompt: "Base system prompt." },
+      context,
+    )
+    expect(prompt).toMatchObject({
+      systemPrompt: expect.stringContaining("Simplified Technical English"),
+    })
+    expect(prompt).toMatchObject({
+      systemPrompt: expect.not.stringContaining(
+        "Send every user-facing reply through the `say` tool",
+      ),
+    })
+
+    const reply = assistantMessage("This isn't permitted.")
+    await expect(pi.finalizeAssistant(reply, context)).resolves.toBe(reply)
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {
