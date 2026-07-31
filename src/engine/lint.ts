@@ -2,11 +2,7 @@ import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { type ChangedRange, type RetainedRange, type TextChanges, changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import {
-  blankMarkdownCodeWithStructure,
-  maskMarkdownCode,
-  proseVisibility,
-} from "./markdown.ts"
+import { blankMarkdownCodeWithStructure, maskMarkdownCode, proseVisibility } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
@@ -112,9 +108,7 @@ const lintProse = (
   structuralBlanks: readonly boolean[],
   { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
 ) => {
-  const sentences = selectSentences(
-    segmentSentences(lines, lines.join("\n"), structuralBlanks),
-  )
+  const sentences = selectSentences(segmentSentences(lines, lines.join("\n"), structuralBlanks))
   const selectedProse = diffOnly ? selectedProseLines(lines.join("\n"), sentences) : lines
   const selectedStructural = diffOnly
     ? selectedProseLines(structuralLines.join("\n"), sentences)
