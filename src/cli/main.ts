@@ -42,6 +42,7 @@ interface FileViolation {
   readonly suggestions?: readonly string[]
   readonly line: number
   readonly column: number
+  readonly suggestion?: string
 }
 
 interface CliReport {
@@ -83,7 +84,7 @@ const render = (report: CliReport, json: boolean): string => {
     return JSON.stringify(report, null, 2)
   }
   return report.violations
-    .map((v) => `${v.file}:${v.line}:${v.column} ${v.ruleId} ${v.message}`)
+    .map((v) => `${v.file}:${v.line}:${v.column} [${v.severity}] ${v.ruleId} ${v.message}`)
     .join("\n")
 }
 

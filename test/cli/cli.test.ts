@@ -163,6 +163,39 @@ describe("simple-english CLI", () => {
     expect(result.stdout).toContain("verb-passive")
   })
 
+  test("human output shows the severity of each violation", async () => {
+    const result = await runCli(["test/fixtures/violations.md"])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("[hard] sentence-length")
+  })
+
+  test("soft violations appear in the output but exit 0", async () => {
+    const result = await runCli([], { stdin: "This is a seamless flow." })
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("[soft] marketing")
+    expect(result.stdout).toContain("seamless")
+  })
+
+  test("--json reports severity and the phrasal-verb suggestion", async () => {
+    const result = await runCli(["--json"], {
+      stdin: "Carry out the test. It is a seamless flow.",
+    })
+
+    expect(result.code).toBe(1)
+    const report = JSON.parse(result.stdout)
+    expect(report.summary).toEqual({ total: 2, hard: 1 })
+    expect(report.violations).toEqual([
+      expect.objectContaining({
+        ruleId: "phrasal-verb",
+        severity: "hard",
+        suggestion: "do",
+      }),
+      expect.objectContaining({ ruleId: "marketing", severity: "soft" }),
+    ])
+  })
+
   test("errors with exit code 2 on an unreadable file", async () => {
     const result = await runCli(["test/fixtures/does-not-exist.md"])
 

@@ -1,6 +1,13 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { blankMarkdownCode } from "./markdown.ts"
+import { segmentParagraphs } from "./paragraphs.ts"
+import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
+import { hedging } from "./rules/hedging.ts"
+import { marketing } from "./rules/marketing.ts"
+import { paragraphLength } from "./rules/paragraph-length.ts"
+import { phrasalVerb } from "./rules/phrasal-verb.ts"
+import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
 import { segmentSentences } from "./sentences.ts"
@@ -20,6 +27,12 @@ const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Viol
     const lines = blankMarkdownCode(text)
     return [
       ...sentenceLength(segmentSentences(lines), maxSentenceWords),
+      ...paragraphLength(segmentParagraphs(lines)),
+      ...contraction(lines),
+      ...semicolon(lines),
+      ...phrasalVerb(lines),
+      ...hedging(lines),
+      ...marketing(lines),
       ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
       ...(tagger === undefined ? [] : verbForm(lines, tagger)),
     ]
