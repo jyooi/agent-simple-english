@@ -6,6 +6,33 @@ import simpleEnglishExtension from "../../src/extension/index.ts"
 const mkdirControl = vi.hoisted(() => ({
   afterMkdir: undefined as (() => Promise<void>) | undefined,
 }))
+const bashControl = vi.hoisted(() => ({ executedCommands: [] as string[] }))
+
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>()
+  return {
+    ...actual,
+    createBashToolDefinition: (
+      cwd: Parameters<typeof actual.createBashToolDefinition>[0],
+      options?: Parameters<typeof actual.createBashToolDefinition>[1],
+    ) =>
+      actual.createBashToolDefinition(cwd, {
+        ...options,
+        exposeSessionEnvironment: false,
+        operations: {
+          exec: async (command: string) => {
+            bashControl.executedCommands.push(command)
+            return { exitCode: 0 }
+          },
+        },
+      }),
+  }
+})
+
+vi.mock("../../src/tagger/wink.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/tagger/wink.ts")>()
+  return { ...actual, makeWinkTagger: () => () => [] }
+})
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
@@ -31,6 +58,17 @@ type ToolHandler = {
     context: ExtensionContextStub,
   ): unknown
 }
+
+interface CommitCommandFixture {
+  readonly name: string
+  readonly command: string
+}
+
+type CommitHeuristicFixture = CommitCommandFixture &
+  (
+    | { readonly expected: "pass" | "explicit-message" }
+    | { readonly expected: "contraction"; readonly location: string }
+  )
 
 interface ExtensionContextStub {
   readonly cwd: string
@@ -123,6 +161,7 @@ const originalHome = process.env.HOME
 
 afterEach(async () => {
   mkdirControl.afterMkdir = undefined
+  bashControl.executedCommands.length = 0
   if (originalAgentDirectory === undefined) process.env.PI_CODING_AGENT_DIR = undefined
   else process.env.PI_CODING_AGENT_DIR = originalAgentDirectory
   if (originalHome === undefined) process.env.HOME = undefined
@@ -205,6 +244,18 @@ function assistantEntry(text: string, id = "assistant-reply") {
   }
 }
 
+async function executeBash(
+  pi: ExtensionApiStub,
+  context: ExtensionContextStub,
+  toolCallId: string,
+  command: string,
+): Promise<Error | undefined> {
+  return pi.executeTool("bash", toolCallId, { command }, context).then(
+    () => undefined,
+    (error: Error) => error,
+  )
+}
+
 describe.sequential("pi extension wiring", () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
@@ -250,6 +301,108 @@ describe.sequential("pi extension wiring", () => {
     expect(result).toMatchObject({
       systemPrompt: expect.not.stringContaining("Do not use contractions"),
     })
+    expect(result).toMatchObject({
+      systemPrompt: expect.stringContaining("git commit messages reject hard violations"),
+    })
+  })
+
+  test("blocks a hard commit message with structured feedback", async () => {
+    const { pi, context } = await startExtension()
+
+    const error = await executeBash(
+      pi,
+      context,
+      "commit-blocked",
+      `git commit -m "fix: This isn't permitted."`,
+    )
+
+    expect(error?.message).toContain("line 1, column 11")
+    expect(error?.message).toContain("[contraction]")
+    expect(error?.message).toContain("Suggested fix:")
+    expect(bashControl.executedCommands).toHaveLength(0)
+  })
+
+  test("permits a clean commit message", async () => {
+    const { pi, context } = await startExtension()
+
+    await expect(
+      executeBash(
+        pi,
+        context,
+        "commit-clean",
+        `git add notes.md && git commit -m "fix: Close the valve."`,
+      ),
+    ).resolves.toBeUndefined()
+    expect(bashControl.executedCommands).toEqual([
+      `git add notes.md && git commit -m "fix: Close the valve."`,
+    ])
+  })
+
+  test("gates the bash command after later tool-call handlers mutate it", async () => {
+    const { pi, context } = await startExtension()
+    pi.on("tool_call", (event) => {
+      if (event.toolName !== "bash") return undefined
+      const input = event.input as Record<string, unknown>
+      input.command = `git commit -m "fix: This isn't permitted."`
+      return undefined
+    })
+
+    const error = await executeBash(pi, context, "commit-mutated", "printf 'safe'")
+
+    expect(error?.message).toContain("[contraction]")
+    expect(bashControl.executedCommands).toHaveLength(0)
+  })
+
+  test("exempts Conventional Commit prefixes and trailer lines from fixtures", async () => {
+    const { pi, context } = await startExtension()
+    const fixtures = JSON.parse(
+      await readFile(join(process.cwd(), "test/fixtures/commit-commands.json"), "utf8"),
+    ) as CommitCommandFixture[]
+
+    for (const fixture of fixtures) {
+      await expect(
+        executeBash(pi, context, `commit-fixture-${fixture.name}`, fixture.command),
+        fixture.name,
+      ).resolves.toBeUndefined()
+    }
+  })
+
+  test("pins bounded commit command detection heuristics in fixtures", async () => {
+    const { pi, context } = await startExtension()
+    const fixtures = JSON.parse(
+      await readFile(join(process.cwd(), "test/fixtures/commit-command-heuristics.json"), "utf8"),
+    ) as CommitHeuristicFixture[]
+
+    for (const fixture of fixtures) {
+      const error = await executeBash(
+        pi,
+        context,
+        `commit-heuristic-${fixture.name}`,
+        fixture.command,
+      )
+      if (fixture.expected === "pass") {
+        expect(error, fixture.name).toBeUndefined()
+      } else if (fixture.expected === "contraction") {
+        expect(error?.message, fixture.name).toContain("[contraction]")
+        expect(error?.message, fixture.name).toContain(fixture.location)
+      } else {
+        expect(error?.message, fixture.name).toContain("static -m or --message argument")
+      }
+    }
+  })
+
+  test("reports original positions in a multi-line commit subject and body", async () => {
+    const { pi, context } = await startExtension()
+
+    const error = await executeBash(
+      pi,
+      context,
+      "commit-multiline",
+      `git commit -m "fix: Close the valve." -m "This isn't permitted."`,
+    )
+
+    expect(error?.message).toContain("line 3, column 6")
+    expect(error?.message).toContain("[contraction]")
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {

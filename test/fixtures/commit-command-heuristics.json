@@ -1,0 +1,108 @@
+[
+  {
+    "name": "quoted command text is not an invocation",
+    "command": "printf '%s\\n' \"git commit -m bad\"",
+    "expected": "pass"
+  },
+  {
+    "name": "command wrapper and combined short flags are detected",
+    "command": "git status && command git commit -am \"fix: This isn't permitted.\"",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C quoting preserves multi-line positions",
+    "command": "git commit -m $'fix: Close the valve.\\n\\nThis isn\\'t permitted.'",
+    "expected": "contraction",
+    "location": "line 3, column 6"
+  },
+  {
+    "name": "ANSI C hexadecimal escapes consume two digits",
+    "command": "git commit -m $'fix: This isn\\x27t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C octal escapes consume three digits",
+    "command": "git commit -m $'fix: This isn\\047t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C short Unicode escapes are decoded",
+    "command": "git commit -m $'fix: This isn\\u0027t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C long Unicode escapes are decoded",
+    "command": "git commit -m $'fix: This isn\\U00000027t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "attached reuse-message values are not messages",
+    "command": "git commit -Cmain",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "attached signing keys containing m are not messages",
+    "command": "git commit -Smkey",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "bare include status allows a following message",
+    "command": "git commit -u -m \"fix: Close the valve.\"",
+    "expected": "pass"
+  },
+  {
+    "name": "attached include status modes are not messages",
+    "command": "git commit -uall",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "dynamic messages fail closed",
+    "command": "git commit -m \"$MESSAGE\"",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "dynamic amend messages fail closed even with no-edit",
+    "command": "git commit --amend --no-edit -m \"$MESSAGE\"",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted star pathname expansion fails closed",
+    "command": "git commit -m *",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted question mark pathname expansion fails closed",
+    "command": "git commit -m ?",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted bracket pathname expansion fails closed",
+    "command": "git commit -m [abc]",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted tilde expansion fails closed",
+    "command": "git commit -m ~",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted brace expansion fails closed",
+    "command": "git commit -m {allowed,blocked}",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "message files fail closed",
+    "command": "git commit --file message.txt",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "amend without an extractable message fails closed",
+    "command": "git commit --amend --no-edit",
+    "expected": "explicit-message"
+  }
+]

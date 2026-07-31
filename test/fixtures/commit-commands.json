@@ -1,0 +1,14 @@
+[
+  {
+    "name": "conventional prefix and trailers are exempt",
+    "command": "git commit -m \"feat(core;api): Open the valve.\n\nCo-Authored-By: This isn't checked <author@example.com>\nSigned-off-by: This isn't checked <signer@example.com>\""
+  },
+  {
+    "name": "scoped breaking prefix is exempt",
+    "command": "git -C . commit --message='fix(control;panel)!: Close the valve.'"
+  },
+  {
+    "name": "breaking change footer is exempt",
+    "command": "git commit -m \"fix: Close the valve.\n\nBREAKING CHANGE: This isn't checked.\""
+  }
+]

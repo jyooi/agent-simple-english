@@ -5,6 +5,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type ToolCallEventResult,
+  createBashToolDefinition,
   createEditToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent"
@@ -19,6 +20,7 @@ import type { RuleId } from "../engine/rules/registry.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { RuleSetting, Violation } from "../engine/types.ts"
 import { makeWinkTagger } from "../tagger/wink.ts"
+import { blankCommitMetadata, findCommitInvocations } from "./commit-message.ts"
 
 const DEFAULT_RULE_SETTINGS: Readonly<Record<RuleId, RuleSetting>> = {
   contraction: "hard",
@@ -74,7 +76,7 @@ function ruleSummary(config: SteConfig): string {
       return `- [${resolvedSetting(config, ruleId)}] ${summary}`
     })
     .join("\n")
-  return `## Simplified Technical English\n\nFollow these STE rules in prose that you write or edit:\n${rules}\n\nThe write and edit tools reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
+  return `## Simplified Technical English\n\nFollow these STE rules in prose that you write or edit:\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
 }
 
 function suggestedFix(violation: Violation): string {
@@ -195,6 +197,65 @@ function lintProposedText(
   }
 }
 
+function lintCommitCommand(
+  state: SessionState,
+  ctx: ExtensionContext,
+  toolCallId: string,
+  command: string,
+): ToolCallEventResult | undefined {
+  const invocations = findCommitInvocations(command)
+  if (invocations.length === 0) return undefined
+  if (!state.ready) {
+    return {
+      block: true,
+      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+    }
+  }
+
+  const warnings: string[] = []
+  for (const invocation of invocations) {
+    if (invocation.requiresExplicitMessage) {
+      return {
+        block: true,
+        reason:
+          "STE could not check the git commit message. Use git commit with a static -m or --message argument.",
+      }
+    }
+
+    const report = lint("commit-message", blankCommitMetadata(invocation.message), {
+      ...state.config,
+      dictionary: state.dictionary,
+      tagger: state.tagger,
+    })
+    const hard = report.violations.filter((violation) => violation.severity === "hard")
+    const soft = report.violations.filter((violation) => violation.severity === "soft")
+    notifyWarnings(ctx, "commit message", soft)
+    if (hard.length > 0) {
+      return {
+        block: true,
+        reason: formatViolations("commit message", "STE blocked commit for", hard),
+      }
+    }
+    if (soft.length > 0) {
+      warnings.push(formatViolations("commit message", "STE warnings for", soft))
+    }
+  }
+
+  if (warnings.length > 0) state.pendingWarnings.set(toolCallId, warnings.join("\n\n"))
+  return undefined
+}
+
+function createGatedBashTool(cwd: string, state: SessionState) {
+  const definition = createBashToolDefinition(cwd)
+  const execute: typeof definition.execute = async (...args) => {
+    const [toolCallId, input, _signal, _onUpdate, ctx] = args
+    const result = lintCommitCommand(state, ctx, toolCallId, input.command)
+    if (result?.block) throw new Error(result.reason)
+    return definition.execute(...args)
+  }
+  return { ...definition, execute }
+}
+
 function createGatedWriteTool(cwd: string, state: SessionState) {
   const definition = createWriteToolDefinition(cwd)
   const execute: typeof definition.execute = async (...args) => {
@@ -267,6 +328,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     state.error = undefined
     state.pendingWarnings.clear()
     updateReplyState(state, ctx)
+    pi.registerTool(createGatedBashTool(ctx.cwd, state))
     pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
     try {

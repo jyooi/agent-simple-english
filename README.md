@@ -15,6 +15,8 @@ pi install npm:pi-simple-english
 For local development, run `pi -e .` from the repository instead.
 At the start of each agent turn, the extension adds a concise STE rule summary that reflects the active configuration.
 It checks proposed `write` and `edit` content before the tools change a file, using the same file-extension content kinds described for the CLI below.
+It uses bounded heuristics in `bash` tool calls to detect `git commit` invocations and check static messages supplied with `-m` or `--message` before the shell command runs.
+Conventional Commit prefixes and final trailer lines such as `Co-Authored-By` and `BREAKING CHANGE` are exempt, but the subject and body prose are checked at their original positions.
 Hard violations block the tool call with the line, column, rule ID, and a suggested fix so that the agent can correct the text and retry.
 Soft violations permit the tool call and appear as warnings.
 Edits use the existing file as a baseline, so unchanged violations do not block unrelated changes.
@@ -22,7 +24,8 @@ After each finalized assistant reply, the extension lints its text as `prose-fil
 A latest-reply widget shows either a clean state or the hard and soft violation counts for the active branch, including after a session resume or tree navigation.
 Before the next model call, hidden feedback gives the model the details of hard reply violations only; soft reply violations stay in the widget.
 Reply linting uses the same Markdown code exclusions described below.
-A configuration or dictionary load error makes the extension fail closed and block `write` and `edit` for that session.
+A detected commit invocation whose message cannot be extracted fails closed and asks the agent to use a static message argument.
+A configuration or dictionary load error makes the extension fail closed and block `write`, `edit`, and detected `git commit` invocations for that session.
 
 ## CLI
 
