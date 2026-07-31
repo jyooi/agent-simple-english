@@ -176,10 +176,10 @@ function tokenize(command: string): ShellToken[] {
       while (index < command.length && command[index] !== "'") {
         const quoted = command[index] ?? ""
         if (quoted === "\\" && command[index + 1] !== undefined) {
-          const escape = ansiEscape(command, index + 1)
-          value += escape.value
-          dynamic ||= !escape.extractable
-          index += escape.width + 1
+          const ansiSequence = ansiEscape(command, index + 1)
+          value += ansiSequence.value
+          dynamic ||= !ansiSequence.extractable
+          index += ansiSequence.width + 1
         } else {
           value += quoted
           index++
@@ -302,9 +302,7 @@ function classifyShortOption(argument: string): ShortOption {
 
     const attached = argument.slice(index + 1)
     if (option === "m") {
-      return attached.length > 0
-        ? { type: "message", attached }
-        : { type: "next-message" }
+      return attached.length > 0 ? { type: "message", attached } : { type: "next-message" }
     }
     return attached.length > 0 ? { type: "other" } : { type: "skip-next" }
   }

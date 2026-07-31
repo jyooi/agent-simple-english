@@ -29,6 +29,11 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   }
 })
 
+vi.mock("../../src/tagger/wink.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/tagger/wink.ts")>()
+  return { ...actual, makeWinkTagger: () => () => [] }
+})
+
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
   return {
