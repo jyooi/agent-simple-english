@@ -1,0 +1,24 @@
+{
+  "name": "pi-simple-english",
+  "version": "0.1.0",
+  "description": "ASD-STE100 Simplified Technical English lint engine and CLI for the pi coding agent",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "simple-english": "./src/cli/main.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "^3.14.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}
