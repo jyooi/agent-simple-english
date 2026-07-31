@@ -53,6 +53,14 @@ describe("lint prose-file: sentence-length rule", () => {
     expect(report.violations[0]).toMatchObject({ line: 3, column: 20 })
   })
 
+  test("does not rescan punctuation inside a Markdown sentence suffix", () => {
+    const prefix = '[Short.](url "A. title") '
+    const report = lint("prose-file", `${prefix}${words(30)}.`)
+
+    const violation = report.violations.find((item) => item.ruleId === "sentence-length")
+    expect(violation).toMatchObject({ line: 1, column: prefix.length + 1 })
+  })
+
   test("counts a sentence that spans multiple lines once, at its start", () => {
     const text = `${words(13)}\n${words(13)}.`
     const report = lint("prose-file", text)

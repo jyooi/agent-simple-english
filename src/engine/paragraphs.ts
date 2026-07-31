@@ -50,10 +50,6 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
         }
         break
       case "prose": {
-        const indented = raw.length > raw.trimStart().length
-        if (open?.kind === "list-item" && !indented) {
-          close()
-        }
         if (!open) {
           open = { line: index + 1, lines: [], kind: "prose" }
         }

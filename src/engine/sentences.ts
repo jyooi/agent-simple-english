@@ -4,55 +4,101 @@ export interface Sentence {
   readonly column: number
 }
 
-const SENTENCE_PUNCTUATION = /[.!?]+/g
 const CLOSING_DELIMITERS = new Set(["\"", "'", "’", "”", "»", "›", ")", "]", "}", "*", "_", "~", "`"])
 
-function markdownSuffixEnd(text: string, start: number): number | undefined {
-  const opening = text[start]
-  const closing = opening === "(" ? ")" : "]"
-  let depth = 1
+function markdownDelimiterEnds(text: string): {
+  readonly parentheses: Int32Array
+  readonly brackets: Int32Array
+} {
+  const parentheses = new Int32Array(text.length).fill(-1)
+  const brackets = new Int32Array(text.length).fill(-1)
+  const parenthesisStack: number[] = []
+  const bracketStack: number[] = []
 
-  for (let index = start + 1; index < text.length; index += 1) {
-    const character = text[index]
-    if (character === "\\") {
-      index += 1
-    } else if (character === opening) {
-      depth += 1
-    } else if (character === closing) {
-      depth -= 1
-      if (depth === 0) return index + 1
-    } else if (character === "\r" || character === "\n") {
-      return undefined
+  for (let index = 0; index < text.length; index += 1) {
+    switch (text[index]) {
+      case "\\":
+        index += 1
+        break
+      case "(":
+        parenthesisStack.push(index)
+        break
+      case ")": {
+        const opening = parenthesisStack.pop()
+        if (opening !== undefined) parentheses[opening] = index + 1
+        break
+      }
+      case "[":
+        bracketStack.push(index)
+        break
+      case "]": {
+        const opening = bracketStack.pop()
+        if (opening !== undefined) brackets[opening] = index + 1
+        break
+      }
     }
   }
+
+  return { parentheses, brackets }
 }
 
-function terminatorEnd(text: string): number | undefined {
-  for (const punctuation of text.matchAll(SENTENCE_PUNCTUATION)) {
-    let end = punctuation.index + punctuation[0].length
-    let closedLinkLabel = false
+function sentenceTerminatorEnds(text: string): number[] {
+  const { parentheses, brackets } = markdownDelimiterEnds(text)
+  const closingRuns = new Uint32Array(text.length + 1)
+  const closingBracketCounts = new Uint32Array(text.length + 1)
+  const referenceRuns = new Int32Array(text.length).fill(-1)
+  const ends: number[] = []
+  closingRuns[text.length] = text.length
 
-    while (CLOSING_DELIMITERS.has(text[end] ?? "")) {
-      closedLinkLabel ||= text[end] === "]"
-      end += 1
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    closingRuns[index] = CLOSING_DELIMITERS.has(text[index] ?? "")
+      ? closingRuns[index + 1]
+      : index
+    closingBracketCounts[index] =
+      closingBracketCounts[index + 1] + (text[index] === "]" ? 1 : 0)
+  }
+
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    if (text[index] !== "[" || brackets[index] < 0) continue
+    let end = closingRuns[brackets[index]]
+    if (text[end] === "[" && referenceRuns[end] >= 0) end = referenceRuns[end]
+    referenceRuns[index] = end
+  }
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== "." && text[index] !== "!" && text[index] !== "?") continue
+
+    let punctuationEnd = index + 1
+    while (
+      text[punctuationEnd] === "." ||
+      text[punctuationEnd] === "!" ||
+      text[punctuationEnd] === "?"
+    ) {
+      punctuationEnd += 1
     }
+
+    let end = closingRuns[punctuationEnd]
+    const closedLinkLabel =
+      closingBracketCounts[punctuationEnd] > closingBracketCounts[end]
 
     if (closedLinkLabel && text[end] === "(") {
-      const suffixEnd = markdownSuffixEnd(text, end)
-      if (suffixEnd === undefined) continue
-      end = suffixEnd
-      while (CLOSING_DELIMITERS.has(text[end] ?? "")) end += 1
+      if (parentheses[end] < 0) {
+        index = punctuationEnd - 1
+        continue
+      }
+      end = closingRuns[parentheses[end]]
     }
 
-    while (text[end] === "[") {
-      const suffixEnd = markdownSuffixEnd(text, end)
-      if (suffixEnd === undefined) break
-      end = suffixEnd
-      while (CLOSING_DELIMITERS.has(text[end] ?? "")) end += 1
+    if (text[end] === "[" && referenceRuns[end] >= 0) end = referenceRuns[end]
+    if (end === text.length || /\s/.test(text[end] ?? "")) {
+      ends.push(end)
+      index = end - 1
+    } else {
+      index = punctuationEnd - 1
     }
-
-    if (end === text.length || /\s/.test(text[end] ?? "")) return end
   }
+
+  return ends
 }
 
 // A sentence starts at the first non-whitespace character and ends at
@@ -76,22 +122,25 @@ export function segmentSentences(lines: readonly string[]): Sentence[] {
       close()
       return
     }
-    let rest = raw
     let offset = 0
-    while (rest.trim() !== "") {
+    for (const end of sentenceTerminatorEnds(raw)) {
+      const part = raw.slice(offset, end)
+      if (!open) {
+        const indent = part.length - part.trimStart().length
+        open = { line: index + 1, column: offset + indent + 1, parts: [] }
+      }
+      open.parts.push(part.trim())
+      close()
+      offset = end
+    }
+
+    const rest = raw.slice(offset)
+    if (rest.trim() !== "") {
       if (!open) {
         const indent = rest.length - rest.trimStart().length
         open = { line: index + 1, column: offset + indent + 1, parts: [] }
       }
-      const end = terminatorEnd(rest)
-      if (end === undefined) {
-        open.parts.push(rest.trim())
-        break
-      }
-      open.parts.push(rest.slice(0, end).trim())
-      close()
-      offset += end
-      rest = rest.slice(end)
+      open.parts.push(rest.trim())
     }
   })
   close()

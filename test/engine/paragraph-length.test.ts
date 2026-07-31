@@ -69,10 +69,20 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor("1. One. Two. Three. Four. Five. Six.")).not.toContain("paragraph-length")
   })
 
-  test("flags a long list item across continuation lines", () => {
-    const text = "- One. Two. Three.\n Four. Five. Six. Seven."
-
+  test.each([
+    "- One. Two. Three.\n Four. Five. Six. Seven.",
+    "- One. Two. Three.\nFour. Five. Six. Seven.",
+  ])("flags a long list item across continuation lines", (text) => {
     expect(idsFor(text)).toContain("paragraph-length")
+  })
+
+  test("scans malformed Markdown suffixes in linear time", () => {
+    const text = ".[".repeat(30_000)
+    const start = performance.now()
+
+    lint("prose-file", text)
+
+    expect(performance.now() - start).toBeLessThan(500)
   })
 
   test("a table is not a paragraph", () => {
