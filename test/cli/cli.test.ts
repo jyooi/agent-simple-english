@@ -245,6 +245,21 @@ describe("simple-english CLI", () => {
     expect(result.stderr).toContain("nonsense")
   })
 
+  test("rejects --kind without a value with exit code 2", async () => {
+    const result = await runCli(["--kind"], { stdin: "Short." })
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("--kind requires a value")
+  })
+
+  test("maps a dotless path to prose-file, not a source kind", async () => {
+    const result = await runCli(["test/fixtures/go"])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("test/fixtures/go:1:1")
+    expect(result.stdout).toContain("sentence-length")
+  })
+
   test("errors with exit code 2 on an unreadable file", async () => {
     const result = await runCli(["test/fixtures/does-not-exist.md"])
 

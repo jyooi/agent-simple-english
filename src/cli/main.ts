@@ -33,7 +33,9 @@ const SLASH_EXTENSIONS = new Set([
 const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
 
 const kindForPath = (path: string): LintKind => {
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase()
+  const dot = path.lastIndexOf(".")
+  if (dot <= path.lastIndexOf("/")) return "prose-file"
+  const extension = path.slice(dot + 1).toLowerCase()
   if (SLASH_EXTENSIONS.has(extension)) return "slash-source"
   if (HASH_EXTENSIONS.has(extension)) return "hash-source"
   return "prose-file"
@@ -43,6 +45,7 @@ interface CliArgs {
   readonly json: boolean
   readonly configPath: string | undefined
   readonly kind: string | undefined
+  readonly kindMissingValue: boolean
   readonly paths: readonly string[]
 }
 
@@ -51,6 +54,7 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
     let json = false
     let configPath: string | undefined
     let kind: string | undefined
+    let kindMissingValue = false
     const paths: string[] = []
     for (let i = 0; i < args.length; i++) {
       const arg = args[i] as string
@@ -63,13 +67,14 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
         }
       } else if (arg === "--kind") {
         kind = args[++i]
+        if (kind === undefined) kindMissingValue = true
       } else if (arg.startsWith("--kind=")) {
         kind = arg.slice("--kind=".length)
       } else {
         paths.push(arg)
       }
     }
-    return { json, configPath, kind, paths }
+    return { json, configPath, kind, kindMissingValue, paths }
   })
 
 const isLintKind = (value: string): value is LintKind =>
@@ -131,7 +136,14 @@ const render = (report: CliReport, json: boolean): string => {
 
 const program = Effect.gen(function* () {
   const tagger = yield* TaggerService
-  const { json, configPath, kind, paths } = yield* parseArgs(process.argv.slice(2))
+  const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(
+    process.argv.slice(2),
+  )
+  if (kindMissingValue) {
+    return yield* Effect.fail(
+      new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`),
+    )
+  }
   if (kind !== undefined && !isLintKind(kind)) {
     return yield* Effect.fail(
       new Error(`unknown kind "${kind}"; expected one of: ${KINDS.join(", ")}`),
