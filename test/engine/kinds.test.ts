@@ -66,6 +66,16 @@ describe("lint slash-source: comment extraction", () => {
     expect(lint("slash-source", text).violations).toHaveLength(0)
   })
 
+  test("separate block comments cannot form a phrasal verb", () => {
+    const separated = "/* Carry */ execute() /* out */"
+    const continuous = "/* Carry out */"
+
+    expect(lint("slash-source", separated).violations).toHaveLength(0)
+    expect(lint("slash-source", continuous).violations).toContainEqual(
+      expect.objectContaining({ ruleId: "phrasal-verb", line: 1, column: 4 }),
+    )
+  })
+
   test("triple-slash doc comment markers are not part of the prose", () => {
     const text = `/// ${words(30)}.`
     const report = lint("slash-source", text)
@@ -150,6 +160,24 @@ describe("lint slash-source: comment extraction", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 4, column: 5 })
+  })
+
+  test("preserves Markdown paragraph boundaries in extracted comments", () => {
+    const separated = [
+      "const a = 1 // One. Two. Three.",
+      "const b = 2 // > Four. Five. Six. Seven.",
+    ].join("\n")
+    const continuous = [
+      "const a = 1 // > One. Two. Three.",
+      "const b = 2 // > Four. Five. Six. Seven.",
+    ].join("\n")
+
+    expect(lint("slash-source", separated).violations.map((item) => item.ruleId)).not.toContain(
+      "paragraph-length",
+    )
+    expect(lint("slash-source", continuous).violations.map((item) => item.ruleId)).toContain(
+      "paragraph-length",
+    )
   })
 })
 

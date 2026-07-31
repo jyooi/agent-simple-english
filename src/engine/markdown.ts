@@ -109,7 +109,7 @@ interface BacktickRun {
   readonly escaped: boolean
 }
 
-const blankInlineCode = (text: string): string => {
+const blankInlineCodeSpans = (text: string): string => {
   const output = text.split("")
   const runs: BacktickRun[] = []
 
@@ -159,6 +159,7 @@ interface FenceState {
 
 export interface MarkdownCodeResult {
   readonly lines: string[]
+  readonly structuralLines: string[]
   readonly structuralBlanks: boolean[]
 }
 
@@ -171,6 +172,7 @@ export function blankMarkdownCodeWithStructure(
   let paragraphCanContinue = false
   let inIndented = false
   const inlineEligible: boolean[] = []
+  const structuralLines: string[] = []
   const structuralBlanks: boolean[] = []
   const lines = inputLines.map((line, index) => {
     const contentStart = contentStarts[index] ?? 0
@@ -184,6 +186,7 @@ export function blankMarkdownCodeWithStructure(
           inIndented = false
         }
         inlineEligible.push(false)
+        structuralLines.push(blankLine(line))
         structuralBlanks.push(true)
         return blankLine(line)
       }
@@ -211,6 +214,7 @@ export function blankMarkdownCodeWithStructure(
       paragraphCanContinue = false
       inIndented = false
       inlineEligible.push(false)
+      structuralLines.push(blankLine(line))
       structuralBlanks.push(true)
       return blankLine(line)
     }
@@ -218,6 +222,7 @@ export function blankMarkdownCodeWithStructure(
       paragraphCanContinue = false
       inIndented = false
       inlineEligible.push(false)
+      structuralLines.push(line)
       structuralBlanks.push(true)
       return visibleLine
     }
@@ -225,30 +230,37 @@ export function blankMarkdownCodeWithStructure(
       paragraphCanContinue = false
       inIndented = true
       inlineEligible.push(false)
+      structuralLines.push(blankLine(line))
       structuralBlanks.push(true)
       return blankLine(line)
     }
     paragraphCanContinue = !ATX_HEADING.test(content.text)
     inIndented = false
     inlineEligible.push(true)
+    structuralLines.push(line)
     structuralBlanks.push(false)
     return visibleLine
   })
 
-  let start = 0
-  while (start < lines.length) {
-    if (!inlineEligible[start]) {
-      start++
-      continue
+  const blankEligibleInlineCode = (target: string[]) => {
+    let start = 0
+    while (start < target.length) {
+      if (!inlineEligible[start]) {
+        start++
+        continue
+      }
+      let end = start + 1
+      while (end < target.length && inlineEligible[end]) end++
+      const blanked = blankInlineCodeSpans(target.slice(start, end).join("\n")).split("\n")
+      for (let i = start; i < end; i++) target[i] = blanked[i - start] as string
+      start = end
     }
-    let end = start + 1
-    while (end < lines.length && inlineEligible[end]) end++
-    const blanked = blankInlineCode(lines.slice(start, end).join("\n")).split("\n")
-    for (let i = start; i < end; i++) lines[i] = blanked[i - start] as string
-    start = end
   }
 
-  return { lines, structuralBlanks }
+  blankEligibleInlineCode(lines)
+  blankEligibleInlineCode(structuralLines)
+
+  return { lines, structuralLines, structuralBlanks }
 }
 
 export function blankMarkdownCode(

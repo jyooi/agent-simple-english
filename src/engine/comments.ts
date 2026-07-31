@@ -1,8 +1,14 @@
 import type { SourceDialect } from "./types.ts"
 
+export interface ProseBreak {
+  readonly line: number
+  readonly column: number
+}
+
 export interface ExtractedComments {
   readonly lines: readonly string[]
   readonly contentStarts: readonly number[]
+  readonly proseBreaks: readonly ProseBreak[]
 }
 
 const blankLine = (line: string): string => " ".repeat(line.length)
@@ -69,9 +75,11 @@ export function extractSlashComments(text: string): ExtractedComments {
   let inBlock = false
   let multilineLiteral: MultilineLiteral | null = null
   let continuedLineQuote: "'" | '"' | null = null
+  let previousComment: "line" | "block" | null = null
   const contentStarts: number[] = []
+  const proseBreaks: ProseBreak[] = []
 
-  const lines = text.split("\n").map((line) => {
+  const lines = text.split("\n").map((line, lineIndex) => {
     const out = new Array<string>(line.length).fill(" ")
     let contentStart = line.length
     let lineQuote = continuedLineQuote
@@ -80,6 +88,13 @@ export function extractSlashComments(text: string): ExtractedComments {
 
     const markContentStart = (index: number) => {
       contentStart = Math.min(contentStart, index)
+    }
+
+    const beginComment = (kind: "line" | "block", index: number) => {
+      if (previousComment !== null && (kind === "block" || previousComment === "block")) {
+        proseBreaks.push({ line: lineIndex, column: index })
+      }
+      previousComment = kind
     }
 
     if (inBlock) {
@@ -166,6 +181,7 @@ export function extractSlashComments(text: string): ExtractedComments {
         i += 2
         while (line[i] === "/" || line[i] === "!") i++
         i = consumeSeparator(line, i)
+        beginComment("line", i)
         markContentStart(i)
         for (; i < line.length; i++) out[i] = line[i] as string
         break
@@ -175,6 +191,7 @@ export function extractSlashComments(text: string): ExtractedComments {
         i += 2
         while (line[i] === "*" && line[i + 1] !== "/") i++
         i = consumeSeparator(line, i)
+        beginComment("block", i)
         markContentStart(i)
         continue
       }
@@ -186,7 +203,7 @@ export function extractSlashComments(text: string): ExtractedComments {
     return out.join("")
   })
 
-  return { lines, contentStarts }
+  return { lines, contentStarts, proseBreaks }
 }
 
 interface Heredoc {
@@ -365,5 +382,5 @@ export function extractHashComments(
     return out.join("")
   })
 
-  return { lines, contentStarts }
+  return { lines, contentStarts, proseBreaks: [] }
 }

@@ -50,8 +50,8 @@ const compileForms = (dictionary: Dictionary): readonly Form[] =>
     )
     .sort((left, right) => right.words.length - left.words.length)
 
-const markdownContext = (line: string): MarkdownContext => {
-  let contentStart = 0
+const markdownContext = (line: string, initialContentStart = 0): MarkdownContext => {
+  let contentStart = Math.min(initialContentStart, line.length)
   let quoteDepth = 0
 
   while (contentStart < line.length) {
@@ -94,12 +94,15 @@ const isParagraphBlock = (content: string): boolean =>
 
 const isIndentedCode = (content: string): boolean => /^(?: {4}|\t)/.test(content)
 
-const markdownContexts = (lines: readonly string[]): readonly MarkdownContext[] => {
+const markdownContexts = (
+  lines: readonly string[],
+  contentStarts: readonly number[],
+): readonly MarkdownContext[] => {
   let activeParagraph: ActiveParagraph | undefined
   let nextParagraphId = 0
 
-  return lines.map((line) => {
-    const context = markdownContext(line)
+  return lines.map((line, lineIndex) => {
+    const context = markdownContext(line, contentStarts[lineIndex] ?? 0)
     const content = blockContent(line, context)
     if (/^[\t ]*\r?$/.test(content)) {
       activeParagraph = undefined
@@ -213,10 +216,11 @@ export function dictionaryRule(
   lines: readonly string[],
   dictionary: Dictionary,
   tagger?: Tagger,
+  contentStarts: readonly number[] = lines.map(() => 0),
 ): Violation[] {
   const forms = compileForms(dictionary)
   const violations: Violation[] = []
-  const contexts = markdownContexts(lines)
+  const contexts = markdownContexts(lines, contentStarts)
   const tokens = tokenize(lines)
   const taggedTokensByLine = new Map<number, readonly TaggedToken[]>()
 
