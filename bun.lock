@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pi-simple-english",
+      "name": "simple-english",
       "dependencies": {
         "effect": "^3.14.0",
         "wink-eng-lite-web-model": "^1.8.1",

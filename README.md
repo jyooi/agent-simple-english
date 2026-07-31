@@ -1,7 +1,8 @@
-# pi-simple-english
+# simple-english
 
-`pi-simple-english` helps the [pi coding agent](https://pi.dev) use ASD-STE100 Simplified Technical English (STE).
-It also supplies a `simple-english` command that uses the same rules.
+`simple-english` checks ASD-STE100 Simplified Technical English (STE).
+It supplies one Engine, one CLI, and a pi Adapter.
+The [pi coding agent](https://pi.dev) can use the Adapter to enforce the same rules.
 
 This package reports deterministic writing problems.
 It does not rewrite text because an automatic rewrite can change its meaning.
@@ -34,13 +35,13 @@ The extension checks Markdown prose and source comments according to the [conten
 It gives the line, column, rule ID, and suggested correction for a blocked tool call.
 A config or dictionary load error makes enabled write, edit, and commit gates fail closed.
 
-## Install the pi package
+## Install the pi Adapter
 
 Install [pi](https://pi.dev) first.
 Then use the pi package mechanism:
 
 ```sh
-pi install npm:pi-simple-english
+pi install npm:simple-english
 ```
 
 Pi records the package in its user settings and loads the extension in each session.
@@ -78,7 +79,7 @@ The standalone command needs [Bun](https://bun.sh).
 Install it from the same npm package:
 
 ```sh
-bun add --global pi-simple-english
+bun add --global simple-english
 ```
 
 Lint one or more files:
@@ -156,13 +157,21 @@ Inline Markdown code is outside every rule except `semicolon`.
 ## Configuration
 
 Configuration is an optional JSON object.
-The global file is `simple-english.json` in the pi agent config directory.
-That directory is `~/.pi/agent` by default, and `PI_CODING_AGENT_DIR` can change it.
+The project file is `.simple-english.json` at the repository root.
+The global file is `$XDG_CONFIG_HOME/simple-english/config.json`.
+If `XDG_CONFIG_HOME` is unset or not absolute, the global path is `~/.config/simple-english/config.json`.
 
-The CLI also reads `.pi/simple-english.json` from the current project.
-Project values merge over global values per key.
-The extension reads the project file only when pi trusts the project.
+Global and project files are deep-merged.
+Global values load first, and project values have precedence.
+The pi Adapter reads the project file only when pi trusts the project.
 The `--config` flag uses only its named file.
+
+Existing pi config paths remain as fallbacks.
+The project fallback is `.pi/simple-english.json`.
+The global fallback is `simple-english.json` in the pi agent config directory.
+The default pi agent config directory is `~/.pi/agent`.
+`PI_CODING_AGENT_DIR` can change that directory.
+The loader reads a fallback file only when the new file at the same level is absent.
 
 This example contains every config key and every rule:
 
@@ -258,17 +267,17 @@ Reports these forms and supplies the listed suggestion:
 
 | Forms | Suggestion |
 | --- | --- |
-| `carry out`, `carries out`, `carried out`, `carrying out` | `do` |
-| `spin up`, `spins up`, `spun up`, `spinning up` | `start` |
-| `spin down`, `spins down`, `spun down`, `spinning down` | `stop` |
-| `tear down`, `tears down`, `tore down`, `torn down`, `tearing down` | `remove` |
-| `reach out`, `reaches out`, `reached out`, `reaching out` | `ask` |
-| `dive into`, `dives into`, `dived into`, `dove into`, `diving into` | `examine` |
-| `kick off`, `kicks off`, `kicked off`, `kicking off` | `start` |
-| `roll out`, `rolls out`, `rolled out`, `rolling out` | `release` |
-| `ramp up`, `ramps up`, `ramped up`, `ramping up` | `increase` |
-| `circle back`, `circles back`, `circled back`, `circling back` | `return` |
-| `drill down`, `drills down`, `drilled down`, `drilling down` | `examine` |
+| `carry out`, `carries out`, `carried out`, `carrying out` | `do`. |
+| `spin up`, `spins up`, `spun up`, `spinning up` | `start`. |
+| `spin down`, `spins down`, `spun down`, `spinning down` | `stop`. |
+| `tear down`, `tears down`, `tore down`, `torn down`, `tearing down` | `remove`. |
+| `reach out`, `reaches out`, `reached out`, `reaching out` | `ask`. |
+| `dive into`, `dives into`, `dived into`, `dove into`, `diving into` | `examine`. |
+| `kick off`, `kicks off`, `kicked off`, `kicking off` | `start`. |
+| `roll out`, `rolls out`, `rolled out`, `rolling out` | `release`. |
+| `ramp up`, `ramps up`, `ramped up`, `ramping up` | `increase`. |
+| `circle back`, `circles back`, `circled back`, `circling back` | `return`. |
+| `drill down`, `drills down`, `drilled down`, `drilling down` | `examine`. |
 
 Matching does not depend on letter case.
 A phrase match stays on one source line.
