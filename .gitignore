@@ -2,3 +2,4 @@ node_modules/
 dist/
 coverage/
 *.log
+.claude/settings.local.json
