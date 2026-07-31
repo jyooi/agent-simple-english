@@ -155,6 +155,41 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", ">     approximately", { dictionary }).violations).toEqual([])
   })
 
+  test("ignores indented code in Markdown list containers", () => {
+    expect(lint("prose-file", "-     approximately", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "1.     in order to", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "- -     approximately", { dictionary }).violations).toEqual([])
+  })
+
+  test("checks prose in Markdown list items", () => {
+    expect(lint("prose-file", "- approximately", { dictionary }).violations).toHaveLength(1)
+  })
+
+  test("keeps fenced code open until a matching delimiter closes it", () => {
+    const input = "````\n~~~\n```\napproximately\n````\napproximately"
+    const report = lint("prose-file", input, { dictionary })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: 'Use "about", not "approximately".',
+        suggestions: ["about"],
+        line: 6,
+        column: 1,
+      },
+    ])
+  })
+
+  test("ignores fenced code in Markdown containers", () => {
+    expect(
+      lint("prose-file", "> ```\n> approximately\n> ```", { dictionary }).violations,
+    ).toEqual([])
+    expect(
+      lint("prose-file", "- ```\n  approximately\n  ```", { dictionary }).violations,
+    ).toEqual([])
+  })
+
   test("checks indented CommonMark paragraph continuations", () => {
     const report = lint("prose-file", "It is\n    approximately five millimeters.", { dictionary })
 
