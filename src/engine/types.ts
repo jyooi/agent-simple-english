@@ -1,5 +1,8 @@
-import type { RuleId } from "./rules/registry.ts"
+import type { Dictionary } from "../dictionary/schema.ts"
+import type { RuleId as RegisteredRuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
+
+export type RuleId = RegisteredRuleId | "dictionary-not-approved-word"
 
 export type LintKind = "prose-file"
 
@@ -11,6 +14,7 @@ export interface Violation {
   readonly ruleId: RuleId
   readonly severity: Severity
   readonly message: string
+  readonly suggestions?: readonly string[]
   readonly line: number
   readonly column: number
 }
@@ -18,7 +22,8 @@ export interface Violation {
 export interface LintOptions {
   readonly rules?: Partial<Record<RuleId, RuleSetting>>
   readonly maxSentenceWords?: number
-  // POS tagger for the verb-form rules; when absent those rules do not run.
+  readonly dictionary?: Dictionary
+  // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger
 }
 

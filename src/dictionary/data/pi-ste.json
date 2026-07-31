@@ -1,0 +1,200 @@
+{
+  "formatVersion": 1,
+  "source": {
+    "name": "ctotheameron/pi-ste dictionary",
+    "repository": "https://github.com/ctotheameron/pi-ste",
+    "commit": "18a8cc686be2cc0e680705daf2327fb0d1ef93ce",
+    "path": "src/ste/dictionary.gleam"
+  },
+  "entries": [
+    {
+      "unapproved": ["initiate", "initiates", "initiated", "initiating"],
+      "suggestions": ["start"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["commence", "commences", "commenced", "commencing"],
+      "suggestions": ["start"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["utilize", "utilizes", "utilized", "utilizing"],
+      "suggestions": ["use"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["utilise", "utilises", "utilised", "utilising"],
+      "suggestions": ["use"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["ensure", "ensures", "ensured", "ensuring"],
+      "suggestions": ["make sure"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["terminate", "terminates", "terminated", "terminating"],
+      "suggestions": ["stop"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["facilitate", "facilitates", "facilitated", "facilitating"],
+      "suggestions": ["help"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["locate", "locates", "located", "locating"],
+      "suggestions": ["find"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["indicate", "indicates", "indicated", "indicating"],
+      "suggestions": ["show"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["require", "requires", "required", "requiring"],
+      "suggestions": ["need"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["purchase", "purchases", "purchased", "purchasing"],
+      "suggestions": ["buy"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["leverage", "leverages", "leveraged", "leveraging"],
+      "suggestions": ["use"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["acquire", "acquires", "acquired", "acquiring"],
+      "suggestions": ["get"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["demonstrate", "demonstrates", "demonstrated", "demonstrating"],
+      "suggestions": ["show"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["originate", "originates", "originated", "originating"],
+      "suggestions": ["start"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["perform", "performs", "performed", "performing"],
+      "suggestions": ["do"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["obtain", "obtains", "obtained", "obtaining"],
+      "suggestions": ["get"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["attempt", "attempts", "attempted", "attempting"],
+      "suggestions": ["try"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["assist", "assists", "assisted", "assisting"],
+      "suggestions": ["help"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["permit", "permits", "permited", "permiting"],
+      "suggestions": ["let"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["modify", "modifies", "modified", "modifying"],
+      "suggestions": ["change"],
+      "partsOfSpeech": ["VERB"]
+    },
+    {
+      "unapproved": ["begin", "begins", "began", "beginning"],
+      "suggestions": ["start"]
+    },
+    {
+      "unapproved": ["approximately"],
+      "suggestions": ["about"]
+    },
+    {
+      "unapproved": ["sufficient"],
+      "suggestions": ["enough"]
+    },
+    {
+      "unapproved": ["subsequent", "subsequently"],
+      "suggestions": ["next"]
+    },
+    {
+      "unapproved": ["prior"],
+      "suggestions": ["before"]
+    },
+    {
+      "unapproved": ["additional", "additionally"],
+      "suggestions": ["more"]
+    },
+    {
+      "unapproved": ["furthermore", "moreover"],
+      "suggestions": ["also"]
+    },
+    {
+      "unapproved": ["comprehensive", "comprehensively"],
+      "suggestions": ["complete"]
+    },
+    {
+      "unapproved": ["utilization"],
+      "suggestions": ["use"]
+    },
+    {
+      "unapproved": ["aforementioned"],
+      "suggestions": ["this"]
+    },
+    {
+      "unapproved": ["whilst"],
+      "suggestions": ["while"]
+    },
+    {
+      "unapproved": ["amongst"],
+      "suggestions": ["among"]
+    },
+    {
+      "unapproved": ["numerous", "myriad", "plethora"],
+      "suggestions": ["many"]
+    },
+    {
+      "unapproved": ["prior to"],
+      "suggestions": ["before"]
+    },
+    {
+      "unapproved": ["subsequent to"],
+      "suggestions": ["after"]
+    },
+    {
+      "unapproved": ["in order to"],
+      "suggestions": ["to"]
+    },
+    {
+      "unapproved": ["a variety of"],
+      "suggestions": ["some"]
+    },
+    {
+      "unapproved": ["in the event that"],
+      "suggestions": ["if"]
+    },
+    {
+      "unapproved": ["due to the fact that"],
+      "suggestions": ["because"]
+    },
+    {
+      "unapproved": ["is able to", "are able to"],
+      "suggestions": ["can"]
+    },
+    {
+      "unapproved": ["make use of", "makes use of"],
+      "suggestions": ["use"]
+    }
+  ]
+}

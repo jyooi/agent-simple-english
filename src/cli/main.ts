@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises"
-import { Effect } from "effect"
+import { Effect, Either } from "effect"
 import { loadConfig } from "../config/load.ts"
+import { loadDictionary } from "../dictionary/load.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
@@ -38,6 +39,7 @@ interface FileViolation {
   readonly ruleId: string
   readonly severity: string
   readonly message: string
+  readonly suggestions?: readonly string[]
   readonly line: number
   readonly column: number
 }
@@ -89,6 +91,13 @@ const program = Effect.gen(function* () {
   const tagger = yield* TaggerService
   const { json, configPath, paths } = yield* parseArgs(process.argv.slice(2))
   const config = yield* loadConfig(configPath)
+  const loadedDictionary = yield* Effect.either(
+    loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+  )
+  const dictionary = Either.getOrUndefined(loadedDictionary)
+  if (Either.isLeft(loadedDictionary)) {
+    yield* Effect.sync(() => console.error(loadedDictionary.left.message))
+  }
   const inputs =
     paths.length === 0
       ? [{ path: "<stdin>", text: yield* readStdin }]
@@ -97,7 +106,7 @@ const program = Effect.gen(function* () {
   const report = toCliReport(
     inputs.map(({ path, text }) => ({
       path,
-      report: lint("prose-file", text, { ...config, tagger }),
+      report: lint("prose-file", text, { ...config, dictionary, tagger }),
     })),
   )
 
