@@ -18,6 +18,12 @@ interface Form {
 interface MarkdownContext {
   readonly contentStart: number
   readonly quoteDepth: number
+  readonly paragraphId?: number
+}
+
+interface ActiveParagraph {
+  readonly id: number
+  readonly quoteDepth: number
 }
 
 const ATX_HEADING = /^ {0,3}#{1,6}(?:[\t ]+|$)/
@@ -83,8 +89,40 @@ const startsNewBlock = (content: string): boolean =>
   SETEXT_UNDERLINE.test(content) ||
   THEMATIC_BREAK.test(content)
 
+const isParagraphBlock = (content: string): boolean =>
+  !isLeafBlock(content) && !SETEXT_UNDERLINE.test(content) && !THEMATIC_BREAK.test(content)
+
+const markdownContexts = (lines: readonly string[]): readonly MarkdownContext[] => {
+  let activeParagraph: ActiveParagraph | undefined
+  let nextParagraphId = 0
+
+  return lines.map((line) => {
+    const context = markdownContext(line)
+    const content = blockContent(line, context)
+    if (/^[\t ]*\r?$/.test(content)) {
+      activeParagraph = undefined
+      return context
+    }
+
+    if (
+      activeParagraph !== undefined &&
+      context.quoteDepth <= activeParagraph.quoteDepth &&
+      !startsNewBlock(content)
+    ) {
+      return { ...context, paragraphId: activeParagraph.id }
+    }
+
+    const paragraphId = nextParagraphId++
+    activeParagraph = isParagraphBlock(content)
+      ? { id: paragraphId, quoteDepth: context.quoteDepth }
+      : undefined
+    return { ...context, paragraphId }
+  })
+}
+
 const isSoftLineBreak = (
   lines: readonly string[],
+  contexts: readonly MarkdownContext[],
   previous: WordToken,
   token: WordToken,
 ): boolean => {
@@ -97,14 +135,13 @@ const isSoftLineBreak = (
     return false
   }
 
-  const previousContext = markdownContext(previousLine)
-  const nextContext = markdownContext(nextLine)
-  const previousContent = blockContent(previousLine, previousContext)
-  const nextContent = blockContent(nextLine, nextContext)
+  const previousContext = contexts[previous.lineIndex]
+  const nextContext = contexts[token.lineIndex]
   if (
-    previousContext.quoteDepth !== nextContext.quoteDepth ||
-    isLeafBlock(previousContent) ||
-    startsNewBlock(nextContent)
+    previousContext === undefined ||
+    nextContext === undefined ||
+    previousContext.paragraphId === undefined ||
+    previousContext.paragraphId !== nextContext.paragraphId
   ) {
     return false
   }
@@ -117,6 +154,7 @@ const isSoftLineBreak = (
 
 const hasWords = (
   lines: readonly string[],
+  contexts: readonly MarkdownContext[],
   tokens: readonly WordToken[],
   start: number,
   words: readonly string[],
@@ -140,7 +178,7 @@ const hasWords = (
         /^\s+$/.test(line.slice(previous.offset + previous.text.length, token.offset))
       )
     }
-    return isSoftLineBreak(lines, previous, token)
+    return isSoftLineBreak(lines, contexts, previous, token)
   })
 
 const hasPartOfSpeech = (
@@ -171,6 +209,7 @@ export function dictionaryRule(
 ): Violation[] {
   const forms = compileForms(dictionary)
   const violations: Violation[] = []
+  const contexts = markdownContexts(lines)
   const tokens = tokenize(lines)
   const taggedTokensByLine = new Map<number, readonly TaggedToken[]>()
 
@@ -179,7 +218,9 @@ export function dictionaryRule(
     if (first === undefined) {
       continue
     }
-    const candidates = forms.filter((form) => hasWords(lines, tokens, index, form.words))
+    const candidates = forms.filter((form) =>
+      hasWords(lines, contexts, tokens, index, form.words),
+    )
     const match = candidates.find((form) => {
       if (form.entry.partsOfSpeech === undefined) {
         return true

@@ -113,6 +113,21 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("matches phrases across lazy Markdown block quote continuations", () => {
+    const report = lint("prose-file", "> in order\nto continue", { dictionary })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: 'Use "to", not "in order to".',
+        suggestions: ["to"],
+        line: 1,
+        column: 3,
+      },
+    ])
+  })
+
   test("does not match phrases across Markdown block boundaries", () => {
     expect(lint("prose-file", "Do this prior\n\nto assembly.", { dictionary }).violations).toEqual(
       [],
@@ -122,6 +137,8 @@ describe("lint prose-file: dictionary rule", () => {
     )
     expect(lint("prose-file", "# In order\nto continue", { dictionary }).violations).toEqual([])
     expect(lint("prose-file", "- In order\n- to continue", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "> In order\n# to continue", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "> # In order\nto continue", { dictionary }).violations).toEqual([])
   })
 
   test("matches hyphenated forms as one exact token", () => {
