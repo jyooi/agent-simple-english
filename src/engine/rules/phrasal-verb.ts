@@ -26,7 +26,7 @@ const PHRASAL_VERBS: readonly PhrasalVerbEntry[] = [
   { forms: ["ramp up", "ramps up", "ramped up", "ramping up"], suggestion: "increase" },
   {
     forms: ["circle back", "circles back", "circled back", "circling back"],
-    suggestion: "return to",
+    suggestion: "return",
   },
   {
     forms: ["drill down", "drills down", "drilled down", "drilling down"],

@@ -28,7 +28,7 @@ const MARKETING_WORDS = [
 ]
 
 const MARKETING_SET = new Set(MARKETING_WORDS)
-const HYPHENATED_TOKEN = /[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*/g
+const HYPHENATED_TOKEN = /[A-Za-z0-9_]+(?:-+[A-Za-z0-9_]+)*/g
 
 interface MarketingMatch {
   readonly found: string

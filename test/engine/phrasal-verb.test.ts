@@ -37,6 +37,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
       ["Reach out to the team.", "ask"],
       ["Roll out the change.", "release"],
       ["Ramp up the load.", "increase"],
+      ["Circle back tomorrow.", "return"],
     ]
     for (const [text, suggestion] of cases) {
       const report = lint("prose-file", text)

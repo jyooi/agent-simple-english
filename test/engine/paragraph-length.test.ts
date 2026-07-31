@@ -34,6 +34,13 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor(text)).toContain("paragraph-length")
   })
 
+  test("flags sentences in Markdown links and references", () => {
+    const text =
+      '[One.](one) [Two.][two] [Three.][] [Four.](four "title") [Five.](<five>) [Six!](six_(nested)) [Seven?][seven]'
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
   test("a blank line ends a paragraph", () => {
     expect(idsFor("One. Two. Three. Four.\n\nFive. Six. Seven. Eight.")).not.toContain(
       "paragraph-length",

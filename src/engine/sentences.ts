@@ -4,7 +4,49 @@ export interface Sentence {
   readonly column: number
 }
 
-const TERMINATOR = /[.!?]+["'’”»›)\]}*_~`]*(\s|$)/
+const SENTENCE_PUNCTUATION = /[.!?]+/g
+const CLOSING_DELIMITERS = new Set(["\"", "'", "’", "”", "»", "›", ")", "]", "}", "*", "_", "~", "`"])
+
+function markdownSuffixEnd(text: string, start: number): number | undefined {
+  const opening = text[start]
+  const closing = opening === "(" ? ")" : "]"
+  let depth = 1
+
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index]
+    if (character === "\\") {
+      index += 1
+    } else if (character === opening) {
+      depth += 1
+    } else if (character === closing) {
+      depth -= 1
+      if (depth === 0) return index + 1
+    } else if (character === "\r" || character === "\n") {
+      return undefined
+    }
+  }
+}
+
+function terminatorEnd(text: string): number | undefined {
+  for (const punctuation of text.matchAll(SENTENCE_PUNCTUATION)) {
+    let end = punctuation.index + punctuation[0].length
+    let closedLinkLabel = false
+
+    while (CLOSING_DELIMITERS.has(text[end] ?? "")) {
+      closedLinkLabel ||= text[end] === "]"
+      end += 1
+    }
+
+    if (closedLinkLabel && (text[end] === "(" || text[end] === "[")) {
+      const suffixEnd = markdownSuffixEnd(text, end)
+      if (suffixEnd === undefined) continue
+      end = suffixEnd
+      while (CLOSING_DELIMITERS.has(text[end] ?? "")) end += 1
+    }
+
+    if (end === text.length || /\s/.test(text[end] ?? "")) return end
+  }
+}
 
 // A sentence starts at the first non-whitespace character and ends at
 // terminal punctuation and closing delimiters, at a blank line, or at EOF.
@@ -34,12 +76,11 @@ export function segmentSentences(lines: readonly string[]): Sentence[] {
         const indent = rest.length - rest.trimStart().length
         open = { line: index + 1, column: offset + indent + 1, parts: [] }
       }
-      const terminator = rest.match(TERMINATOR)
-      if (terminator?.index === undefined) {
+      const end = terminatorEnd(rest)
+      if (end === undefined) {
         open.parts.push(rest.trim())
         break
       }
-      const end = terminator.index + terminator[0].length
       open.parts.push(rest.slice(0, end).trim())
       close()
       offset += end
