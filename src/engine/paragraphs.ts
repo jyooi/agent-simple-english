@@ -5,8 +5,11 @@ export interface Paragraph {
 
 const LIST_MARKER = /^(?:[-*+]|\d+[.)])\s+/
 
-type LineKind = "blank" | "heading" | "table-row" | "list-item" | "prose"
+type LineKind = "blank" | "block-boundary" | "list-item" | "prose"
 type ParagraphKind = "list-item" | "prose"
+
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
+const BLOCKQUOTE = /^ {0,3}>/
 
 function listItemContent(line: string): string | undefined {
   const trimmed = line.trimStart()
@@ -17,8 +20,9 @@ function listItemContent(line: string): string | undefined {
 function classify(line: string): LineKind {
   const trimmed = line.trim()
   if (trimmed === "") return "blank"
-  if (trimmed.startsWith("|")) return "table-row"
-  if (trimmed.startsWith("#")) return "heading"
+  if (trimmed.startsWith("|") || ATX_HEADING.test(line) || BLOCKQUOTE.test(line)) {
+    return "block-boundary"
+  }
   if (listItemContent(line) !== undefined) return "list-item"
   return "prose"
 }
@@ -37,8 +41,7 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
   lines.forEach((raw, index) => {
     switch (classify(raw)) {
       case "blank":
-      case "heading":
-      case "table-row":
+      case "block-boundary":
         close()
         break
       case "list-item":

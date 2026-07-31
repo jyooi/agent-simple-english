@@ -9,9 +9,11 @@ const CLOSING_DELIMITERS = new Set(["\"", "'", "’", "”", "»", "›", ")", "
 function markdownDelimiterEnds(text: string): {
   readonly parentheses: Int32Array
   readonly brackets: Int32Array
+  readonly linkSuffixes: Int32Array
 } {
   const parentheses = new Int32Array(text.length).fill(-1)
   const brackets = new Int32Array(text.length).fill(-1)
+  const linkSuffixes = new Int32Array(text.length).fill(-1)
   const parenthesisStack: number[] = []
   const bracketStack: number[] = []
 
@@ -39,11 +41,21 @@ function markdownDelimiterEnds(text: string): {
     }
   }
 
-  return { parentheses, brackets }
+  for (let index = 0; index < text.length - 1; index += 1) {
+    if (text[index] !== "]") continue
+    const suffixStart = index + 1
+    if (text[suffixStart] === "(" && parentheses[suffixStart] >= 0) {
+      linkSuffixes[suffixStart] = parentheses[suffixStart]
+    } else if (text[suffixStart] === "[" && brackets[suffixStart] >= 0) {
+      linkSuffixes[suffixStart] = brackets[suffixStart]
+    }
+  }
+
+  return { parentheses, brackets, linkSuffixes }
 }
 
 function sentenceTerminatorEnds(text: string): number[] {
-  const { parentheses, brackets } = markdownDelimiterEnds(text)
+  const { parentheses, brackets, linkSuffixes } = markdownDelimiterEnds(text)
   const closingRuns = new Uint32Array(text.length + 1)
   const closingBracketCounts = new Uint32Array(text.length + 1)
   const referenceRuns = new Int32Array(text.length).fill(-1)
@@ -66,6 +78,10 @@ function sentenceTerminatorEnds(text: string): number[] {
   }
 
   for (let index = 0; index < text.length; index += 1) {
+    if (linkSuffixes[index] >= 0) {
+      index = linkSuffixes[index] - 1
+      continue
+    }
     if (text[index] !== "." && text[index] !== "!" && text[index] !== "?") continue
 
     let punctuationEnd = index + 1
