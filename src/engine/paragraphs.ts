@@ -1,6 +1,7 @@
 export interface Paragraph {
   readonly lines: readonly string[]
   readonly line: number
+  readonly column: number
 }
 
 const LIST_MARKER = /^(?:[-*+]|\d+[.)])\s+/
@@ -31,13 +32,16 @@ function classify(line: string): LineKind {
   return "prose"
 }
 
-export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
+export function segmentParagraphs(
+  lines: readonly string[],
+  columns: readonly number[] = lines.map(() => 1),
+): Paragraph[] {
   const paragraphs: Paragraph[] = []
-  let open: { line: number; lines: string[]; kind: ParagraphKind } | null = null
+  let open: { line: number; column: number; lines: string[]; kind: ParagraphKind } | null = null
 
   const close = () => {
     if (open) {
-      paragraphs.push({ lines: open.lines, line: open.line })
+      paragraphs.push({ lines: open.lines, line: open.line, column: open.column })
       open = null
     }
   }
@@ -59,6 +63,7 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
           close()
           open = {
             line: index + 1,
+            column: columns[index] ?? 1,
             lines: [listItemContent(content) ?? ""],
             kind: "blockquote-list-item",
           }
@@ -66,7 +71,7 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
         }
         if (open?.kind !== "blockquote" && open?.kind !== "blockquote-list-item") close()
         if (!open) {
-          open = { line: index + 1, lines: [], kind: "blockquote" }
+          open = { line: index + 1, column: columns[index] ?? 1, lines: [], kind: "blockquote" }
         }
         open.lines.push(open.kind === "blockquote-list-item" ? content.trimStart() : content)
         break
@@ -75,13 +80,19 @@ export function segmentParagraphs(lines: readonly string[]): Paragraph[] {
         close()
         open = {
           line: index + 1,
+          column: columns[index] ?? 1,
           lines: [listItemContent(raw) ?? ""],
           kind: "list-item",
         }
         break
       case "prose": {
         if (!open) {
-          open = { line: index + 1, lines: [], kind: "prose" }
+          open = {
+            line: index + 1,
+            column: columns[index] ?? 1,
+            lines: [],
+            kind: "prose",
+          }
         }
         open.lines.push(open.kind === "list-item" ? raw.trimStart() : raw)
         break

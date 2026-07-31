@@ -8,12 +8,29 @@ This project is a TypeScript and Effect reimplementation of [pi-ste](https://git
 
 ```sh
 simple-english README.md
+simple-english src/main.ts
+git log -1 --format=%B | simple-english --kind commit-message
 cat notes.md | simple-english
 simple-english --json README.md
 ```
 
+The CLI selects a content kind from each file extension:
+
+- `slash-source` lints comments in `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.rs`, `.java`, `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.cs`, `.swift`, `.kt`, and `.scala` files.
+- `hash-source` lints comments in `.sh`, `.bash`, `.zsh`, `.py`, `.rb`, `.yaml`, `.yml`, `.toml`, and `.pl` files.
+- `prose-file` lints all other files, including extensionless paths.
+
+Extension matching is case-insensitive.
+Standard input defaults to `prose-file`.
+Use `--kind prose-file`, `--kind slash-source`, `--kind hash-source`, or `--kind commit-message` to override automatic selection for files or standard input.
+The `commit-message` kind lints the complete commit message.
+
+All kinds preserve original line and column positions and ignore identifiers plus Markdown fenced and indented code.
+Inline code is excluded from all rules except `semicolon`.
+Source kinds lint only comments and ignore comment markers inside string literals.
+
 The CLI prints STE violations with a line, column, severity, and rule ID.
-It exits 1 when hard violations exist, 0 when no hard violations exist, and 2 when an input file cannot be read or a config file is invalid.
+It exits 1 when hard violations exist, 0 when no hard violations exist, and 2 for input, argument, or config errors.
 Soft violations are still printed when the command exits 0.
 `--json` emits a machine-readable report with the severity of each violation and an approved suggestion for phrasal verbs.
 `--config <path>` loads an explicit config file instead of the discovered ones.

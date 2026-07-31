@@ -141,6 +141,16 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", "> # In order\nto continue", { dictionary }).violations).toEqual([])
   })
 
+  test("preserves Markdown phrase boundaries in extracted comments", () => {
+    const separated = "run() // Use this prior\nnext() // > to assembly."
+    const continuous = "run() // > Use this prior\nnext() // > to assembly."
+
+    expect(lint("slash-source", separated, { dictionary }).violations).toEqual([])
+    expect(lint("slash-source", continuous, { dictionary }).violations).toContainEqual(
+      expect.objectContaining({ ruleId: "dictionary-not-approved-word", line: 1, column: 21 }),
+    )
+  })
+
   test("does not match phrases across Markdown indented code boundaries", () => {
     expect(lint("prose-file", "    in order\nto continue", { dictionary }).violations).toEqual([])
     expect(lint("prose-file", "\tin order\nto continue", { dictionary }).violations).toEqual([])

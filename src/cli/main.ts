@@ -4,12 +4,56 @@ import { Effect, Either } from "effect"
 import { loadConfig } from "../config/load.ts"
 import { loadDictionary } from "../dictionary/load.ts"
 import { lint } from "../engine/lint.ts"
-import type { LintReport } from "../engine/types.ts"
+import type { LintKind, LintReport, SourceDialect } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
+
+const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
+
+const SLASH_EXTENSIONS = new Set([
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "go",
+  "rs",
+  "java",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "cc",
+  "cs",
+  "swift",
+  "kt",
+  "scala",
+])
+
+const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
+
+interface PathClassification {
+  readonly kind: LintKind
+  readonly sourceDialect: SourceDialect
+}
+
+const classifyPath = (path: string): PathClassification => {
+  const dot = path.lastIndexOf(".")
+  if (dot <= path.lastIndexOf("/")) return { kind: "prose-file", sourceDialect: "general" }
+  const extension = path.slice(dot + 1).toLowerCase()
+  if (SLASH_EXTENSIONS.has(extension)) return { kind: "slash-source", sourceDialect: "general" }
+  if (HASH_EXTENSIONS.has(extension)) {
+    const sourceDialect = ["sh", "bash", "zsh"].includes(extension) ? "shell" : "general"
+    return { kind: "hash-source", sourceDialect }
+  }
+  return { kind: "prose-file", sourceDialect: "general" }
+}
 
 interface CliArgs {
   readonly json: boolean
   readonly configPath: string | undefined
+  readonly kind: string | undefined
+  readonly kindMissingValue: boolean
   readonly paths: readonly string[]
 }
 
@@ -17,6 +61,8 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
   Effect.gen(function* () {
     let json = false
     let configPath: string | undefined
+    let kind: string | undefined
+    let kindMissingValue = false
     const paths: string[] = []
     for (let i = 0; i < args.length; i++) {
       const arg = args[i] as string
@@ -27,12 +73,25 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
         if (configPath === undefined) {
           yield* Effect.fail(new Error("--config requires a file path"))
         }
+      } else if (arg === "--kind") {
+        const value = args[i + 1]
+        if (value === undefined || value.startsWith("--")) {
+          kindMissingValue = true
+        } else {
+          kind = value
+          i++
+        }
+      } else if (arg.startsWith("--kind=")) {
+        kind = arg.slice("--kind=".length)
       } else {
         paths.push(arg)
       }
     }
-    return { json, configPath, paths }
+    return { json, configPath, kind, kindMissingValue, paths }
   })
+
+const isLintKind = (value: string): value is LintKind =>
+  (KINDS as readonly string[]).includes(value)
 
 interface FileViolation {
   readonly file: string
@@ -90,7 +149,19 @@ const render = (report: CliReport, json: boolean): string => {
 
 const program = Effect.gen(function* () {
   const tagger = yield* TaggerService
-  const { json, configPath, paths } = yield* parseArgs(process.argv.slice(2))
+  const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(
+    process.argv.slice(2),
+  )
+  if (kindMissingValue) {
+    return yield* Effect.fail(
+      new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`),
+    )
+  }
+  if (kind !== undefined && !isLintKind(kind)) {
+    return yield* Effect.fail(
+      new Error(`unknown kind "${kind}"; expected one of: ${KINDS.join(", ")}`),
+    )
+  }
   const config = yield* loadConfig(configPath)
   const loadedDictionary = yield* Effect.either(
     loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
@@ -105,10 +176,18 @@ const program = Effect.gen(function* () {
       : yield* Effect.forEach(paths, readInput)
 
   const report = toCliReport(
-    inputs.map(({ path, text }) => ({
-      path,
-      report: lint("prose-file", text, { ...config, dictionary, tagger }),
-    })),
+    inputs.map(({ path, text }) => {
+      const classification = classifyPath(path)
+      return {
+        path,
+        report: lint(kind ?? classification.kind, text, {
+          ...config,
+          dictionary,
+          tagger,
+          sourceDialect: classification.sourceDialect,
+        }),
+      }
+    }),
   )
 
   const output = render(report, json)

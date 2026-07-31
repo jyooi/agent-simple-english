@@ -1,191 +1,282 @@
-interface MarkdownContext {
-  readonly contentStart: number
-  readonly quoteDepth: number
-}
+const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+const INDENTED = /^(?: {4,}|\t)/
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
+const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])(?:([ \t]{1,4})(?![ \t])|[ \t])/
 
-interface ActiveParagraph {
-  readonly quoteDepth: number
-}
+const blankLine = (line: string): string => " ".repeat(line.length)
 
-interface ActiveFence {
-  readonly marker: "`" | "~"
-  readonly length: number
+interface Container {
   readonly quoteDepth: number
   readonly listIndent: number
 }
 
-interface ListContent {
-  readonly content: string
-  readonly indent: number
+interface MarkdownContent {
+  readonly text: string
+  readonly start: number
+  readonly container: Container
 }
 
-const ATX_HEADING = /^ {0,3}#{1,6}(?:[\t ]+|$)/
-const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[\t ]*\r?$/
-const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3,})\r?$/
-const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([\t ]+|$)/
-const FENCE_OPENER = /^ {0,3}(`{3,}|~{3,})(.*)\r?$/
-
-const markdownContext = (
+const consumeBlockquotes = (
   line: string,
-  maximumDepth = Number.POSITIVE_INFINITY,
-): MarkdownContext => {
-  let contentStart = 0
-  let quoteDepth = 0
-
-  while (contentStart < line.length && quoteDepth < maximumDepth) {
-    let marker = contentStart
+  initial: number,
+  requiredDepth?: number,
+): { index: number; depth: number } => {
+  let index = initial
+  let depth = 0
+  while (index < line.length && (requiredDepth === undefined || depth < requiredDepth)) {
+    let marker = index
     let spaces = 0
-    while (spaces < 4 && line[marker] === " ") {
+    while (spaces < 3 && line[marker] === " ") {
       marker++
       spaces++
     }
-    if (spaces > 3 || line[marker] !== ">") {
-      break
-    }
-    contentStart = marker + 1
-    if (line[contentStart] === " " || line[contentStart] === "\t") {
-      contentStart++
-    }
-    quoteDepth++
+    if (line[marker] !== ">") break
+    depth++
+    index = marker + 1
+    if (line[index] === " " || line[index] === "\t") index++
   }
-
-  return { contentStart, quoteDepth }
+  return { index, depth }
 }
 
-const listContent = (content: string): ListContent => {
-  let contentStart = 0
+const markdownContent = (line: string, contentStart: number): MarkdownContent => {
+  const base = Math.min(contentStart, line.length)
+  const blockquotes = consumeBlockquotes(line, base)
+  let index = blockquotes.index
+  let listIndent = 0
 
-  while (true) {
-    const match = content.slice(contentStart).match(LIST_MARKER)
-    if (match === null) {
-      break
-    }
-    const whitespace = match[2] ?? ""
-    const consumedWhitespace = whitespace.length > 4 ? 1 : whitespace.length
-    contentStart += match[0].length - whitespace.length + consumedWhitespace
+  while (index < line.length) {
+    const match = line.slice(index).match(LIST_MARKER)
+    if (match === null) break
+    const width = match[0].length
+    listIndent += width
+    index += width
   }
 
-  return { content: content.slice(contentStart), indent: contentStart }
+  return {
+    text: line.slice(index),
+    start: index,
+    container: { quoteDepth: blockquotes.depth, listIndent },
+  }
 }
 
-const isBlank = (content: string): boolean => /^[\t ]*\r?$/.test(content)
-const isIndentedCode = (content: string): boolean => /^(?: {4}|\t)/.test(content)
-const startsNewBlock = (content: string): boolean =>
-  ATX_HEADING.test(content) ||
-  LIST_MARKER.test(content) ||
-  SETEXT_UNDERLINE.test(content) ||
-  THEMATIC_BREAK.test(content)
-const startsParagraph = (content: string): boolean =>
-  !ATX_HEADING.test(content) && !SETEXT_UNDERLINE.test(content) && !THEMATIC_BREAK.test(content)
-const blank = (line: string): string => line.replace(/[^\r]/g, " ")
+const contentWithin = (
+  line: string,
+  contentStart: number,
+  container: Container,
+): MarkdownContent | null => {
+  const base = Math.min(contentStart, line.length)
+  if (container.quoteDepth === 0 && container.listIndent === 0) {
+    return { text: line.slice(base), start: base, container }
+  }
 
-const fenceOpener = (content: string): Pick<ActiveFence, "marker" | "length"> | undefined => {
-  const match = content.match(FENCE_OPENER)
-  const delimiter = match?.[1]
-  const info = match?.[2] ?? ""
-  if (delimiter === undefined || (delimiter[0] === "`" && info.includes("`"))) {
-    return undefined
+  const blockquotes = consumeBlockquotes(line, base, container.quoteDepth)
+  if (blockquotes.depth !== container.quoteDepth) return null
+
+  let index = blockquotes.index
+  if (line.slice(index).trim() === "") {
+    return { text: "", start: line.length, container }
   }
-  const marker = delimiter[0]
-  if (marker !== "`" && marker !== "~") {
-    return undefined
+  let remaining = container.listIndent
+  while (remaining > 0 && (line[index] === " " || line[index] === "\t")) {
+    index++
+    remaining--
   }
-  return { marker, length: delimiter.length }
+  if (remaining > 0) return null
+
+  return { text: line.slice(index), start: index, container }
 }
 
-const isFenceCloser = (content: string, fence: ActiveFence): boolean => {
-  const match = content.match(/^ {0,3}(`+|~+)[\t ]*\r?$/)
-  const delimiter = match?.[1]
-  return delimiter?.[0] === fence.marker && delimiter.length >= fence.length
+const fenceLine = (line: string): string => (line.endsWith("\r") ? line.slice(0, -1) : line)
+
+const openingFence = (line: string): string | null => {
+  const match = fenceLine(line).match(OPENING_FENCE)
+  if (match === null) return null
+  const marker = match[1] as string
+  const info = match[2] as string
+  return marker[0] === "`" && info.includes("`") ? null : marker
 }
 
-const fenceContainerContent = (line: string, fence: ActiveFence): string | undefined => {
-  const context = markdownContext(line, fence.quoteDepth)
-  if (context.quoteDepth !== fence.quoteDepth) {
-    return isBlank(line) ? "" : undefined
-  }
-  const content = line.slice(context.contentStart)
-  if (fence.listIndent === 0 || isBlank(content)) {
-    return content
-  }
-  if (!content.startsWith(" ".repeat(fence.listIndent))) {
-    return undefined
-  }
-  return content.slice(fence.listIndent)
-}
-
-export function blankMarkdownCode(text: string): string[] {
-  let activeFence: ActiveFence | undefined
-  let inIndentedCode = false
-  let activeParagraph: ActiveParagraph | undefined
-
-  return text.split("\n").map((line) => {
-    if (activeFence !== undefined) {
-      const content = fenceContainerContent(line, activeFence)
-      if (content !== undefined) {
-        if (isFenceCloser(content, activeFence)) {
-          activeFence = undefined
-        }
-        return blank(line)
-      }
-      activeFence = undefined
-    }
-
-    const context = markdownContext(line)
-    const content = line.slice(context.contentStart)
-    const nested = listContent(content)
-    const opener = fenceOpener(nested.content)
-    if (opener !== undefined) {
-      activeFence = {
-        ...opener,
-        quoteDepth: context.quoteDepth,
-        listIndent: nested.indent,
-      }
-      inIndentedCode = false
-      activeParagraph = undefined
-      return blank(line)
-    }
-
-    if (isBlank(content)) {
-      activeParagraph = undefined
-      return inIndentedCode ? blank(line) : line
-    }
-
-    if (inIndentedCode) {
-      if (isIndentedCode(content)) {
-        return blank(line)
-      }
-      inIndentedCode = false
-    }
-
-    if (
-      activeParagraph !== undefined &&
-      context.quoteDepth <= activeParagraph.quoteDepth &&
-      !startsNewBlock(content)
-    ) {
-      return line
-    }
-
-    if (isIndentedCode(nested.content)) {
-      activeParagraph = undefined
-      inIndentedCode = true
-      return blank(line)
-    }
-
-    activeParagraph = startsParagraph(nested.content)
-      ? { quoteDepth: context.quoteDepth }
-      : undefined
-    return line
-  })
+const closesFence = (line: string, fence: string): boolean => {
+  const marker = fenceLine(line).match(CLOSING_FENCE)?.[1]
+  return marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length
 }
 
 interface BacktickRun {
+  readonly start: number
+  readonly end: number
+  readonly length: number
+  readonly escaped: boolean
+}
+
+const blankInlineCodeSpans = (text: string): string => {
+  const output = text.split("")
+  const runs: BacktickRun[] = []
+
+  for (let i = 0; i < text.length; ) {
+    if (text[i] !== "`") {
+      i++
+      continue
+    }
+    let end = i + 1
+    while (text[end] === "`") end++
+    let backslashes = 0
+    for (let j = i - 1; j >= 0 && text[j] === "\\"; j--) backslashes++
+    runs.push({ start: i, end, length: end - i, escaped: backslashes % 2 !== 0 })
+    i = end
+  }
+
+  const nextMatchingRun = new Array<number | undefined>(runs.length)
+  const previousByLength = new Map<number, number>()
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i] as BacktickRun
+    const previous = previousByLength.get(run.length)
+    if (previous !== undefined) nextMatchingRun[previous] = i
+    previousByLength.set(run.length, i)
+  }
+
+  for (let i = 0; i < runs.length; ) {
+    const opener = runs[i] as BacktickRun
+    const closerIndex = nextMatchingRun[i]
+    if (opener.escaped || closerIndex === undefined) {
+      i++
+      continue
+    }
+    const closer = runs[closerIndex] as BacktickRun
+    for (let j = opener.start; j < closer.end; j++) {
+      if (output[j] !== "\n") output[j] = " "
+    }
+    i = closerIndex + 1
+  }
+
+  return output.join("")
+}
+
+interface FenceState {
+  readonly marker: string
+  readonly container: Container
+}
+
+export interface MarkdownCodeResult {
+  readonly lines: string[]
+  readonly structuralLines: string[]
+  readonly structuralBlanks: boolean[]
+}
+
+export function blankMarkdownCodeWithStructure(
+  inputLines: readonly string[],
+  contentStarts: readonly number[] = inputLines.map(() => 0),
+): MarkdownCodeResult {
+  let fence: FenceState | null = null
+  let activeList: Container | null = null
+  let paragraphCanContinue = false
+  let inIndented = false
+  const inlineEligible: boolean[] = []
+  const structuralLines: string[] = []
+  const structuralBlanks: boolean[] = []
+  const lines = inputLines.map((line, index) => {
+    const contentStart = contentStarts[index] ?? 0
+
+    if (fence !== null) {
+      const contained = contentWithin(line, contentStart, fence.container)
+      if (contained !== null) {
+        if (closesFence(contained.text, fence.marker)) {
+          fence = null
+          paragraphCanContinue = false
+          inIndented = false
+        }
+        inlineEligible.push(false)
+        structuralLines.push(blankLine(line))
+        structuralBlanks.push(true)
+        return blankLine(line)
+      }
+      fence = null
+      paragraphCanContinue = false
+      inIndented = false
+    }
+
+    let content = markdownContent(line, contentStart)
+    if (content.container.listIndent > 0) {
+      activeList = content.container
+    } else if (content.text.trim() !== "" && activeList !== null) {
+      const continued = contentWithin(line, contentStart, activeList)
+      if (continued === null) {
+        activeList = null
+      } else {
+        content = continued
+      }
+    }
+
+    const visibleLine = `${" ".repeat(content.start)}${line.slice(content.start)}`
+    const marker = openingFence(content.text)
+    if (marker !== null) {
+      fence = { marker, container: content.container }
+      paragraphCanContinue = false
+      inIndented = false
+      inlineEligible.push(false)
+      structuralLines.push(blankLine(line))
+      structuralBlanks.push(true)
+      return blankLine(line)
+    }
+    if (content.text.trim() === "") {
+      paragraphCanContinue = false
+      inIndented = false
+      inlineEligible.push(false)
+      structuralLines.push(line)
+      structuralBlanks.push(true)
+      return visibleLine
+    }
+    if (INDENTED.test(content.text) && (!paragraphCanContinue || inIndented)) {
+      paragraphCanContinue = false
+      inIndented = true
+      inlineEligible.push(false)
+      structuralLines.push(blankLine(line))
+      structuralBlanks.push(true)
+      return blankLine(line)
+    }
+    paragraphCanContinue = !ATX_HEADING.test(content.text)
+    inIndented = false
+    inlineEligible.push(true)
+    structuralLines.push(line)
+    structuralBlanks.push(false)
+    return visibleLine
+  })
+
+  const blankEligibleInlineCode = (target: string[]) => {
+    let start = 0
+    while (start < target.length) {
+      if (!inlineEligible[start]) {
+        start++
+        continue
+      }
+      let end = start + 1
+      while (end < target.length && inlineEligible[end]) end++
+      const blanked = blankInlineCodeSpans(target.slice(start, end).join("\n")).split("\n")
+      for (let i = start; i < end; i++) target[i] = blanked[i - start] as string
+      start = end
+    }
+  }
+
+  blankEligibleInlineCode(lines)
+  blankEligibleInlineCode(structuralLines)
+
+  return { lines, structuralLines, structuralBlanks }
+}
+
+export function blankMarkdownCode(
+  inputLines: readonly string[],
+  contentStarts: readonly number[] = inputLines.map(() => 0),
+): string[] {
+  return blankMarkdownCodeWithStructure(inputLines, contentStarts).lines
+}
+
+interface InlineBacktickRun {
   readonly start: number
   readonly length: number
 }
 
 function blankInlineCodeLine(line: string): string {
-  const runs: BacktickRun[] = []
+  const runs: InlineBacktickRun[] = []
   for (let index = 0; index < line.length; index += 1) {
     if (line[index] !== "`") continue
     const start = index
