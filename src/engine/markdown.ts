@@ -105,6 +105,7 @@ interface BacktickRun {
   readonly start: number
   readonly end: number
   readonly length: number
+  readonly escaped: boolean
 }
 
 const blankInlineCode = (text: string): string => {
@@ -120,7 +121,7 @@ const blankInlineCode = (text: string): string => {
     while (text[end] === "`") end++
     let backslashes = 0
     for (let j = i - 1; j >= 0 && text[j] === "\\"; j--) backslashes++
-    if (backslashes % 2 === 0) runs.push({ start: i, end, length: end - i })
+    runs.push({ start: i, end, length: end - i, escaped: backslashes % 2 !== 0 })
     i = end
   }
 
@@ -134,12 +135,12 @@ const blankInlineCode = (text: string): string => {
   }
 
   for (let i = 0; i < runs.length; ) {
+    const opener = runs[i] as BacktickRun
     const closerIndex = nextMatchingRun[i]
-    if (closerIndex === undefined) {
+    if (opener.escaped || closerIndex === undefined) {
       i++
       continue
     }
-    const opener = runs[i] as BacktickRun
     const closer = runs[closerIndex] as BacktickRun
     for (let j = opener.start; j < closer.end; j++) {
       if (output[j] !== "\n") output[j] = " "
@@ -155,26 +156,39 @@ interface FenceState {
   readonly container: Container
 }
 
-export function blankMarkdownCode(
+export interface MarkdownCodeResult {
+  readonly lines: string[]
+  readonly structuralBlanks: boolean[]
+}
+
+export function blankMarkdownCodeWithStructure(
   inputLines: readonly string[],
   contentStarts: readonly number[] = inputLines.map(() => 0),
-): string[] {
+): MarkdownCodeResult {
   let fence: FenceState | null = null
   let activeList: Container | null = null
   let afterBlank = true
   let inIndented = false
   const inlineEligible: boolean[] = []
+  const structuralBlanks: boolean[] = []
   const lines = inputLines.map((line, index) => {
     const contentStart = contentStarts[index] ?? 0
 
     if (fence !== null) {
       const contained = contentWithin(line, contentStart, fence.container)
       if (contained !== null) {
-        if (closesFence(contained.text, fence.marker)) fence = null
+        if (closesFence(contained.text, fence.marker)) {
+          fence = null
+          afterBlank = true
+          inIndented = false
+        }
         inlineEligible.push(false)
+        structuralBlanks.push(true)
         return blankLine(line)
       }
       fence = null
+      afterBlank = true
+      inIndented = false
     }
 
     let content = markdownContent(line, contentStart)
@@ -196,23 +210,27 @@ export function blankMarkdownCode(
       afterBlank = false
       inIndented = false
       inlineEligible.push(false)
+      structuralBlanks.push(true)
       return blankLine(line)
     }
     if (content.text.trim() === "") {
       afterBlank = true
       inIndented = false
       inlineEligible.push(false)
+      structuralBlanks.push(true)
       return visibleLine
     }
     if (INDENTED.test(content.text) && (afterBlank || inIndented)) {
       afterBlank = false
       inIndented = true
       inlineEligible.push(false)
+      structuralBlanks.push(true)
       return blankLine(line)
     }
     afterBlank = false
     inIndented = false
     inlineEligible.push(true)
+    structuralBlanks.push(false)
     return visibleLine
   })
 
@@ -229,7 +247,14 @@ export function blankMarkdownCode(
     start = end
   }
 
-  return lines
+  return { lines, structuralBlanks }
+}
+
+export function blankMarkdownCode(
+  inputLines: readonly string[],
+  contentStarts: readonly number[] = inputLines.map(() => 0),
+): string[] {
+  return blankMarkdownCodeWithStructure(inputLines, contentStarts).lines
 }
 
 interface BacktickRun {

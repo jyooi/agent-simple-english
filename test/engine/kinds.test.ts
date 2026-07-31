@@ -292,6 +292,14 @@ describe("identifier exemption", () => {
     expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 
+  test("identifier-only lines do not split prose sentences", () => {
+    const text = [words(20), "doNotUse", `${words(10)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
   test("plain words still count", () => {
     expect(lint("commit-message", `${words(26)}.`).violations).toHaveLength(1)
   })
@@ -314,6 +322,14 @@ describe("lint prose-file: hardened markdown stripping", () => {
     const text = ["Run `the command", `${words(30)}`, "to finish` now."].join("\n")
 
     expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
+  test("inline-code-only lines do not split prose sentences", () => {
+    const text = [words(20), "`doNotUse`", `${words(10)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
   })
 
   test("a tilde fence is not closed by a backtick fence", () => {
@@ -360,6 +376,18 @@ describe("lint prose-file: hardened markdown stripping", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
+  })
+
+  test("recognizes indented code immediately after a closing fence", () => {
+    const text = ["~~~", `${words(30)}.`, "~~~", `    ${words(30)}.`].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
+  test("recognizes indented code when a fence container ends", () => {
+    const text = ["> ~~~", `> ${words(30)}.`, `    ${words(30)}.`].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 
   test("recognizes indented code inside blockquote containers", () => {
@@ -416,5 +444,11 @@ describe("lint prose-file: hardened markdown stripping", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
+  test("allows an escaped matching run to close inline code", () => {
+    const text = `Run \`${words(30)}\\\` now.`
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 })

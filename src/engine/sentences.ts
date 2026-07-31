@@ -177,7 +177,10 @@ function sentenceTerminatorEnds(text: string): number[] {
 // A sentence starts at the first non-whitespace character and ends at
 // terminal punctuation and closing delimiters, at a blank line, or at EOF.
 // Sentences may span lines; position is where the sentence starts (1-based).
-export function segmentSentences(lines: readonly string[]): Sentence[] {
+export function segmentSentences(
+  lines: readonly string[],
+  structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
+): Sentence[] {
   const sentences: Sentence[] = []
   let open: { line: number; column: number; parts: string[] } | null = null
 
@@ -192,7 +195,7 @@ export function segmentSentences(lines: readonly string[]): Sentence[] {
 
   lines.forEach((raw, index) => {
     if (raw.trim() === "") {
-      close()
+      if (structuralBlanks[index] ?? true) close()
       return
     }
     let offset = 0

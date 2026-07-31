@@ -1,7 +1,7 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { extractHashComments, extractSlashComments } from "./comments.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankInlineCode, blankMarkdownCode } from "./markdown.ts"
+import { blankMarkdownCodeWithStructure } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
@@ -42,26 +42,31 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
 
 const lintProse = (
   lines: readonly string[],
+  mechanicalLines: readonly string[],
+  structuralBlanks: readonly boolean[],
   { maxSentenceWords, dictionary, tagger }: ResolvedOptions,
-) => {
-  const proseLines = blankInlineCode(lines)
-  return [
-    ...sentenceLength(segmentSentences(proseLines), maxSentenceWords),
-    ...paragraphLength(segmentParagraphs(proseLines)),
-    ...contraction(proseLines),
-    ...semicolon(lines),
-    ...phrasalVerb(proseLines),
-    ...hedging(proseLines),
-    ...marketing(proseLines),
-    ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
-    ...(tagger === undefined ? [] : verbForm(lines, tagger)),
-  ]
-}
+) => [
+  ...sentenceLength(segmentSentences(lines, structuralBlanks), maxSentenceWords),
+  ...paragraphLength(segmentParagraphs(lines)),
+  ...contraction(lines),
+  ...semicolon(mechanicalLines),
+  ...phrasalVerb(lines),
+  ...hedging(lines),
+  ...marketing(lines),
+  ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
+  ...(tagger === undefined ? [] : verbForm(lines, tagger)),
+]
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
   const extracted = extract(kind, text, options)
-  const prose = blankIdentifiers(blankMarkdownCode(extracted.lines, extracted.contentStarts))
-  const raw = lintProse(prose, {
+  const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
+  const prose = blankIdentifiers(markdown.lines)
+  const mechanical = blankIdentifiers(
+    extracted.lines.map((line, index) =>
+      markdown.structuralBlanks[index] ? " ".repeat(line.length) : line,
+    ),
+  )
+  const raw = lintProse(prose, mechanical, markdown.structuralBlanks, {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
