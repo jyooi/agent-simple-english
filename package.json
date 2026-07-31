@@ -1,7 +1,7 @@
 {
-  "name": "pi-simple-english",
+  "name": "simple-english",
   "version": "0.1.0",
-  "description": "ASD-STE100 Simplified Technical English lint engine and CLI for the pi coding agent",
+  "description": "ASD-STE100 Simplified Technical English lint engine, CLI, and host adapters",
   "license": "MIT",
   "type": "module",
   "keywords": ["pi-package", "simplified-technical-english", "linter"],

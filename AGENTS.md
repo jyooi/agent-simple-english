@@ -4,7 +4,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 ## What this project is
 
-A pi extension (TypeScript + Effect) that makes the pi coding agent comply with ASD-STE100 Simplified Technical English, plus a standalone `simple-english` CLI (`src/cli/main.ts`) exposing the same rule engine.
+A host-neutral ASD-STE100 Simplified Technical English toolkit in TypeScript and Effect.
+It supplies a pure Engine, a standalone `simple-english` CLI (`src/cli/main.ts`), and a pi Adapter.
 Behavioral reference: https://github.com/ctotheameron/pi-ste (Gleam) - this is a reimplementation, not a fork.
 Parent spec lives in Linear HUF-130.
 

@@ -17,6 +17,7 @@ export interface CliOptions {
   stdin?: string
   cwd?: string
   home?: string
+  xdgConfigHome?: string
   agentDir?: string
 }
 
@@ -27,7 +28,12 @@ const hermeticHome = makeTempDir()
 
 export async function runCli(args: string[], options: CliOptions = {}): Promise<CliResult> {
   const home = options.home ?? (await hermeticHome)
-  const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: options.agentDir }
+  const env = {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: options.xdgConfigHome ?? join(home, ".config"),
+    PI_CODING_AGENT_DIR: options.agentDir,
+  }
   return new Promise((resolve, reject) => {
     const child = execFile(
       "bun",

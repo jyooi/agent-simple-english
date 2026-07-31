@@ -196,6 +196,7 @@ const temporaryDirectories: string[] = []
 const originalAgentDirectory = process.env.PI_CODING_AGENT_DIR
 const originalDictionary = process.env.SIMPLE_ENGLISH_DICTIONARY
 const originalHome = process.env.HOME
+const originalXdgConfigHome = process.env.XDG_CONFIG_HOME
 
 afterEach(async () => {
   mkdirControl.afterMkdir = undefined
@@ -209,35 +210,54 @@ afterEach(async () => {
   }
   if (originalHome === undefined) process.env.HOME = undefined
   else process.env.HOME = originalHome
+  if (originalXdgConfigHome === undefined) process.env.XDG_CONFIG_HOME = undefined
+  else process.env.XDG_CONFIG_HOME = originalXdgConfigHome
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })))
 })
 
 async function startExtension(options?: {
   readonly branch?: readonly Record<string, unknown>[]
   readonly globalConfig?: object | string
+  readonly legacyGlobalConfig?: object | string
   readonly projectConfig?: object
+  readonly legacyProjectConfig?: object
   readonly sessionStartReason?: "startup" | "resume"
   readonly trusted?: boolean
 }) {
   const cwd = await mkdtemp(join(process.cwd(), ".extension-test-"))
   temporaryDirectories.push(cwd)
   const globalDirectory = join(cwd, "global")
+  const xdgConfigHome = join(cwd, "xdg")
   await mkdir(globalDirectory)
   process.env.PI_CODING_AGENT_DIR = globalDirectory
+  process.env.XDG_CONFIG_HOME = xdgConfigHome
   if (options?.globalConfig !== undefined) {
+    const configDirectory = join(xdgConfigHome, "simple-english")
+    await mkdir(configDirectory, { recursive: true })
     await writeFile(
-      join(globalDirectory, "simple-english.json"),
+      join(configDirectory, "config.json"),
       typeof options.globalConfig === "string"
         ? options.globalConfig
         : JSON.stringify(options.globalConfig),
     )
   }
+  if (options?.legacyGlobalConfig !== undefined) {
+    await writeFile(
+      join(globalDirectory, "simple-english.json"),
+      typeof options.legacyGlobalConfig === "string"
+        ? options.legacyGlobalConfig
+        : JSON.stringify(options.legacyGlobalConfig),
+    )
+  }
   if (options?.projectConfig !== undefined) {
+    await writeFile(join(cwd, ".simple-english.json"), JSON.stringify(options.projectConfig))
+  }
+  if (options?.legacyProjectConfig !== undefined) {
     const projectDirectory = join(cwd, ".pi")
     await mkdir(projectDirectory)
     await writeFile(
       join(projectDirectory, "simple-english.json"),
-      JSON.stringify(options.projectConfig),
+      JSON.stringify(options.legacyProjectConfig),
     )
   }
 
@@ -348,6 +368,7 @@ describe.sequential("pi extension wiring", () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
 
+    expect(manifest.name).toBe("simple-english")
     expect(manifest.pi.extensions).toEqual(["./src/extension/index.ts"])
     expect(manifest.bin).toEqual({ "simple-english": "src/cli/main.ts" })
     expect(manifest.dependencies).toMatchObject({
@@ -1342,6 +1363,64 @@ describe.sequential("pi extension wiring", () => {
         context,
       ),
     ).rejects.toThrow("[contraction]")
+  })
+
+  test("uses legacy pi config paths when host-neutral configs are absent", async () => {
+    const { pi, context, notifications } = await startExtension({
+      legacyGlobalConfig: { rules: { contraction: "hard" } },
+      legacyProjectConfig: { rules: { contraction: "soft" } },
+    })
+
+    const result = await pi.executeTool(
+      "write",
+      "write-legacy-config",
+      { path: "notes.md", content: "This isn't blocked." },
+      context,
+    )
+
+    expect(result).toBeDefined()
+    expect(notifications).toContainEqual({
+      level: "warning",
+      message: expect.stringContaining("[contraction]"),
+    })
+  })
+
+  test("host-neutral global config replaces the legacy global config", async () => {
+    const { pi, context, notifications } = await startExtension({
+      globalConfig: { rules: { contraction: "soft" } },
+      legacyGlobalConfig: { rules: { contraction: "off" } },
+    })
+
+    await pi.executeTool(
+      "write",
+      "write-global-precedence",
+      { path: "notes.md", content: "This isn't blocked." },
+      context,
+    )
+
+    expect(notifications).toContainEqual({
+      level: "warning",
+      message: expect.stringContaining("[contraction]"),
+    })
+  })
+
+  test("host-neutral project config replaces the legacy project config", async () => {
+    const { pi, context, notifications } = await startExtension({
+      projectConfig: { rules: { contraction: "soft" } },
+      legacyProjectConfig: { rules: { contraction: "off" } },
+    })
+
+    await pi.executeTool(
+      "write",
+      "write-project-precedence",
+      { path: "notes.md", content: "This isn't blocked." },
+      context,
+    )
+
+    expect(notifications).toContainEqual({
+      level: "warning",
+      message: expect.stringContaining("[contraction]"),
+    })
   })
 
   test("uses project rule settings over global settings in the extension context", async () => {

@@ -12,19 +12,21 @@ const writeJson = async (path: string, value: unknown): Promise<void> => {
 
 const makeProject = async (config?: unknown): Promise<string> => {
   const cwd = await makeTempDir()
-  if (config !== undefined) {
-    await mkdir(join(cwd, ".pi"), { recursive: true })
-    await writeJson(join(cwd, ".pi", "simple-english.json"), config)
-  }
+  if (config !== undefined) await writeJson(join(cwd, ".simple-english.json"), config)
   return cwd
 }
 
+const writeLegacyProjectConfig = (cwd: string, config: unknown): Promise<void> =>
+  writeJson(join(cwd, ".pi", "simple-english.json"), config)
+
 const makeHome = async (config: unknown): Promise<string> => {
   const home = await makeTempDir()
-  await mkdir(join(home, ".pi", "agent"), { recursive: true })
-  await writeJson(join(home, ".pi", "agent", "simple-english.json"), config)
+  await writeJson(join(home, ".config", "simple-english", "config.json"), config)
   return home
 }
+
+const writeLegacyGlobalConfig = (home: string, config: unknown): Promise<void> =>
+  writeJson(join(home, ".pi", "agent", "simple-english.json"), config)
 
 describe("simple-english CLI config", () => {
   test("project config changes the sentence word cap", async () => {
@@ -35,7 +37,7 @@ describe("simple-english CLI config", () => {
     expect(result.stdout).toContain("maximum is 5")
   })
 
-  test("global config in the pi agent config directory applies", async () => {
+  test("global config in the XDG config directory applies", async () => {
     const home = await makeHome({ maxSentenceWords: 5 })
     const cwd = await makeProject()
     const result = await runCli([], { cwd, home, stdin: tenWords })
@@ -44,8 +46,38 @@ describe("simple-english CLI config", () => {
     expect(result.stdout).toContain("maximum is 5")
   })
 
-  test("PI_CODING_AGENT_DIR overrides the default pi agent config directory", async () => {
+  test("XDG_CONFIG_HOME sets the global config directory", async () => {
     const home = await makeHome({ maxSentenceWords: 20 })
+    const xdgConfigHome = await makeTempDir()
+    await writeJson(join(xdgConfigHome, "simple-english", "config.json"), {
+      maxSentenceWords: 5,
+    })
+    const cwd = await makeProject()
+    const result = await runCli([], { cwd, home, xdgConfigHome, stdin: tenWords })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("maximum is 5")
+  })
+
+  test("legacy pi project and global configs apply when new configs are absent", async () => {
+    const home = await makeTempDir()
+    await writeLegacyGlobalConfig(home, {
+      maxSentenceWords: 5,
+      rules: { "sentence-length": "soft" },
+    })
+    const cwd = await makeProject()
+    await writeLegacyProjectConfig(cwd, { maxSentenceWords: 8 })
+    const result = await runCli(["--json"], { cwd, home, stdin: tenWords })
+
+    expect(result.code).toBe(0)
+    const report = JSON.parse(result.stdout)
+    expect(report.violations[0].severity).toBe("soft")
+    expect(report.violations[0].message).toContain("maximum is 8")
+  })
+
+  test("PI_CODING_AGENT_DIR sets the legacy global fallback directory", async () => {
+    const home = await makeTempDir()
+    await writeLegacyGlobalConfig(home, { maxSentenceWords: 20 })
     const agentDir = await makeTempDir()
     await writeJson(join(agentDir, "simple-english.json"), { maxSentenceWords: 5 })
     const cwd = await makeProject()
@@ -55,12 +87,27 @@ describe("simple-english CLI config", () => {
     expect(result.stdout).toContain("maximum is 5")
   })
 
+  test("new locations replace legacy locations at each config level", async () => {
+    const home = await makeHome({
+      maxSentenceWords: 5,
+      rules: { "sentence-length": "soft" },
+    })
+    await writeLegacyGlobalConfig(home, { rules: { "sentence-length": "off" } })
+    const cwd = await makeProject({ maxSentenceWords: 8 })
+    await writeLegacyProjectConfig(cwd, { maxSentenceWords: 20 })
+    const result = await runCli(["--json"], { cwd, home, stdin: tenWords })
+
+    expect(result.code).toBe(0)
+    const report = JSON.parse(result.stdout)
+    expect(report.violations[0].severity).toBe("soft")
+    expect(report.violations[0].message).toContain("maximum is 8")
+  })
+
   test("project config deep-merges over global with project winning per key", async () => {
     const home = await makeHome({ maxSentenceWords: 5, rules: { "sentence-length": "soft" } })
     const cwd = await makeProject({ maxSentenceWords: 8 })
     const result = await runCli(["--json"], { cwd, home, stdin: tenWords })
 
-    // Project cap (8) wins; the global soft override survives the merge, so exit is 0.
     expect(result.code).toBe(0)
     const report = JSON.parse(result.stdout)
     expect(report.violations).toHaveLength(1)
@@ -91,7 +138,7 @@ describe("simple-english CLI config", () => {
     const result = await runCli([], { cwd, stdin: "A short sentence." })
 
     expect(result.code).toBe(2)
-    expect(result.stderr).toContain(join(cwd, ".pi", "simple-english.json"))
+    expect(result.stderr).toContain(join(cwd, ".simple-english.json"))
     expect(result.stderr).toContain("sentence-length")
     expect(result.stderr).toContain("warn")
     expect(result.stderr).not.toContain("FiberFailure")
@@ -100,12 +147,11 @@ describe("simple-english CLI config", () => {
 
   test("a config file with malformed JSON exits 2 naming the file", async () => {
     const cwd = await makeProject()
-    await mkdir(join(cwd, ".pi"), { recursive: true })
-    await writeFile(join(cwd, ".pi", "simple-english.json"), "{ not json")
+    await writeFile(join(cwd, ".simple-english.json"), "{ not json")
     const result = await runCli([], { cwd, stdin: "A short sentence." })
 
     expect(result.code).toBe(2)
-    expect(result.stderr).toContain(join(cwd, ".pi", "simple-english.json"))
+    expect(result.stderr).toContain(join(cwd, ".simple-english.json"))
   })
 
   test("a missing explicit --config file exits 2 naming the path", async () => {
