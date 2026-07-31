@@ -10,6 +10,16 @@ const blankLine = (line: string): string => " ".repeat(line.length)
 const consumeSeparator = (line: string, index: number): number =>
   line[index] === " " || line[index] === "\t" ? index + 1 : index
 
+const hasEscapedLineBreak = (line: string): boolean => {
+  let index = line.endsWith("\r") ? line.length - 1 : line.length
+  let backslashes = 0
+  while (line[index - 1] === "\\") {
+    backslashes++
+    index--
+  }
+  return backslashes % 2 !== 0
+}
+
 const isRustLifetime = (line: string, index: number): boolean => {
   if (line[index] !== "'" || !/[A-Za-z_]/.test(line[index + 1] ?? "")) return false
   let end = index + 2
@@ -58,12 +68,14 @@ const multilineLiteralAt = (
 export function extractSlashComments(text: string): ExtractedComments {
   let inBlock = false
   let multilineLiteral: MultilineLiteral | null = null
+  let continuedLineQuote: "'" | '"' | null = null
   const contentStarts: number[] = []
 
   const lines = text.split("\n").map((line) => {
     const out = new Array<string>(line.length).fill(" ")
     let contentStart = line.length
-    let lineQuote: "'" | '"' | null = null
+    let lineQuote = continuedLineQuote
+    continuedLineQuote = null
     let i = 0
 
     const markContentStart = (index: number) => {
@@ -169,6 +181,7 @@ export function extractSlashComments(text: string): ExtractedComments {
       i++
     }
 
+    if (lineQuote !== null && hasEscapedLineBreak(line)) continuedLineQuote = lineQuote
     contentStarts.push(contentStart)
     return out.join("")
   })
@@ -228,6 +241,7 @@ export function extractHashComments(
 ): ExtractedComments {
   let multilineQuote: "'''" | '"""' | null = null
   let shellQuote: "'" | '"' | null = null
+  let continuedLineQuote: "'" | '"' | null = null
   let parameterDepth = 0
   let arithmeticDepth = 0
   const heredocs: Heredoc[] = []
@@ -252,7 +266,8 @@ export function extractHashComments(
     const out = new Array<string>(line.length).fill(" ")
     const pendingHeredocs: Heredoc[] = []
     let contentStart = line.length
-    let lineQuote: "'" | '"' | null = null
+    let lineQuote = continuedLineQuote
+    continuedLineQuote = null
     let i = 0
 
     while (i < line.length) {
@@ -279,7 +294,7 @@ export function extractHashComments(
       }
 
       if (lineQuote !== null) {
-        if (ch === "\\" && lineQuote === '"') {
+        if (ch === "\\") {
           i += 2
           continue
         }
@@ -344,6 +359,7 @@ export function extractHashComments(
       i++
     }
 
+    if (lineQuote !== null && hasEscapedLineBreak(line)) continuedLineQuote = lineQuote
     heredocs.push(...pendingHeredocs)
     contentStarts.push(contentStart)
     return out.join("")

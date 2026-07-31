@@ -36,6 +36,14 @@ describe("lint slash-source: comment extraction", () => {
     expect(report.violations[0]).toMatchObject({ line: 1, column: 38 })
   })
 
+  test("does not lint comment markers in backslash-continued string literals", () => {
+    const text = [`const value = "prefix\\`, `// ${words(30)}.";`, `// ${words(30)}.`].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 4 })
+  })
+
   test("flags a long sentence spanning a block comment", () => {
     const text = ["const a = 1", `/* ${words(15)}`, `${words(15)}. */`, "const b = 2"].join("\n")
     const report = lint("slash-source", text)
@@ -168,6 +176,14 @@ describe("lint hash-source: comment extraction", () => {
     expect(lint("hash-source", text).violations).toHaveLength(0)
   })
 
+  test("a hash after an escaped single quote stays inside the string literal", () => {
+    const text = [`value = 'it\\'s # ${words(30)}.'`, `# ${words(30)}.`].join("\n")
+    const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 2, column: 3 })
+  })
+
   test("a shebang line is not prose", () => {
     const text = [`#!/usr/bin/env bash ${words(30)}.`, "echo hi"].join("\n")
 
@@ -186,6 +202,14 @@ describe("lint hash-source: comment extraction", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 4, column: 3 })
+  })
+
+  test("does not lint comment markers in backslash-continued string literals", () => {
+    const text = [`value = "prefix\\`, `# ${words(30)}."`, `# ${words(30)}.`].join("\n")
+    const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 3 })
   })
 
   test("does not treat a shell parameter operator as a comment", () => {
