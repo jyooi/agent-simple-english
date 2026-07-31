@@ -341,6 +341,7 @@ describe.sequential("pi extension wiring", () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
 
     expect(manifest.pi.extensions).toEqual(["./src/extension/index.ts"])
+    expect(manifest.bin).toEqual({ "simple-english": "src/cli/main.ts" })
     expect(manifest.dependencies).toMatchObject({
       effect: expect.any(String),
       "wink-eng-lite-web-model": expect.any(String),
