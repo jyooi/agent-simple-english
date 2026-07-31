@@ -96,11 +96,7 @@ class ExtensionApiStub {
       typeof result === "object" && result !== null && "message" in result
         ? (result.message as ReturnType<typeof assistantMessage>)
         : message
-    await this.emit(
-      "turn_end",
-      { turnIndex: 0, message: finalized, toolResults: [] },
-      context,
-    )
+    await this.emit("turn_end", { turnIndex: 0, message: finalized, toolResults: [] }, context)
     return finalized
   }
 
@@ -582,10 +578,7 @@ describe.sequential("pi extension wiring", () => {
     })
     pi.on("message_end", () => ({ message: assistantMessage("Open the valve.") }))
 
-    const finalized = await pi.finalizeAssistant(
-      assistantMessage("This isn't permitted."),
-      context,
-    )
+    const finalized = await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
 
     expect(finalized.content).toEqual([{ type: "text", text: "Open the valve." }])
     expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])

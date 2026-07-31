@@ -18,6 +18,10 @@ It checks proposed `write` and `edit` content before the tools change a file, us
 Hard violations block the tool call with the line, column, rule ID, and a suggested fix so that the agent can correct the text and retry.
 Soft violations permit the tool call and appear as warnings.
 Edits use the existing file as a baseline, so unchanged violations do not block unrelated changes.
+After each finalized assistant reply, the extension lints its text as `prose-file` content without blocking or rewriting the reply.
+A latest-reply widget shows either a clean state or the hard and soft violation counts for the active branch, including after a session resume or tree navigation.
+Before the next model call, hidden feedback gives the model the details of hard reply violations only; soft reply violations stay in the widget.
+Reply linting uses the same Markdown code exclusions described below.
 A configuration or dictionary load error makes the extension fail closed and block `write` and `edit` for that session.
 
 ## CLI
