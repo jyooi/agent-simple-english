@@ -9,9 +9,16 @@ export interface Deletion {
   readonly currentOffset: number
 }
 
+export interface RetainedRange {
+  readonly previousStart: number
+  readonly currentStart: number
+  readonly length: number
+}
+
 export interface TextChanges {
   readonly ranges: readonly ChangedRange[]
   readonly deletions: readonly Deletion[]
+  readonly retained: readonly RetainedRange[]
 }
 
 const DIFF_CELL_LIMIT = 1_000_000
@@ -52,6 +59,25 @@ function addRange(ranges: ChangedRange[], start: number, end: number): void {
   ranges.push({ start, end })
 }
 
+function addRetained(
+  retained: RetainedRange[],
+  previousStart: number,
+  currentStart: number,
+  length: number,
+): void {
+  if (length === 0) return
+  const last = retained.at(-1)
+  if (
+    last &&
+    last.previousStart + last.length === previousStart &&
+    last.currentStart + last.length === currentStart
+  ) {
+    retained[retained.length - 1] = { ...last, length: last.length + length }
+    return
+  }
+  retained.push({ previousStart, currentStart, length })
+}
+
 function diffCharacters(
   previous: string,
   current: string,
@@ -59,6 +85,7 @@ function diffCharacters(
   currentOffset: number,
   ranges: ChangedRange[],
   deletions: Deletion[],
+  retained: RetainedRange[],
   budget: DiffBudget,
 ): void {
   let prefix = 0
@@ -85,23 +112,50 @@ function diffCharacters(
   const newText = current.slice(prefix, currentEnd)
   const oldBase = previousOffset + prefix
   const newBase = currentOffset + prefix
+  const suffixLength = previous.length - previousEnd
+  const retainEdges = () => {
+    addRetained(retained, previousOffset, currentOffset, prefix)
+    addRetained(
+      retained,
+      previousOffset + previousEnd,
+      currentOffset + currentEnd,
+      suffixLength,
+    )
+  }
 
   if (oldText.length === 0) {
+    addRetained(retained, previousOffset, currentOffset, prefix)
     addRange(ranges, newBase, newBase + newText.length)
+    addRetained(
+      retained,
+      previousOffset + previousEnd,
+      currentOffset + currentEnd,
+      suffixLength,
+    )
     return
   }
   if (newText.length === 0) {
+    addRetained(retained, previousOffset, currentOffset, prefix)
     deletions.push({
       previousStart: oldBase,
       previousEnd: oldBase + oldText.length,
       currentOffset: newBase,
     })
+    addRetained(
+      retained,
+      previousOffset + previousEnd,
+      currentOffset + currentEnd,
+      suffixLength,
+    )
     return
   }
   if (!reserveCells(budget, oldText.length, newText.length)) {
+    retainEdges()
     addRange(ranges, newBase, newBase + newText.length)
     return
   }
+
+  addRetained(retained, previousOffset, currentOffset, prefix)
 
   const width = newText.length + 1
   const table = new Int32Array((oldText.length + 1) * width)
@@ -132,6 +186,7 @@ function diffCharacters(
   while (oldIndex < oldText.length && newIndex < newText.length) {
     if (oldText[oldIndex] === newText[newIndex]) {
       flushDeletion()
+      addRetained(retained, oldBase + oldIndex, newBase + newIndex, 1)
       oldIndex++
       newIndex++
     } else if (lcs(oldIndex + 1, newIndex) >= lcs(oldIndex, newIndex + 1)) {
@@ -155,6 +210,12 @@ function diffCharacters(
   }
   flushDeletion()
   addRange(ranges, newBase + newIndex, newBase + newText.length)
+  addRetained(
+    retained,
+    previousOffset + previousEnd,
+    currentOffset + currentEnd,
+    suffixLength,
+  )
 }
 
 export function changedText(previousText: string, currentText: string): TextChanges {
@@ -185,7 +246,9 @@ export function changedText(previousText: string, currentText: string): TextChan
   const newLines = current.slice(start, currentEnd)
   const ranges: ChangedRange[] = []
   const deletions: Deletion[] = []
+  const retained: RetainedRange[] = []
   const budget: DiffBudget = { remaining: DIFF_CELL_LIMIT }
+  addRetained(retained, 0, 0, currentOffset)
 
   if (!reserveCells(budget, oldLines.length, newLines.length)) {
     const oldText = oldLines.join("")
@@ -199,7 +262,13 @@ export function changedText(previousText: string, currentText: string): TextChan
         currentOffset,
       })
     }
-    return { ranges, deletions }
+    addRetained(
+      retained,
+      previousOffset + oldText.length,
+      currentOffset + newText.length,
+      previousText.length - previousOffset - oldText.length,
+    )
+    return { ranges, deletions, retained }
   }
 
   const width = newLines.length + 1
@@ -229,6 +298,7 @@ export function changedText(previousText: string, currentText: string): TextChan
       newChunkOffset,
       ranges,
       deletions,
+      retained,
       budget,
     )
     oldChunk = ""
@@ -238,8 +308,10 @@ export function changedText(previousText: string, currentText: string): TextChan
   while (oldIndex < oldLines.length && newIndex < newLines.length) {
     if (oldLines[oldIndex] === newLines[newIndex]) {
       flushChunk()
-      previousOffset += oldLines[oldIndex]?.length ?? 0
-      currentOffset += newLines[newIndex]?.length ?? 0
+      const lineLength = oldLines[oldIndex]?.length ?? 0
+      addRetained(retained, previousOffset, currentOffset, lineLength)
+      previousOffset += lineLength
+      currentOffset += lineLength
       oldIndex++
       newIndex++
       oldChunkOffset = previousOffset
@@ -265,6 +337,7 @@ export function changedText(previousText: string, currentText: string): TextChan
     newIndex++
   }
   flushChunk()
+  addRetained(retained, previousOffset, currentOffset, previousText.length - previousOffset)
 
-  return { ranges, deletions }
+  return { ranges, deletions, retained }
 }

@@ -1,12 +1,11 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
-import { changedText } from "./diff.ts"
+import { type ChangedRange, changedText, type TextChanges } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import {
-  blankInlineCode,
-  blankMarkdownCode,
   blankMarkdownCodeWithStructure,
   maskMarkdownCode,
+  proseVisibility,
 } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
@@ -155,19 +154,51 @@ function contains(sentence: Sentence, offset: number): boolean {
   return sentence.startOffset <= offset && offset < sentence.endOffset
 }
 
+function newlyVisibleRanges(
+  previousText: string,
+  text: string,
+  changes: TextChanges,
+): ChangedRange[] {
+  const previousVisibility = proseVisibility(previousText)
+  const currentVisibility = proseVisibility(text)
+  const ranges: ChangedRange[] = []
+
+  for (const retained of changes.retained) {
+    let rangeStart: number | undefined
+    for (let index = 0; index < retained.length; index++) {
+      const previousOffset = retained.previousStart + index
+      const currentOffset = retained.currentStart + index
+      const newlyVisible =
+        previousVisibility[previousOffset] === 0 && currentVisibility[currentOffset] === 1
+      if (newlyVisible && rangeStart === undefined) rangeStart = currentOffset
+      if (!newlyVisible && rangeStart !== undefined) {
+        ranges.push({ start: rangeStart, end: currentOffset })
+        rangeStart = undefined
+      }
+    }
+    if (rangeStart !== undefined) {
+      ranges.push({ start: rangeStart, end: retained.currentStart + retained.length })
+    }
+  }
+
+  return ranges
+}
+
 function sentenceFilter(text: string, previousText: string | undefined): SentenceFilter {
   if (previousText === undefined) {
     return () => true
   }
 
-  const changes = changedText(maskMarkdownCode(previousText), maskMarkdownCode(text))
-  const previousLines = blankInlineCode(blankMarkdownCode(previousText.split("\n")))
-  const previousSentences = segmentSentences(previousLines, previousText)
+  const changes = changedText(previousText, text)
+  const previousProse = maskMarkdownCode(previousText)
+  const currentProse = maskMarkdownCode(text)
+  const changedRanges = [...changes.ranges, ...newlyVisibleRanges(previousText, text, changes)]
+  const previousSentences = segmentSentences(previousProse.split("\n"), previousText)
   const mergedBoundaries = changes.deletions.flatMap((deletion) => {
-    const oldBefore = nearestNonWhitespaceBefore(previousText, deletion.previousStart)
-    const oldAfter = nearestNonWhitespaceAfter(previousText, deletion.previousEnd)
-    const newBefore = nearestNonWhitespaceBefore(text, deletion.currentOffset)
-    const newAfter = nearestNonWhitespaceAfter(text, deletion.currentOffset)
+    const oldBefore = nearestNonWhitespaceBefore(previousProse, deletion.previousStart)
+    const oldAfter = nearestNonWhitespaceAfter(previousProse, deletion.previousEnd)
+    const newBefore = nearestNonWhitespaceBefore(currentProse, deletion.currentOffset)
+    const newAfter = nearestNonWhitespaceAfter(currentProse, deletion.currentOffset)
     if (
       oldBefore === undefined ||
       oldAfter === undefined ||
@@ -183,7 +214,7 @@ function sentenceFilter(text: string, previousText: string | undefined): Sentenc
   })
 
   return (sentence) =>
-    changes.ranges.some(
+    changedRanges.some(
       (range) => range.start < sentence.endOffset && range.end > sentence.startOffset,
     ) ||
     mergedBoundaries.some(

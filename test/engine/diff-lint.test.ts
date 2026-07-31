@@ -56,6 +56,13 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("appending whitespace does not report an unchanged unterminated sentence", () => {
+    const previous = words(30)
+    const current = `${previous} `
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("an insertion that pushes an existing sentence over the word cap is reported", () => {
     const previous = `${words(20)}.`
     const current = `extra extra extra extra extra extra ${words(20)}.`
@@ -124,6 +131,17 @@ describe("lint prose-file: diff-only linting via previousText", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
+  test("deleting fences preserves the identity of duplicate prose lines", () => {
+    const longSentence = `${words(30)}.`
+    const previous = ["```", longSentence, "```", longSentence, "```", longSentence, "```"].join(
+      "\n",
+    )
+    const current = [longSentence, longSentence, longSentence].join("\n")
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations.map((violation) => violation.line)).toEqual([1, 3])
   })
 
   test("edits past the DP size bound conservatively treat the whole middle as changed", () => {
