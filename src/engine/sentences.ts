@@ -37,9 +37,16 @@ function terminatorEnd(text: string): number | undefined {
       end += 1
     }
 
-    if (closedLinkLabel && (text[end] === "(" || text[end] === "[")) {
+    if (closedLinkLabel && text[end] === "(") {
       const suffixEnd = markdownSuffixEnd(text, end)
       if (suffixEnd === undefined) continue
+      end = suffixEnd
+      while (CLOSING_DELIMITERS.has(text[end] ?? "")) end += 1
+    }
+
+    while (text[end] === "[") {
+      const suffixEnd = markdownSuffixEnd(text, end)
+      if (suffixEnd === undefined) break
       end = suffixEnd
       while (CLOSING_DELIMITERS.has(text[end] ?? "")) end += 1
     }

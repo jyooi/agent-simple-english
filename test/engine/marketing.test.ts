@@ -46,6 +46,13 @@ describe("lint prose-file: marketing rule", () => {
     },
   )
 
+  test.each(["state-of-the-art--", "--state-of-the-art"])(
+    "preserves terminal hyphens in the token %s",
+    (token) => {
+      expect(idsFor(`A ${token} design.`)).not.toContain("marketing")
+    },
+  )
+
   test("soft marketing violations do not count as hard in the summary", () => {
     const report = lint("prose-file", "A robust and powerful tool.")
 
