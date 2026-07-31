@@ -292,6 +292,8 @@ type ShortOption =
   | { readonly type: "other" }
 
 function classifyShortOption(argument: string): ShortOption {
+  if (argument === "-u") return { type: "other" }
+
   for (let index = 1; index < argument.length; index++) {
     const option = argument[index] ?? ""
     if (SHORT_OPTIONS_WITHOUT_VALUE.has(option)) continue

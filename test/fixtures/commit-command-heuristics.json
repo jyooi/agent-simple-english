@@ -51,6 +51,16 @@
     "expected": "explicit-message"
   },
   {
+    "name": "bare include status allows a following message",
+    "command": "git commit -u -m \"fix: Close the valve.\"",
+    "expected": "pass"
+  },
+  {
+    "name": "attached include status modes are not messages",
+    "command": "git commit -uall",
+    "expected": "explicit-message"
+  },
+  {
     "name": "dynamic messages fail closed",
     "command": "git commit -m \"$MESSAGE\"",
     "expected": "explicit-message"
