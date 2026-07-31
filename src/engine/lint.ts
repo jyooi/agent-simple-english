@@ -1,5 +1,5 @@
 import type { Dictionary } from "../dictionary/schema.ts"
-import { blankCodeFences } from "./markdown.ts"
+import { blankMarkdownCode } from "./markdown.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
@@ -17,7 +17,7 @@ interface ResolvedOptions {
 
 const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Violation[]> = {
   "prose-file": (text, { maxSentenceWords, dictionary, tagger }) => {
-    const lines = blankCodeFences(text)
+    const lines = blankMarkdownCode(text)
     return [
       ...sentenceLength(segmentSentences(lines), maxSentenceWords),
       ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),

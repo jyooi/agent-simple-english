@@ -149,6 +149,27 @@ describe("lint prose-file: dictionary rule", () => {
     )
   })
 
+  test("ignores unapproved forms inside Markdown indented code", () => {
+    expect(lint("prose-file", "    approximately", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "\tin order to", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", ">     approximately", { dictionary }).violations).toEqual([])
+  })
+
+  test("checks indented CommonMark paragraph continuations", () => {
+    const report = lint("prose-file", "It is\n    approximately five millimeters.", { dictionary })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: 'Use "about", not "approximately".',
+        suggestions: ["about"],
+        line: 2,
+        column: 5,
+      },
+    ])
+  })
+
   test("matches hyphenated forms as one exact token", () => {
     const report = lint("prose-file", "Use state-of-the-art parts.", { dictionary })
 
