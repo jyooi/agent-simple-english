@@ -180,22 +180,18 @@ export function blankMarkdownCode(text: string): string[] {
 }
 
 interface BacktickRun {
-  readonly line: number
   readonly start: number
   readonly length: number
 }
 
-export function blankInlineCode(lines: readonly string[]): string[] {
+function blankInlineCodeLine(line: string): string {
   const runs: BacktickRun[] = []
-
-  lines.forEach((line, lineIndex) => {
-    for (let index = 0; index < line.length; index += 1) {
-      if (line[index] !== "`") continue
-      const start = index
-      while (line[index + 1] === "`") index += 1
-      runs.push({ line: lineIndex, start, length: index - start + 1 })
-    }
-  })
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] !== "`") continue
+    const start = index
+    while (line[index + 1] === "`") index += 1
+    runs.push({ start, length: index - start + 1 })
+  }
 
   const nextMatchingRun = new Int32Array(runs.length).fill(-1)
   const latestRunByLength = new Map<number, number>()
@@ -206,7 +202,7 @@ export function blankInlineCode(lines: readonly string[]): string[] {
     latestRunByLength.set(run.length, index)
   }
 
-  const masked = lines.map((line) => line.split(""))
+  const masked = line.split("")
   for (let index = 0; index < runs.length; index += 1) {
     const closingIndex = nextMatchingRun[index] ?? -1
     if (closingIndex < 0) continue
@@ -214,13 +210,13 @@ export function blankInlineCode(lines: readonly string[]): string[] {
     const closing = runs[closingIndex]
     if (!opening || !closing) continue
 
-    for (let line = opening.line; line <= closing.line; line += 1) {
-      const start = line === opening.line ? opening.start : 0
-      const end = line === closing.line ? closing.start + closing.length : masked[line]?.length
-      masked[line]?.fill(" ", start, end)
-    }
+    masked.fill(" ", opening.start, closing.start + closing.length)
     index = closingIndex
   }
 
-  return masked.map((line) => line.join(""))
+  return masked.join("")
+}
+
+export function blankInlineCode(lines: readonly string[]): string[] {
+  return lines.map(blankInlineCodeLine)
 }

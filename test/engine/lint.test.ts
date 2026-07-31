@@ -68,6 +68,15 @@ describe("lint prose-file: sentence-length rule", () => {
     expect(report.violations.map((violation) => violation.ruleId)).toEqual(["semicolon"])
   })
 
+  test("does not pair inline code delimiters across paragraph boundaries", () => {
+    const text = "Use `literal\n\nCarry out the test.\nClose ` marker."
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toContainEqual(
+      expect.objectContaining({ ruleId: "phrasal-verb", line: 3, column: 1 }),
+    )
+  })
+
   test("counts a sentence that spans multiple lines once, at its start", () => {
     const text = `${words(13)}\n${words(13)}.`
     const report = lint("prose-file", text)
