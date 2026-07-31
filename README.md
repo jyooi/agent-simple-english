@@ -39,20 +39,19 @@ Config is validated: an unknown rule name, a bad severity or tunable value, or a
 
 ## Dictionary
 
-The package vendors the widely cited unapproved word and phrase pairs from pi-ste in `src/dictionary/data/pi-ste.json`.
-Each violation is hard and includes the approved alternative as a suggestion.
+The package includes a bundled list of unapproved words and phrases.
+Dictionary violations are hard by default and include the approved alternative as a suggestion.
 Effect Schema validates the package-owned format when the dictionary loads, while the lint engine receives decoded data and stays pure and synchronous.
 POS metadata limits an entry to the applicable use when the injected tagger is available.
 Entries without POS metadata use word-level matching.
 
-Set `SIMPLE_ENGLISH_DICTIONARY` to another file in the same format to test or supply replacement data.
+Set `SIMPLE_ENGLISH_DICTIONARY` to a replacement file that uses the documented [dictionary data format](src/dictionary/README.md).
 If that file cannot be read or validated, the CLI prints a dictionary error and continues with all other lint rules.
 
 ## Attribution
 
-The vendored dictionary data is converted only from the `dictionary/not-approved-word` word and phrase entries in [`ctotheameron/pi-ste`](https://github.com/ctotheameron/pi-ste) at commit `18a8cc686be2cc0e680705daf2327fb0d1ef93ce`.
-The package at that commit declares the MIT License.
-Exact source details and the ASD-STE100 redistribution note are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The bundled dictionary is converted from the MIT-licensed [`ctotheameron/pi-ste`](https://github.com/ctotheameron/pi-ste) project.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact pinned source, conversion scope, and ASD-STE100 redistribution note.
 
 ## Development
 

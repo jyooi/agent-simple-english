@@ -25,7 +25,10 @@ const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3
 const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([\t ]+|$)/
 const FENCE_OPENER = /^ {0,3}(`{3,}|~{3,})(.*)\r?$/
 
-const markdownContext = (line: string, maximumDepth = Number.POSITIVE_INFINITY): MarkdownContext => {
+const markdownContext = (
+  line: string,
+  maximumDepth = Number.POSITIVE_INFINITY,
+): MarkdownContext => {
   let contentStart = 0
   let quoteDepth = 0
 

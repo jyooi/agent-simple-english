@@ -8,7 +8,7 @@ interface DictionaryCliOptions extends CliOptions {
 async function runCli(args: string[], options: DictionaryCliOptions = {}) {
   const originalDictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
   if (options.dictionaryPath === undefined) {
-    delete process.env.SIMPLE_ENGLISH_DICTIONARY
+    Reflect.deleteProperty(process.env, "SIMPLE_ENGLISH_DICTIONARY")
   } else {
     process.env.SIMPLE_ENGLISH_DICTIONARY = options.dictionaryPath
   }
@@ -18,7 +18,7 @@ async function runCli(args: string[], options: DictionaryCliOptions = {}) {
     return await runCliBase(args, cliOptions)
   } finally {
     if (originalDictionaryPath === undefined) {
-      delete process.env.SIMPLE_ENGLISH_DICTIONARY
+      Reflect.deleteProperty(process.env, "SIMPLE_ENGLISH_DICTIONARY")
     } else {
       process.env.SIMPLE_ENGLISH_DICTIONARY = originalDictionaryPath
     }

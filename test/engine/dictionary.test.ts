@@ -182,12 +182,12 @@ describe("lint prose-file: dictionary rule", () => {
   })
 
   test("ignores fenced code in Markdown containers", () => {
-    expect(
-      lint("prose-file", "> ```\n> approximately\n> ```", { dictionary }).violations,
-    ).toEqual([])
-    expect(
-      lint("prose-file", "- ```\n  approximately\n  ```", { dictionary }).violations,
-    ).toEqual([])
+    expect(lint("prose-file", "> ```\n> approximately\n> ```", { dictionary }).violations).toEqual(
+      [],
+    )
+    expect(lint("prose-file", "- ```\n  approximately\n  ```", { dictionary }).violations).toEqual(
+      [],
+    )
   })
 
   test("checks indented CommonMark paragraph continuations", () => {

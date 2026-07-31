@@ -225,9 +225,7 @@ export function dictionaryRule(
     if (first === undefined) {
       continue
     }
-    const candidates = forms.filter((form) =>
-      hasWords(lines, contexts, tokens, index, form.words),
-    )
+    const candidates = forms.filter((form) => hasWords(lines, contexts, tokens, index, form.words))
     const match = candidates.find((form) => {
       if (form.entry.partsOfSpeech === undefined) {
         return true
