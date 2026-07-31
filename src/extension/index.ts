@@ -4,6 +4,7 @@ import { dirname } from "node:path"
 import {
   type ExtensionAPI,
   type ExtensionContext,
+  ExtensionRunner,
   type MessageStartEvent,
   type MessageUpdateEvent,
   type ToolCallEventResult,
@@ -59,10 +60,14 @@ interface SessionState {
   tagger?: Tagger
   enabled: boolean
   error?: string
+  dictionaryError?: string
   ready: boolean
   strict: boolean
   pendingReplyFeedback?: string
+  readonly approvedSayReplies: Map<string, string>
+  readonly pendingSayArguments: Map<string, Record<string, unknown>>
   readonly pendingWarnings: Map<string, string>
+  readonly rejectedSayReplies: Map<string, string>
 }
 
 const STRICT_MODE_NOTE = [
@@ -105,8 +110,8 @@ function statusSummary(state: SessionState): string {
   const dictionary =
     state.dictionary !== undefined
       ? "loaded"
-      : state.error !== undefined
-        ? `failed (${state.error})`
+      : state.dictionaryError !== undefined
+        ? `failed (${state.dictionaryError})`
         : "not loaded"
   return [
     `Mode: ${mode}`,
@@ -162,24 +167,189 @@ function lintReply(state: SessionState, text: string): LintReport {
 }
 
 type AssistantMessage = Extract<MessageStartEvent["message"], { role: "assistant" }>
+type Message = MessageStartEvent["message"]
 
-function contentWithoutText(message: AssistantMessage): AssistantMessage["content"] {
-  return message.content.filter((block) => block.type !== "text")
+type BoundaryRegistry = {
+  installed: boolean
+  readonly states: WeakMap<object, SessionState>
 }
 
-function suppressAssistantText(message: MessageStartEvent["message"]): void {
-  if (message.role === "assistant") message.content = contentWithoutText(message)
+type BoundaryGlobal = typeof globalThis & {
+  __simpleEnglishStrictBoundaryV1?: BoundaryRegistry
 }
 
-function suppressAssistantTextUpdate(event: MessageUpdateEvent): void {
-  suppressAssistantText(event.message)
-  const update = event.assistantMessageEvent
-  if ("partial" in update) {
-    update.partial = { ...update.partial, content: contentWithoutText(update.partial) }
+const REDACTED_SAY_TEXT = "[redacted until STE approval]"
+const boundaryGlobal = globalThis as BoundaryGlobal
+const boundaryRegistry = (boundaryGlobal.__simpleEnglishStrictBoundaryV1 ??= {
+  installed: false,
+  states: new WeakMap(),
+})
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function replaceRecord(target: Record<string, unknown>, replacement: Record<string, unknown>): void {
+  for (const key of Object.keys(target)) delete target[key]
+  Object.assign(target, replacement)
+}
+
+function captureAndRedactSayArguments(
+  state: SessionState,
+  toolCallId: string,
+  argumentsValue: unknown,
+): void {
+  if (!isRecord(argumentsValue)) return
+  if (argumentsValue.text !== REDACTED_SAY_TEXT) {
+    state.pendingSayArguments.set(toolCallId, structuredClone(argumentsValue))
   }
-  if (update.type === "text_delta") update.delta = ""
-  if (update.type === "text_end") update.content = ""
+  replaceRecord(argumentsValue, { text: REDACTED_SAY_TEXT })
 }
+
+function contentWithoutText(
+  state: SessionState,
+  message: AssistantMessage,
+): AssistantMessage["content"] {
+  return message.content.filter((block) => {
+    if (block.type === "text") return false
+    if (block.type === "toolCall" && block.name === "say") {
+      captureAndRedactSayArguments(state, block.id, block.arguments)
+    }
+    return true
+  })
+}
+
+function suppressAssistantText(state: SessionState, message: Message): void {
+  if (message.role === "assistant") message.content = contentWithoutText(state, message)
+}
+
+function suppressAssistantTextUpdate(state: SessionState, event: MessageUpdateEvent): void {
+  suppressAssistantText(state, event.message)
+  const update = event.assistantMessageEvent
+  if ("partial" in update) suppressAssistantText(state, update.partial)
+  if (update.type === "text_delta" || update.type === "toolcall_delta") update.delta = ""
+  if (update.type === "text_end") update.content = ""
+  if (update.type === "toolcall_end" && update.toolCall.name === "say") {
+    captureAndRedactSayArguments(state, update.toolCall.id, update.toolCall.arguments)
+  }
+  if (update.type === "done") suppressAssistantText(state, update.message)
+  if (update.type === "error") suppressAssistantText(state, update.error)
+}
+
+function strictSayContent(state: SessionState, toolCallId: string) {
+  const approved = state.approvedSayReplies.get(toolCallId)
+  if (approved !== undefined) {
+    return { content: [{ type: "text" as const, text: approved }], details: {}, isError: false }
+  }
+  const rejected = state.rejectedSayReplies.get(toolCallId)
+  if (rejected !== undefined) {
+    return { content: [{ type: "text" as const, text: rejected }], details: {}, isError: true }
+  }
+  return { content: [], details: {}, isError: true }
+}
+
+function enforceStrictMessage(state: SessionState, message: Message): void {
+  if (!state.enabled || !state.strict) return
+  if (message.role === "assistant") {
+    suppressAssistantText(state, message)
+    return
+  }
+  if (message.role !== "toolResult" || message.toolName !== "say") return
+  Object.assign(message, strictSayContent(state, message.toolCallId))
+}
+
+function enforceStrictEvent(state: SessionState, event: Record<string, unknown>): void {
+  if (!state.enabled || !state.strict) return
+  if (isRecord(event.message) && "role" in event.message) {
+    enforceStrictMessage(state, event.message as Message)
+  }
+  if (event.type === "message_update") suppressAssistantTextUpdate(state, event as MessageUpdateEvent)
+  if (
+    (event.type === "tool_execution_start" || event.type === "tool_execution_update") &&
+    event.toolName === "say" &&
+    typeof event.toolCallId === "string"
+  ) {
+    captureAndRedactSayArguments(state, event.toolCallId, event.args)
+  }
+  if (
+    event.type === "tool_execution_end" &&
+    event.toolName === "say" &&
+    typeof event.toolCallId === "string" &&
+    isRecord(event.result)
+  ) {
+    Object.assign(event.result, strictSayContent(state, event.toolCallId))
+  }
+  if (event.type === "turn_end" && Array.isArray(event.toolResults)) {
+    for (const result of event.toolResults) {
+      if (isRecord(result) && result.role === "toolResult" && result.toolName === "say") {
+        enforceStrictMessage(state, result as Message)
+      }
+    }
+  }
+  if (event.type === "agent_end" && Array.isArray(event.messages)) {
+    for (const message of event.messages) {
+      if (isRecord(message) && "role" in message) enforceStrictMessage(state, message as Message)
+    }
+    state.approvedSayReplies.clear()
+    state.pendingSayArguments.clear()
+    state.rejectedSayReplies.clear()
+  }
+}
+
+function installStrictOutputBoundary(): void {
+  if (boundaryRegistry.installed) return
+  boundaryRegistry.installed = true
+
+  const originalEmit = ExtensionRunner.prototype.emit
+  Object.defineProperty(ExtensionRunner.prototype, "emit", {
+    configurable: true,
+    value: async function (this: ExtensionRunner, event: Record<string, unknown>) {
+      const result = await originalEmit.call(this, event as never)
+      const state = boundaryRegistry.states.get(this.createContext().sessionManager as object)
+      if (state !== undefined) enforceStrictEvent(state, event)
+      return result
+    },
+    writable: true,
+  })
+
+  const originalEmitMessageEnd = ExtensionRunner.prototype.emitMessageEnd
+  Object.defineProperty(ExtensionRunner.prototype, "emitMessageEnd", {
+    configurable: true,
+    value: async function (this: ExtensionRunner, event: { message: Message }) {
+      const replacement = await originalEmitMessageEnd.call(this, event as never)
+      const state = boundaryRegistry.states.get(this.createContext().sessionManager as object)
+      if (state === undefined || !state.enabled || !state.strict) return replacement
+      const message = (replacement ?? event.message) as Message
+      enforceStrictMessage(state, message)
+      return message
+    },
+    writable: true,
+  })
+
+  const originalEmitToolResult = ExtensionRunner.prototype.emitToolResult
+  Object.defineProperty(ExtensionRunner.prototype, "emitToolResult", {
+    configurable: true,
+    value: async function (
+      this: ExtensionRunner,
+      event: Record<string, unknown> & { toolCallId: string },
+    ) {
+      const replacement = await originalEmitToolResult.call(this, event as never)
+      const state = boundaryRegistry.states.get(this.createContext().sessionManager as object)
+      if (
+        state === undefined ||
+        !state.enabled ||
+        !state.strict ||
+        event.toolName !== "say"
+      ) {
+        return replacement
+      }
+      return strictSayContent(state, event.toolCallId)
+    },
+    writable: true,
+  })
+}
+
+installStrictOutputBoundary()
 
 function showReplyReport(
   state: SessionState,
@@ -419,7 +589,10 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     enabled: true,
     ready: false,
     strict: false,
+    approvedSayReplies: new Map(),
+    pendingSayArguments: new Map(),
     pendingWarnings: new Map(),
+    rejectedSayReplies: new Map(),
   }
 
   const setSayActive = (active: boolean): void => {
@@ -458,7 +631,10 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
         state.strict = false
         setSayActive(false)
         state.pendingReplyFeedback = undefined
+        state.approvedSayReplies.clear()
+        state.pendingSayArguments.clear()
         state.pendingWarnings.clear()
+        state.rejectedSayReplies.clear()
         if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
       }
       ctx.ui.notify(`STE enforcement ${state.enabled ? "enabled" : "disabled"}.`, "info")
@@ -473,10 +649,16 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     parameters: Type.Object({
       text: Type.String({ description: "The complete user-facing reply" }),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       if (state.enabled && state.strict) {
         const result = lintStrictReply(state, ctx, params.text)
-        if (result?.block) throw new Error(result.reason)
+        if (result?.block) {
+          state.approvedSayReplies.delete(toolCallId)
+          state.rejectedSayReplies.set(toolCallId, result.reason ?? "STE blocked the reply.")
+          throw new Error(result.reason)
+        }
+        state.approvedSayReplies.set(toolCallId, params.text)
+        state.rejectedSayReplies.delete(toolCallId)
       }
       return {
         content: [{ type: "text" as const, text: params.text }],
@@ -487,26 +669,49 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   })
 
   pi.on("session_start", async (_event, ctx) => {
+    boundaryRegistry.states.set(ctx.sessionManager as object, state)
     setSayActive(state.enabled && state.strict)
     state.config = {}
     state.dictionary = undefined
     state.tagger = undefined
     state.ready = false
     state.error = undefined
+    state.dictionaryError = undefined
+    state.approvedSayReplies.clear()
+    state.pendingSayArguments.clear()
     state.pendingWarnings.clear()
+    state.rejectedSayReplies.clear()
     updateReplyState(state, ctx)
     pi.registerTool(createGatedBashTool(ctx.cwd, state))
     pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
+
     try {
       state.config = await Effect.runPromise(loadConfig(undefined, ctx.cwd, ctx.isProjectTrusted()))
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error)
+      if (ctx.hasUI)
+        ctx.ui.notify(`Simple English extension failed to start: ${state.error}`, "error")
+      return
+    }
+
+    try {
       state.dictionary = await Effect.runPromise(
         loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
       )
+    } catch (error) {
+      state.dictionaryError = error instanceof Error ? error.message : String(error)
+      state.error = state.dictionaryError
+      if (ctx.hasUI)
+        ctx.ui.notify(`Simple English extension failed to start: ${state.error}`, "error")
+      return
+    }
+
+    try {
       sharedTagger ??= makeWinkTagger()
       state.tagger = sharedTagger
       state.ready = true
-      restoreReplyState(state, ctx)
+      if (state.enabled) restoreReplyState(state, ctx)
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error)
       if (ctx.hasUI)
@@ -514,8 +719,13 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
   })
 
+  pi.on("session_shutdown", (_event, ctx) => {
+    boundaryRegistry.states.delete(ctx.sessionManager as object)
+  })
+
   pi.on("session_tree", (_event, ctx) => {
-    if (state.ready) restoreReplyState(state, ctx)
+    if (state.enabled && state.ready) restoreReplyState(state, ctx)
+    else updateReplyState(state, ctx)
   })
 
   pi.on("before_agent_start", (event) => {
@@ -526,19 +736,26 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   })
 
   pi.on("message_start", (event) => {
-    if (state.enabled && state.strict) suppressAssistantText(event.message)
+    if (state.enabled && state.strict) enforceStrictMessage(state, event.message)
   })
 
   pi.on("message_update", (event) => {
-    if (state.enabled && state.strict) suppressAssistantTextUpdate(event)
+    if (state.enabled && state.strict) suppressAssistantTextUpdate(state, event)
   })
 
   pi.on("message_end", (event) => {
-    if (!state.enabled || !state.strict || event.message.role !== "assistant") return undefined
-    return {
-      message: { ...event.message, content: contentWithoutText(event.message) },
-    }
+    if (!state.enabled || !state.strict) return undefined
+    enforceStrictMessage(state, event.message)
+    return { message: event.message }
   })
+
+  for (const eventName of [
+    "tool_execution_start",
+    "tool_execution_update",
+    "tool_execution_end",
+  ] as const) {
+    pi.on(eventName, (event) => enforceStrictEvent(state, event))
+  }
 
   pi.on("turn_end", (event, ctx) => {
     if (!state.enabled || !state.ready || event.message.role !== "assistant") return
@@ -569,11 +786,19 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     if (!state.enabled) return undefined
     if (event.toolName === "say" && state.strict) {
+      const savedArguments = state.pendingSayArguments.get(event.toolCallId)
+      if (savedArguments !== undefined) replaceRecord(event.input, structuredClone(savedArguments))
       const text = (event.input as { text?: unknown }).text
       if (typeof text !== "string") {
-        return { block: true, reason: "STE could not check the reply: say requires text." }
+        const reason = "STE could not check the reply: say requires text."
+        state.rejectedSayReplies.set(event.toolCallId, reason)
+        return { block: true, reason }
       }
-      return lintStrictReply(state, ctx, text)
+      const result = lintStrictReply(state, ctx, text)
+      if (result?.block) {
+        state.rejectedSayReplies.set(event.toolCallId, result.reason ?? "STE blocked the reply.")
+      }
+      return result
     }
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
     if (state.ready) return undefined

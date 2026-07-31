@@ -1,5 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import {
+  ExtensionRunner,
+  createExtensionRuntime,
+} from "@earendil-works/pi-coding-agent"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import simpleEnglishExtension from "../../src/extension/index.ts"
 
@@ -199,7 +203,7 @@ afterEach(async () => {
 
 async function startExtension(options?: {
   readonly branch?: readonly Record<string, unknown>[]
-  readonly globalConfig?: object
+  readonly globalConfig?: object | string
   readonly projectConfig?: object
   readonly sessionStartReason?: "startup" | "resume"
   readonly trusted?: boolean
@@ -212,7 +216,9 @@ async function startExtension(options?: {
   if (options?.globalConfig !== undefined) {
     await writeFile(
       join(globalDirectory, "simple-english.json"),
-      JSON.stringify(options.globalConfig),
+      typeof options.globalConfig === "string"
+        ? options.globalConfig
+        : JSON.stringify(options.globalConfig),
     )
   }
   if (options?.projectConfig !== undefined) {
@@ -260,6 +266,31 @@ function assistantMessage(text: string) {
     content: [{ type: "text", text }],
     timestamp: Date.now(),
   }
+}
+
+function boundaryRunner(
+  sessionManager: ExtensionContextStub["sessionManager"],
+  handlers: Readonly<Record<string, readonly EventHandler[]>>,
+): ExtensionRunner {
+  const extension = {
+    path: "later-extension",
+    resolvedPath: "later-extension",
+    sourceInfo: {},
+    handlers: new Map(Object.entries(handlers)),
+    tools: new Map(),
+    messageRenderers: new Map(),
+    entryRenderers: new Map(),
+    commands: new Map(),
+    flags: new Map(),
+    shortcuts: new Map(),
+  }
+  return new ExtensionRunner(
+    [extension] as never,
+    createExtensionRuntime(),
+    process.cwd(),
+    sessionManager as never,
+    {} as never,
+  )
 }
 
 function assistantEntry(text: string, id = "assistant-reply") {
@@ -527,6 +558,16 @@ describe.sequential("pi extension wiring", () => {
     expect(notifications.at(-1)?.message).toContain("Dictionary: loaded")
   })
 
+  test("reports the dictionary as not loaded when config loading fails", async () => {
+    const { pi, context, notifications } = await startExtension({ globalConfig: "{" })
+
+    await pi.runCommand("ste", "status", context)
+
+    expect(notifications.at(-1)?.message).toContain("Mode: enabled")
+    expect(notifications.at(-1)?.message).toContain("Dictionary: not loaded")
+    expect(notifications.at(-1)?.message).not.toContain("Dictionary: failed")
+  })
+
   test("gates strict replies through say until a clean rewrite passes", async () => {
     const { pi, context } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
@@ -585,6 +626,80 @@ describe.sequential("pi extension wiring", () => {
       context,
     )
     expect(finalized.content).toEqual([])
+  })
+
+  test("redacts strict say arguments until the gated result succeeds", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+
+    const message = {
+      ...assistantMessage(""),
+      content: [
+        {
+          type: "toolCall",
+          id: "say-redacted",
+          name: "say",
+          arguments: { text: "Open the valve." },
+        },
+      ],
+    }
+    const update = {
+      message,
+      assistantMessageEvent: {
+        type: "toolcall_delta",
+        contentIndex: 0,
+        delta: '"text":"Open the valve."',
+        partial: message,
+      },
+    }
+
+    await pi.emit("message_update", update, context)
+
+    expect(update.assistantMessageEvent.delta).toBe("")
+    expect(message.content[0]?.arguments).toEqual({
+      text: "[redacted until STE approval]",
+    })
+    await expect(
+      pi.executeTool(
+        "say",
+        "say-redacted",
+        { text: "[redacted until STE approval]" },
+        context,
+      ),
+    ).resolves.toMatchObject({ content: [{ type: "text", text: "Open the valve." }] })
+  })
+
+  test("enforces strict output after later extension middleware", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+    await pi.executeTool("say", "say-approved", { text: "Open the valve." }, context)
+
+    const runner = boundaryRunner(context.sessionManager, {
+      message_end: [() => ({ message: assistantMessage("This isn't permitted.") })],
+      tool_result: [() => ({ content: [{ type: "text", text: "This isn't permitted." }] })],
+    })
+    const assistant = assistantMessage("Open the valve.")
+    const finalized = await runner.emitMessageEnd({ type: "message_end", message: assistant } as never)
+    const result = await runner.emitToolResult({
+      type: "tool_result",
+      toolName: "say",
+      toolCallId: "say-approved",
+      input: { text: "Open the valve." },
+      content: [{ type: "text", text: "Open the valve." }],
+      details: {},
+      isError: false,
+    })
+
+    expect(finalized?.content).toEqual([])
+    expect(result).toMatchObject({
+      content: [{ type: "text", text: "Open the valve." }],
+      details: {},
+      isError: false,
+    })
   })
 
   test("gates strict say input after later tool-call handlers mutate it", async () => {
@@ -946,6 +1061,25 @@ describe.sequential("pi extension wiring", () => {
         }),
       ]),
     })
+  })
+
+  test("keeps reply checking cleared during disabled tree navigation", async () => {
+    const { pi, context, setBranch, widgets } = await startExtension({
+      branch: [assistantEntry("Open the valve.")],
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "off", context)
+    setBranch([assistantEntry("This isn't permitted.", "blocked-reply")])
+
+    await pi.emit(
+      "session_tree",
+      { newLeafId: "blocked-reply", oldLeafId: "assistant-reply" },
+      context,
+    )
+    await pi.runCommand("ste", "on", context)
+
+    expect(widgets.get("simple-english-reply")).toBeUndefined()
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
   test("recomputes reply state after session tree navigation", async () => {
