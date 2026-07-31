@@ -15,6 +15,8 @@ const dictionary = {
     { unapproved: ["attempt", "attempts"], suggestions: ["try"], partsOfSpeech: ["VERB"] },
     { unapproved: ["approximately"], suggestions: ["about"] },
     { unapproved: ["prior to"], suggestions: ["before"] },
+    { unapproved: ["in order to"], suggestions: ["to"] },
+    { unapproved: ["state-of-the-art"], suggestions: ["advanced"] },
   ],
 } as const satisfies Dictionary
 
@@ -96,13 +98,46 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
-  test("does not match phrases across paragraph or hard line breaks", () => {
+  test("matches phrases across continued Markdown block quotes", () => {
+    const report = lint("prose-file", "> in order\n> to continue", { dictionary })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: 'Use "to", not "in order to".',
+        suggestions: ["to"],
+        line: 1,
+        column: 3,
+      },
+    ])
+  })
+
+  test("does not match phrases across Markdown block boundaries", () => {
     expect(lint("prose-file", "Do this prior\n\nto assembly.", { dictionary }).violations).toEqual(
       [],
     )
     expect(lint("prose-file", "Do this prior  \nto assembly.", { dictionary }).violations).toEqual(
       [],
     )
+    expect(lint("prose-file", "# In order\nto continue", { dictionary }).violations).toEqual([])
+    expect(lint("prose-file", "- In order\n- to continue", { dictionary }).violations).toEqual([])
+  })
+
+  test("matches hyphenated forms as one exact token", () => {
+    const report = lint("prose-file", "Use state-of-the-art parts.", { dictionary })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: 'Use "advanced", not "state-of-the-art".',
+        suggestions: ["advanced"],
+        line: 1,
+        column: 5,
+      },
+    ])
+    expect(lint("prose-file", "Use state of the art parts.", { dictionary }).violations).toEqual([])
   })
 
   test("skips POS-aware entries when no tagger is available", () => {

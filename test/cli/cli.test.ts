@@ -111,6 +111,16 @@ describe("simple-english CLI", () => {
     expect(result.stdout).toContain('Use "try", not "attempt".')
   })
 
+  test("loads and matches a hyphenated dictionary form", async () => {
+    const result = await runCli([], {
+      stdin: "Use state-of-the-art parts.",
+      dictionaryPath: "test/fixtures/hyphenated-dictionary.json",
+    })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('Use "advanced", not "state-of-the-art".')
+  })
+
   test("accepts an approved alternative and a word used as an allowed POS", async () => {
     const result = await runCli([], { stdin: "We try the repair. The attempt failed." })
 
@@ -127,6 +137,11 @@ describe("simple-english CLI", () => {
 
   test.each([
     ["invalid", "test/fixtures/invalid-dictionary.json", "entries[0].unapproved"],
+    [
+      "unsupported-form",
+      "test/fixtures/unsupported-dictionary-form.json",
+      "entries[0].unapproved[0]",
+    ],
     ["unreadable", "test/fixtures/missing-dictionary.json", "cannot read file"],
   ])("reports an %s dictionary and continues other rules", async (_kind, path, error) => {
     const longSentence = `${Array.from({ length: 26 }, (_, i) => `word${i}`).join(" ")}.`

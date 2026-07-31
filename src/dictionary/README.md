@@ -5,6 +5,7 @@
 - `formatVersion` identifies incompatible format changes.
 - `source` pins the repository, commit, and path from which the data was converted.
 - `entries[].unapproved` lists exact case-insensitive word forms or phrases.
+  Forms can contain letters, numbers, internal apostrophes, internal hyphens, and horizontal whitespace between words.
 - `entries[].suggestions` lists approved alternatives.
 - `entries[].partsOfSpeech`, when present, lists the POS tags for which the forms are unapproved.
 

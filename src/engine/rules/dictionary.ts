@@ -1,3 +1,4 @@
+import { DICTIONARY_TOKEN_SOURCE } from "../../dictionary/form.ts"
 import type { Dictionary, DictionaryEntry } from "../../dictionary/schema.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
@@ -14,15 +15,27 @@ interface Form {
   readonly words: readonly string[]
 }
 
-const tokenize = (lines: readonly string[]): readonly WordToken[] =>
-  lines.flatMap((line, lineIndex) =>
-    Array.from(line.matchAll(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu), (match) => ({
+interface MarkdownContext {
+  readonly contentStart: number
+  readonly quoteDepth: number
+}
+
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[\t ]+|$)/
+const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[\t ]+|$)/
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[\t ]*\r?$/
+const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3,})\r?$/
+
+const tokenize = (lines: readonly string[]): readonly WordToken[] => {
+  const tokenPattern = new RegExp(DICTIONARY_TOKEN_SOURCE, "gu")
+  return lines.flatMap((line, lineIndex) =>
+    Array.from(line.matchAll(tokenPattern), (match) => ({
       text: match[0],
       lower: match[0].toLowerCase(),
       lineIndex,
       offset: match.index,
     })),
   )
+}
 
 const compileForms = (dictionary: Dictionary): readonly Form[] =>
   dictionary.entries
@@ -30,6 +43,45 @@ const compileForms = (dictionary: Dictionary): readonly Form[] =>
       entry.unapproved.map((form) => ({ entry, words: form.toLowerCase().split(/\s+/) })),
     )
     .sort((left, right) => right.words.length - left.words.length)
+
+const markdownContext = (line: string): MarkdownContext => {
+  let contentStart = 0
+  let quoteDepth = 0
+
+  while (contentStart < line.length) {
+    let marker = contentStart
+    let spaces = 0
+    while (spaces < 4 && line[marker] === " ") {
+      marker++
+      spaces++
+    }
+    if (spaces > 3 || line[marker] !== ">") {
+      break
+    }
+    contentStart = marker + 1
+    if (line[contentStart] === " " || line[contentStart] === "\t") {
+      contentStart++
+    }
+    quoteDepth++
+  }
+
+  return { contentStart, quoteDepth }
+}
+
+const blockContent = (line: string, context: MarkdownContext): string =>
+  line.slice(context.contentStart)
+
+const isLeafBlock = (content: string): boolean => {
+  const listMarker = content.match(LIST_MARKER)
+  const nestedContent = listMarker === null ? content : content.slice(listMarker[0].length)
+  return ATX_HEADING.test(nestedContent)
+}
+
+const startsNewBlock = (content: string): boolean =>
+  ATX_HEADING.test(content) ||
+  LIST_MARKER.test(content) ||
+  SETEXT_UNDERLINE.test(content) ||
+  THEMATIC_BREAK.test(content)
 
 const isSoftLineBreak = (
   lines: readonly string[],
@@ -44,9 +96,22 @@ const isSoftLineBreak = (
   if (previousLine === undefined || nextLine === undefined) {
     return false
   }
+
+  const previousContext = markdownContext(previousLine)
+  const nextContext = markdownContext(nextLine)
+  const previousContent = blockContent(previousLine, previousContext)
+  const nextContent = blockContent(nextLine, nextContext)
+  if (
+    previousContext.quoteDepth !== nextContext.quoteDepth ||
+    isLeafBlock(previousContent) ||
+    startsNewBlock(nextContent)
+  ) {
+    return false
+  }
+
   const lineEnd = previousLine.endsWith("\r") ? previousLine.length - 1 : previousLine.length
   const trailing = previousLine.slice(previous.offset + previous.text.length, lineEnd)
-  const leading = nextLine.slice(0, token.offset)
+  const leading = nextLine.slice(nextContext.contentStart, token.offset)
   return (trailing === "" || trailing === " ") && /^[\t ]*$/.test(leading)
 }
 

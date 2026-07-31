@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { DICTIONARY_FORM_PATTERN } from "./form.ts"
 
 const DictionarySourceSchema = Schema.Struct({
   name: Schema.NonEmptyTrimmedString,
@@ -7,8 +8,12 @@ const DictionarySourceSchema = Schema.Struct({
   path: Schema.NonEmptyTrimmedString,
 })
 
+const DictionaryFormSchema = Schema.NonEmptyTrimmedString.pipe(
+  Schema.pattern(DICTIONARY_FORM_PATTERN),
+)
+
 const DictionaryEntrySchema = Schema.Struct({
-  unapproved: Schema.NonEmptyArray(Schema.NonEmptyTrimmedString),
+  unapproved: Schema.NonEmptyArray(DictionaryFormSchema),
   suggestions: Schema.NonEmptyArray(Schema.NonEmptyTrimmedString),
   partsOfSpeech: Schema.optional(Schema.NonEmptyArray(Schema.NonEmptyTrimmedString)),
 })
