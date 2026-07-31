@@ -384,6 +384,12 @@ describe("lint prose-file: hardened markdown stripping", () => {
     expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 
+  test("recognizes indented code immediately after a heading", () => {
+    const text = ["# Heading", `    ${words(30)}.`].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
   test("recognizes indented code when a fence container ends", () => {
     const text = ["> ~~~", `> ${words(30)}.`, `    ${words(30)}.`].join("\n")
 
@@ -396,6 +402,14 @@ describe("lint prose-file: hardened markdown stripping", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 5, column: 1 })
+  })
+
+  test("ends an unclosed fence at an unmarked blockquote blank", () => {
+    const text = ["> ~~~", "", `> ${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 3 })
   })
 
   test("ends an unclosed fence when its blockquote container ends", () => {

@@ -1,6 +1,7 @@
 const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 const INDENTED = /^(?: {4,}|\t)/
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
 const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]{1,4})/
 
 const blankLine = (line: string): string => " ".repeat(line.length)
@@ -68,14 +69,14 @@ const contentWithin = (
   if (container.quoteDepth === 0 && container.listIndent === 0) {
     return { text: line.slice(base), start: base, container }
   }
-  if (line.slice(base).trim() === "") {
-    return { text: "", start: line.length, container }
-  }
 
   const blockquotes = consumeBlockquotes(line, base, container.quoteDepth)
   if (blockquotes.depth !== container.quoteDepth) return null
 
   let index = blockquotes.index
+  if (line.slice(index).trim() === "") {
+    return { text: "", start: line.length, container }
+  }
   let remaining = container.listIndent
   while (remaining > 0 && (line[index] === " " || line[index] === "\t")) {
     index++
@@ -167,7 +168,7 @@ export function blankMarkdownCodeWithStructure(
 ): MarkdownCodeResult {
   let fence: FenceState | null = null
   let activeList: Container | null = null
-  let afterBlank = true
+  let paragraphCanContinue = false
   let inIndented = false
   const inlineEligible: boolean[] = []
   const structuralBlanks: boolean[] = []
@@ -179,7 +180,7 @@ export function blankMarkdownCodeWithStructure(
       if (contained !== null) {
         if (closesFence(contained.text, fence.marker)) {
           fence = null
-          afterBlank = true
+          paragraphCanContinue = false
           inIndented = false
         }
         inlineEligible.push(false)
@@ -187,7 +188,7 @@ export function blankMarkdownCodeWithStructure(
         return blankLine(line)
       }
       fence = null
-      afterBlank = true
+      paragraphCanContinue = false
       inIndented = false
     }
 
@@ -207,27 +208,27 @@ export function blankMarkdownCodeWithStructure(
     const marker = openingFence(content.text)
     if (marker !== null) {
       fence = { marker, container: content.container }
-      afterBlank = false
+      paragraphCanContinue = false
       inIndented = false
       inlineEligible.push(false)
       structuralBlanks.push(true)
       return blankLine(line)
     }
     if (content.text.trim() === "") {
-      afterBlank = true
+      paragraphCanContinue = false
       inIndented = false
       inlineEligible.push(false)
       structuralBlanks.push(true)
       return visibleLine
     }
-    if (INDENTED.test(content.text) && (afterBlank || inIndented)) {
-      afterBlank = false
+    if (INDENTED.test(content.text) && (!paragraphCanContinue || inIndented)) {
+      paragraphCanContinue = false
       inIndented = true
       inlineEligible.push(false)
       structuralBlanks.push(true)
       return blankLine(line)
     }
-    afterBlank = false
+    paragraphCanContinue = !ATX_HEADING.test(content.text)
     inIndented = false
     inlineEligible.push(true)
     structuralBlanks.push(false)
