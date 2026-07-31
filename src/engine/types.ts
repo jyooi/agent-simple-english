@@ -31,7 +31,8 @@ export interface LintOptions {
    * The prior document text used to lint only sentences affected by changes.
    * Affected sentences can contain both changed text and retained context.
    * Omit this value to lint the current document in full.
-   * Deletions do not report removed content, and violation positions refer to the current text.
+   * A deletion can affect adjacent current sentences but never reports removed content.
+   * Violation positions refer to the current text.
    */
   readonly previousText?: string
 }
