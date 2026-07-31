@@ -8,6 +8,11 @@ interface OperatorToken {
   readonly type: "operator"
 }
 
+interface Heredoc {
+  readonly delimiter: string
+  readonly stripTabs: boolean
+}
+
 type ShellToken = WordToken | OperatorToken
 
 export type CommitInvocation =
@@ -80,18 +85,24 @@ function tokenize(command: string): ShellToken[] {
   let dynamic = false
   let started = false
   let discardWord = false
+  let heredocDeclaration: Pick<Heredoc, "stripTabs"> | undefined
+  const heredocs: Heredoc[] = []
   let index = 0
 
   const flush = () => {
     if (!started) return
     if (!discardWord) tokens.push({ type: "word", value, dynamic })
+    else if (heredocDeclaration !== undefined) {
+      heredocs.push({ delimiter: value, stripTabs: heredocDeclaration.stripTabs })
+    }
     value = ""
     dynamic = false
     started = false
     discardWord = false
+    heredocDeclaration = undefined
   }
 
-  const redirection = (width: number) => {
+  const redirection = (redirectionOperator: string) => {
     if (started && /^\d+$/u.test(value)) {
       value = ""
       dynamic = false
@@ -100,16 +111,33 @@ function tokenize(command: string): ShellToken[] {
       flush()
     }
     discardWord = true
-    index += width
+    heredocDeclaration =
+      redirectionOperator === "<<" || redirectionOperator === "<<-"
+        ? { stripTabs: redirectionOperator === "<<-" }
+        : undefined
+    index += redirectionOperator.length
   }
 
   const operator = (width = 1) => {
     flush()
+    discardWord = false
+    heredocDeclaration = undefined
     tokens.push({ type: "operator" })
     index += width
   }
 
   while (index < command.length) {
+    if (heredocs.length > 0 && (index === 0 || command[index - 1] === "\n")) {
+      const lineEnd = command.indexOf("\n", index)
+      const end = lineEnd === -1 ? command.length : lineEnd
+      const line = command.slice(index, end).replace(/\r$/u, "")
+      const activeHeredoc = heredocs[0]
+      const candidate = activeHeredoc?.stripTabs ? line.replace(/^\t+/u, "") : line
+      if (candidate === activeHeredoc?.delimiter) heredocs.shift()
+      index = lineEnd === -1 ? command.length : lineEnd + 1
+      continue
+    }
+
     const character = command[index] ?? ""
 
     if (/[^\S\r\n]/u.test(character) || character === "\r") {
@@ -125,10 +153,19 @@ function tokenize(command: string): ShellToken[] {
       operator()
       continue
     }
+    if (
+      (character === "{" || character === "}") &&
+      !started &&
+      (command[index + 1] === undefined || /[\s;&|()]/u.test(command[index + 1] ?? ""))
+    ) {
+      operator()
+      continue
+    }
     if (character === "<" || character === ">" || (character === "&" && command[index + 1] === ">")) {
       const rest = command.slice(index)
-      const width = rest.match(/^(?:<<<|<<-|&>>|<<|<>|<&|>>|>\||>&|&>|<|>)/u)?.[0].length ?? 1
-      redirection(width)
+      const redirectionOperator =
+        rest.match(/^(?:<<<|<<-|&>>|<<|<>|<&|>>|>\||>&|&>|<|>)/u)?.[0] ?? character
+      redirection(redirectionOperator)
       continue
     }
     if (character === "&" || character === "|") {

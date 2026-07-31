@@ -202,6 +202,37 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 1, column 11 [contraction]")
   })
 
+  test("gates a static commit in a command group", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const result = await runHook(
+      event(cwd, "Bash", {
+        command: `{ git commit -m "fix: This isn't permitted."; }`,
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 1, column 11 [contraction]")
+  })
+
+  test("ignores git commit text in a heredoc payload", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const result = await runHook(
+      event(cwd, "Bash", {
+        command: `cat <<'EOF'\ngit commit -m "fix: This isn't permitted."\nEOF`,
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
+  })
+
   test.each(["git commit", "git commit -F message.txt", 'git commit -m "$MESSAGE"'])(
     "denies a git commit without a static message: %s",
     async (command) => {
