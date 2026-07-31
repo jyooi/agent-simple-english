@@ -27,6 +27,12 @@ export interface LintOptions {
   // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger
   readonly sourceDialect?: SourceDialect
+  /**
+   * The prior document text used to lint only sentences affected by changes.
+   * Affected sentences can contain both changed text and retained context.
+   * Omit this value to lint the current document in full.
+   * Deletions do not report removed content, and violation positions refer to the current text.
+   */
   readonly previousText?: string
 }
 

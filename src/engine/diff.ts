@@ -115,23 +115,13 @@ function diffCharacters(
   const suffixLength = previous.length - previousEnd
   const retainEdges = () => {
     addRetained(retained, previousOffset, currentOffset, prefix)
-    addRetained(
-      retained,
-      previousOffset + previousEnd,
-      currentOffset + currentEnd,
-      suffixLength,
-    )
+    addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
   }
 
   if (oldText.length === 0) {
     addRetained(retained, previousOffset, currentOffset, prefix)
     addRange(ranges, newBase, newBase + newText.length)
-    addRetained(
-      retained,
-      previousOffset + previousEnd,
-      currentOffset + currentEnd,
-      suffixLength,
-    )
+    addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
     return
   }
   if (newText.length === 0) {
@@ -141,12 +131,7 @@ function diffCharacters(
       previousEnd: oldBase + oldText.length,
       currentOffset: newBase,
     })
-    addRetained(
-      retained,
-      previousOffset + previousEnd,
-      currentOffset + currentEnd,
-      suffixLength,
-    )
+    addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
     return
   }
   if (!reserveCells(budget, oldText.length, newText.length)) {
@@ -215,12 +200,7 @@ function diffCharacters(
   }
   flushDeletion()
   addRange(ranges, newBase + newIndex, newBase + newText.length)
-  addRetained(
-    retained,
-    previousOffset + previousEnd,
-    currentOffset + currentEnd,
-    suffixLength,
-  )
+  addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
 }
 
 export function changedText(previousText: string, currentText: string): TextChanges {

@@ -35,6 +35,21 @@ interface ResolvedOptions {
   readonly dictionary?: Dictionary
   readonly tagger?: Tagger
   readonly selectSentences: SentenceSelector
+  readonly diffOnly: boolean
+}
+
+function selectedProseLines(text: string, sentences: readonly Sentence[]): string[] {
+  const selected: string[] = Array.from(text, (character) =>
+    character === "\n" || character === "\r" ? character : " ",
+  )
+  for (const sentence of sentences) {
+    for (const range of sentence.contentRanges) {
+      for (let offset = range.start; offset < range.end; offset++) {
+        selected[offset] = text[offset] ?? " "
+      }
+    }
+  }
+  return selected.join("").split("\n")
 }
 
 interface ExtractedProse {
@@ -99,28 +114,37 @@ const lintProse = (
   mechanicalLines: readonly string[],
   contentStarts: readonly number[],
   structuralBlanks: readonly boolean[],
-  { maxSentenceWords, dictionary, tagger, selectSentences }: ResolvedOptions,
-) => [
-  ...sentenceLength(
-    selectSentences(segmentSentences(lines, lines.join("\n"), structuralBlanks)),
-    maxSentenceWords,
-  ),
-  ...paragraphLength(
-    segmentParagraphs(
-      structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
-      contentStarts.map((contentStart) => contentStart + 1),
+  { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
+) => {
+  const sentences = selectSentences(
+    segmentSentences(lines, lines.join("\n"), structuralBlanks),
+  )
+  const selectedProse = diffOnly ? selectedProseLines(lines.join("\n"), sentences) : lines
+  const selectedStructural = diffOnly
+    ? selectedProseLines(structuralLines.join("\n"), sentences)
+    : structuralLines
+  const selectedMechanical = diffOnly
+    ? selectedProseLines(mechanicalLines.join("\n"), sentences)
+    : mechanicalLines
+  return [
+    ...sentenceLength(sentences, maxSentenceWords),
+    ...paragraphLength(
+      segmentParagraphs(
+        selectedStructural.map((line, index) => line.slice(contentStarts[index] ?? 0)),
+        contentStarts.map((contentStart) => contentStart + 1),
+      ),
     ),
-  ),
-  ...contraction(lines),
-  ...semicolon(mechanicalLines),
-  ...phrasalVerb(lines),
-  ...hedging(lines),
-  ...marketing(lines),
-  ...(dictionary === undefined
-    ? []
-    : dictionaryRule(structuralLines, dictionary, tagger, contentStarts)),
-  ...(tagger === undefined ? [] : verbForm(lines, tagger)),
-]
+    ...contraction(selectedProse),
+    ...semicolon(selectedMechanical),
+    ...phrasalVerb(selectedProse),
+    ...hedging(selectedProse),
+    ...marketing(selectedProse),
+    ...(dictionary === undefined
+      ? []
+      : dictionaryRule(selectedStructural, dictionary, tagger, contentStarts)),
+    ...(tagger === undefined ? [] : verbForm(selectedProse, tagger)),
+  ]
+}
 
 const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Violation[] => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
@@ -617,6 +641,7 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
     dictionary: options.dictionary,
     tagger: options.tagger,
     selectSentences: sentenceSelector(text, options.previousText),
+    diffOnly: options.previousText !== undefined,
   }
   const raw = splitProseRuns(extracted).flatMap((run) =>
     lintExtracted(run, resolved).map((violation) => ({
@@ -628,12 +653,10 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
   const violations: Violation[] = raw
     .flatMap((violation) => {
       const setting = options.rules?.[violation.ruleId]
-      if (setting === undefined) {
-        return [violation]
-      }
+      if (setting === undefined) return [violation]
       return setting === "off" ? [] : [{ ...violation, severity: setting }]
     })
-    .sort((a, b) => a.line - b.line || a.column - b.column)
+    .sort((left, right) => left.line - right.line || left.column - right.column)
   return {
     violations,
     summary: {
