@@ -206,7 +206,10 @@ describe("lint prose-file: dictionary rule", () => {
   })
 
   test("matches hyphenated forms as one exact token", () => {
-    const report = lint("prose-file", "Use state-of-the-art parts.", { dictionary })
+    const report = lint("prose-file", "Use state-of-the-art parts.", {
+      dictionary,
+      rules: { marketing: "off" },
+    })
 
     expect(report.violations).toEqual([
       {

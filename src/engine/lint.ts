@@ -1,6 +1,13 @@
 import type { Dictionary } from "../dictionary/schema.ts"
-import { blankMarkdownCode } from "./markdown.ts"
+import { blankInlineCode, blankMarkdownCode } from "./markdown.ts"
+import { segmentParagraphs } from "./paragraphs.ts"
+import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
+import { hedging } from "./rules/hedging.ts"
+import { marketing } from "./rules/marketing.ts"
+import { paragraphLength } from "./rules/paragraph-length.ts"
+import { phrasalVerb } from "./rules/phrasal-verb.ts"
+import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
 import { segmentSentences } from "./sentences.ts"
@@ -18,8 +25,15 @@ interface ResolvedOptions {
 const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Violation[]> = {
   "prose-file": (text, { maxSentenceWords, dictionary, tagger }) => {
     const lines = blankMarkdownCode(text)
+    const proseLines = blankInlineCode(lines)
     return [
-      ...sentenceLength(segmentSentences(lines), maxSentenceWords),
+      ...sentenceLength(segmentSentences(proseLines), maxSentenceWords),
+      ...paragraphLength(segmentParagraphs(proseLines)),
+      ...contraction(proseLines),
+      ...semicolon(lines),
+      ...phrasalVerb(proseLines),
+      ...hedging(proseLines),
+      ...marketing(proseLines),
       ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
       ...(tagger === undefined ? [] : verbForm(lines, tagger)),
     ]

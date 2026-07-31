@@ -91,7 +91,7 @@ describe("simple-english CLI", () => {
     const result = await runCli([], { stdin: "The pump is running." })
 
     expect(result.code).toBe(1)
-    expect(result.stdout).toContain("<stdin>:1:10 verb-progressive")
+    expect(result.stdout).toContain("<stdin>:1:10 [hard] verb-progressive")
     expect(result.stdout).toContain("Do not use the progressive")
   })
 
@@ -99,7 +99,7 @@ describe("simple-english CLI", () => {
     const result = await runCli([], { stdin: "The bolt was removed." })
 
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("<stdin>:1:10 verb-passive")
+    expect(result.stdout).toContain("<stdin>:1:10 [soft] verb-passive")
     expect(result.stdout).toContain("active voice")
   })
 
@@ -107,7 +107,7 @@ describe("simple-english CLI", () => {
     const result = await runCli([], { stdin: "We attempt the repair." })
 
     expect(result.code).toBe(1)
-    expect(result.stdout).toContain("<stdin>:1:4 dictionary-not-approved-word")
+    expect(result.stdout).toContain("<stdin>:1:4 [hard] dictionary-not-approved-word")
     expect(result.stdout).toContain('Use "try", not "attempt".')
   })
 
@@ -161,6 +161,39 @@ describe("simple-english CLI", () => {
     expect(result.stdout).toContain("verb-progressive")
     expect(result.stdout).toContain("verb-perfect")
     expect(result.stdout).toContain("verb-passive")
+  })
+
+  test("human output shows the severity of each violation", async () => {
+    const result = await runCli(["test/fixtures/violations.md"])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("[hard] sentence-length")
+  })
+
+  test("soft violations appear in the output but exit 0", async () => {
+    const result = await runCli([], { stdin: "This is a seamless flow." })
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("[soft] marketing")
+    expect(result.stdout).toContain("seamless")
+  })
+
+  test("--json reports severity and the phrasal-verb suggestion", async () => {
+    const result = await runCli(["--json"], {
+      stdin: "Carry out the test. It is a seamless flow.",
+    })
+
+    expect(result.code).toBe(1)
+    const report = JSON.parse(result.stdout)
+    expect(report.summary).toEqual({ total: 2, hard: 1 })
+    expect(report.violations).toEqual([
+      expect.objectContaining({
+        ruleId: "phrasal-verb",
+        severity: "hard",
+        suggestion: "do",
+      }),
+      expect.objectContaining({ ruleId: "marketing", severity: "soft" }),
+    ])
   })
 
   test("errors with exit code 2 on an unreadable file", async () => {

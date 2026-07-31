@@ -178,3 +178,45 @@ export function blankMarkdownCode(text: string): string[] {
     return line
   })
 }
+
+interface BacktickRun {
+  readonly start: number
+  readonly length: number
+}
+
+function blankInlineCodeLine(line: string): string {
+  const runs: BacktickRun[] = []
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] !== "`") continue
+    const start = index
+    while (line[index + 1] === "`") index += 1
+    runs.push({ start, length: index - start + 1 })
+  }
+
+  const nextMatchingRun = new Int32Array(runs.length).fill(-1)
+  const latestRunByLength = new Map<number, number>()
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index]
+    if (!run) continue
+    nextMatchingRun[index] = latestRunByLength.get(run.length) ?? -1
+    latestRunByLength.set(run.length, index)
+  }
+
+  const masked = line.split("")
+  for (let index = 0; index < runs.length; index += 1) {
+    const closingIndex = nextMatchingRun[index] ?? -1
+    if (closingIndex < 0) continue
+    const opening = runs[index]
+    const closing = runs[closingIndex]
+    if (!opening || !closing) continue
+
+    masked.fill(" ", opening.start, closing.start + closing.length)
+    index = closingIndex
+  }
+
+  return masked.join("")
+}
+
+export function blankInlineCode(lines: readonly string[]): string[] {
+  return lines.map(blankInlineCodeLine)
+}

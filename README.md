@@ -12,11 +12,31 @@ cat notes.md | simple-english
 simple-english --json README.md
 ```
 
-The CLI prints STE violations with a line, column, and rule ID.
+The CLI prints STE violations with a line, column, severity, and rule ID.
 It exits 1 when hard violations exist, 0 when no hard violations exist, and 2 when an input file cannot be read or a config file is invalid.
 Soft violations are still printed when the command exits 0.
-`--json` emits a machine-readable report.
+`--json` emits a machine-readable report with the severity of each violation and an approved suggestion for phrasal verbs.
 `--config <path>` loads an explicit config file instead of the discovered ones.
+
+## Rules
+
+| Rule ID | Severity | Default |
+| --- | --- | --- |
+| `sentence-length` | Hard | More than 25 words in one sentence |
+| `paragraph-length` | Hard | More than 6 sentences in one paragraph |
+| `contraction` | Hard | Contractions |
+| `semicolon` | Hard | Semicolons |
+| `phrasal-verb` | Hard | Curated phrasal verbs, with an approved single-verb suggestion |
+| `hedging` | Soft | Curated hedging phrases |
+| `marketing` | Soft | Curated marketing language |
+| `dictionary-not-approved-word` | Hard | Unapproved dictionary words and phrases |
+| `verb-progressive` | Hard | Progressive verb forms |
+| `verb-passive` | Soft | Passive voice |
+| `verb-perfect` | Hard | Perfect verb forms |
+
+Fenced code blocks are excluded from all rules.
+Inline code is excluded from the mechanical and list rules except `semicolon`.
+Hedging, marketing, and phrasal-verb multiword matches stay within one line.
 
 ## Configuration
 
