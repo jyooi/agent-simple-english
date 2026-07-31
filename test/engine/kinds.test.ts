@@ -78,6 +78,41 @@ describe("lint slash-source: comment extraction", () => {
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 4, column: 4 })
   })
+
+  test("distinguishes Rust lifetimes from multi-line string literals", () => {
+    const text = ["fn borrow(value: &'static str) {}", `// ${words(30)}.`].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 2, column: 4 })
+  })
+
+  test("keeps Java text blocks open across embedded quotes", () => {
+    const text = [
+      'String text = """',
+      'embedded " quote',
+      `// ${words(30)}.`,
+      '""";',
+      `// ${words(30)}.`,
+    ].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 5, column: 4 })
+  })
+
+  test("applies Markdown fences after extracting doc comments", () => {
+    const text = [
+      "/// ```text",
+      `/// ${words(30)}.`,
+      "/// ```",
+      `/// ${words(30)}.`,
+    ].join("\n")
+    const report = lint("slash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 5 })
+  })
 })
 
 describe("lint hash-source: comment extraction", () => {
@@ -133,6 +168,41 @@ describe("lint hash-source: comment extraction", () => {
 
     expect(lint("hash-source", text).violations).toHaveLength(0)
   })
+
+  test("recognizes a trailing comment without leading whitespace", () => {
+    const text = `x=1# ${words(30)}.`
+    const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 6 })
+  })
+
+  test("does not lint hash markers in shell heredoc payloads", () => {
+    const text = [
+      "cat <<'EOF'",
+      `# ${words(30)}.`,
+      "EOF",
+      `# ${words(30)}.`,
+    ].join("\n")
+    const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 3 })
+  })
+
+  test("applies Markdown indented blocks after extracting comments", () => {
+    const text = [
+      "# Intro.",
+      "#",
+      `#     ${words(30)}.`,
+      "#",
+      `# ${words(30)}.`,
+    ].join("\n")
+    const report = lint("hash-source", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 5, column: 3 })
+  })
 })
 
 describe("lint commit-message", () => {
@@ -146,6 +216,12 @@ describe("lint commit-message", () => {
 
   test("a clean message passes", () => {
     const text = ["fix: remove the bolt", "", "Turn the handle to the left."].join("\n")
+
+    expect(lint("commit-message", text).violations).toHaveLength(0)
+  })
+
+  test("does not lint Markdown inline code", () => {
+    const text = `Run \`${words(30)}\` to update the file.`
 
     expect(lint("commit-message", text).violations).toHaveLength(0)
   })
@@ -230,5 +306,34 @@ describe("lint prose-file: hardened markdown stripping", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 5, column: 1 })
+  })
+
+  test("recognizes fenced code inside blockquote containers", () => {
+    const text = [
+      "> ```text",
+      `> ${words(30)}.`,
+      "> ```",
+      `${words(30)}.`,
+    ].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
+  })
+
+  test("recognizes indented code inside blockquote containers", () => {
+    const text = ["> Intro.", ">", `>     ${words(30)}.`, ">", `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 5, column: 1 })
+  })
+
+  test("does not pair unmatched backtick runs of different lengths", () => {
+    const text = `\` \`\` ${words(30)}.`
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
   })
 })

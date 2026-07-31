@@ -24,15 +24,25 @@ interface ResolvedOptions {
   readonly tagger?: Tagger
 }
 
-const extractors: Record<LintKind, (text: string) => string[]> = {
-  "prose-file": blankMarkdownCode,
+interface ExtractedProse {
+  readonly lines: readonly string[]
+  readonly contentStarts: readonly number[]
+}
+
+const wholeText = (text: string): ExtractedProse => {
+  const lines = text.split("\n")
+  return { lines, contentStarts: lines.map(() => 0) }
+}
+
+const extractors: Record<LintKind, (text: string) => ExtractedProse> = {
+  "prose-file": wholeText,
   "slash-source": extractSlashComments,
   "hash-source": extractHashComments,
-  "commit-message": (text) => text.split("\n"),
+  "commit-message": wholeText,
 }
 
 const lintProse = (
-  lines: string[],
+  lines: readonly string[],
   { maxSentenceWords, dictionary, tagger }: ResolvedOptions,
 ) => {
   const proseLines = blankInlineCode(lines)
@@ -50,7 +60,8 @@ const lintProse = (
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const prose = blankIdentifiers(extractors[kind](text))
+  const extracted = extractors[kind](text)
+  const prose = blankIdentifiers(blankMarkdownCode(extracted.lines, extracted.contentStarts))
   const raw = lintProse(prose, {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,

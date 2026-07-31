@@ -4,6 +4,29 @@ const INDENTED = /^(?: {4,}|\t)/
 
 const blankLine = (line: string): string => " ".repeat(line.length)
 
+interface MarkdownContent {
+  readonly text: string
+  readonly start: number
+}
+
+const markdownContent = (line: string, contentStart: number): MarkdownContent => {
+  let index = Math.min(contentStart, line.length)
+
+  while (index < line.length) {
+    let marker = index
+    let spaces = 0
+    while (spaces < 3 && line[marker] === " ") {
+      marker++
+      spaces++
+    }
+    if (line[marker] !== ">") break
+    index = marker + 1
+    if (line[index] === " " || line[index] === "\t") index++
+  }
+
+  return { text: line.slice(index), start: index }
+}
+
 const openingFence = (line: string): string | null => {
   const match = line.match(OPENING_FENCE)
   if (match === null) return null
@@ -17,62 +40,72 @@ const closesFence = (line: string, fence: string): boolean => {
   return marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length
 }
 
+interface BacktickRun {
+  readonly start: number
+  readonly end: number
+  readonly length: number
+}
+
 const blankInlineCode = (text: string): string => {
   const output = text.split("")
-  let i = 0
+  const runs: BacktickRun[] = []
 
-  while (i < text.length) {
+  for (let i = 0; i < text.length; ) {
     if (text[i] !== "`") {
       i++
       continue
     }
+    let end = i + 1
+    while (text[end] === "`") end++
+    runs.push({ start: i, end, length: end - i })
+    i = end
+  }
 
-    let openerEnd = i + 1
-    while (text[openerEnd] === "`") openerEnd++
-    const delimiterLength = openerEnd - i
-    let candidate = openerEnd
-    let closerEnd: number | null = null
+  const nextMatchingRun = new Array<number | undefined>(runs.length)
+  const previousByLength = new Map<number, number>()
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i] as BacktickRun
+    const previous = previousByLength.get(run.length)
+    if (previous !== undefined) nextMatchingRun[previous] = i
+    previousByLength.set(run.length, i)
+  }
 
-    while (candidate < text.length) {
-      if (text[candidate] !== "`") {
-        candidate++
-        continue
-      }
-      let runEnd = candidate + 1
-      while (text[runEnd] === "`") runEnd++
-      if (runEnd - candidate === delimiterLength) {
-        closerEnd = runEnd
-        break
-      }
-      candidate = runEnd
-    }
-
-    if (closerEnd === null) {
-      i = openerEnd
+  for (let i = 0; i < runs.length; ) {
+    const closerIndex = nextMatchingRun[i]
+    if (closerIndex === undefined) {
+      i++
       continue
     }
-    for (let j = i; j < closerEnd; j++) {
+    const opener = runs[i] as BacktickRun
+    const closer = runs[closerIndex] as BacktickRun
+    for (let j = opener.start; j < closer.end; j++) {
       if (output[j] !== "\n") output[j] = " "
     }
-    i = closerEnd
+    i = closerIndex + 1
   }
 
   return output.join("")
 }
 
-export function blankMarkdownCode(text: string): string[] {
+export function blankMarkdownCode(
+  inputLines: readonly string[],
+  contentStarts: readonly number[] = inputLines.map(() => 0),
+): string[] {
   let fence: string | null = null
   let afterBlank = true
   let inIndented = false
   const inlineEligible: boolean[] = []
-  const lines = text.split("\n").map((line) => {
+  const lines = inputLines.map((line, index) => {
+    const content = markdownContent(line, contentStarts[index] ?? 0)
+    const visibleLine = `${" ".repeat(content.start)}${line.slice(content.start)}`
+
     if (fence !== null) {
-      if (closesFence(line, fence)) fence = null
+      if (closesFence(content.text, fence)) fence = null
       inlineEligible.push(false)
       return blankLine(line)
     }
 
-    const marker = openingFence(line)
+    const marker = openingFence(content.text)
     if (marker !== null) {
       fence = marker
       afterBlank = false
@@ -80,13 +113,13 @@ export function blankMarkdownCode(text: string): string[] {
       inlineEligible.push(false)
       return blankLine(line)
     }
-    if (line.trim() === "") {
+    if (content.text.trim() === "") {
       afterBlank = true
       inIndented = false
       inlineEligible.push(false)
-      return line
+      return visibleLine
     }
-    if (INDENTED.test(line) && (afterBlank || inIndented)) {
+    if (INDENTED.test(content.text) && (afterBlank || inIndented)) {
       afterBlank = false
       inIndented = true
       inlineEligible.push(false)
@@ -95,7 +128,7 @@ export function blankMarkdownCode(text: string): string[] {
     afterBlank = false
     inIndented = false
     inlineEligible.push(true)
-    return line
+    return visibleLine
   })
 
   let start = 0
