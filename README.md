@@ -13,23 +13,24 @@ pi install npm:pi-simple-english
 ```
 
 For local development, run `pi -e .` from the repository instead.
-At the start of each agent turn, the extension adds a concise STE rule summary that reflects the active configuration.
+While enforcement is enabled, the extension adds a concise STE rule summary at the start of each agent turn.
 It checks proposed `write` and `edit` content before the tools change a file, using the same file-extension content kinds described for the CLI below.
 It uses bounded heuristics in `bash` tool calls to detect `git commit` invocations and check static messages supplied with `-m` or `--message` before the shell command runs.
 Conventional Commit prefixes and final trailer lines such as `Co-Authored-By` and `BREAKING CHANGE` are exempt, but the subject and body prose are checked at their original positions.
 Hard violations block the tool call with the line, column, rule ID, and a suggested fix so that the agent can correct the text and retry.
 Soft violations permit the tool call and appear as warnings.
 Edits use the existing file as a baseline, so unchanged violations do not block unrelated changes.
-After each finalized assistant reply, the extension lints its text as `prose-file` content without blocking or rewriting the reply.
+In regular enabled mode, the extension lints each finalized assistant reply as `prose-file` content without blocking or rewriting it.
 A latest-reply widget shows either a clean state or the hard and soft violation counts for the active branch, including after a session resume or tree navigation.
 Before the next model call, hidden feedback gives the model the details of hard reply violations only; soft reply violations stay in the widget.
 Reply linting uses the same Markdown code exclusions described below.
-Use `/ste` to disable or re-enable all write, edit, commit, and reply enforcement for the current session.
-Use `/ste status` to show the mode, configured rule counts by severity, and dictionary state.
-Use `/ste strict` to require user-facing replies through the gateable `say` tool, and use `/ste strict off` to restore normal replies.
+Use `/ste` to toggle all write, edit, commit, and reply enforcement for the current session, or use `/ste on` and `/ste off` to set it explicitly.
+Use `/ste status` to show the mode, configured rule counts by severity, and dictionary load state.
+Use `/ste strict` to activate the `say` tool and require all user-facing replies to pass through it.
+Use `/ste strict off` to deactivate `say` and restore normal streaming replies.
 A strict reply with hard violations stays hidden until the agent sends a clean rewrite through `say`.
 A detected commit invocation whose message cannot be extracted fails closed and asks the agent to use a static message argument.
-A configuration or dictionary load error makes the extension fail closed and block `write`, `edit`, and detected `git commit` invocations for that session.
+While enforcement remains enabled, a configuration or dictionary load error makes the extension fail closed and block `write`, `edit`, and detected `git commit` calls for that session.
 
 ## CLI
 

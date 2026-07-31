@@ -1,9 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import {
-  ExtensionRunner,
-  createExtensionRuntime,
-} from "@earendil-works/pi-coding-agent"
+import { ExtensionRunner, createExtensionRuntime } from "@earendil-works/pi-coding-agent"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import simpleEnglishExtension from "../../src/extension/index.ts"
 
@@ -189,6 +186,7 @@ class ExtensionApiStub {
 
 const temporaryDirectories: string[] = []
 const originalAgentDirectory = process.env.PI_CODING_AGENT_DIR
+const originalDictionary = process.env.SIMPLE_ENGLISH_DICTIONARY
 const originalHome = process.env.HOME
 
 afterEach(async () => {
@@ -196,6 +194,11 @@ afterEach(async () => {
   bashControl.executedCommands.length = 0
   if (originalAgentDirectory === undefined) process.env.PI_CODING_AGENT_DIR = undefined
   else process.env.PI_CODING_AGENT_DIR = originalAgentDirectory
+  if (originalDictionary === undefined) {
+    Reflect.deleteProperty(process.env, "SIMPLE_ENGLISH_DICTIONARY")
+  } else {
+    process.env.SIMPLE_ENGLISH_DICTIONARY = originalDictionary
+  }
   if (originalHome === undefined) process.env.HOME = undefined
   else process.env.HOME = originalHome
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })))
@@ -485,8 +488,8 @@ describe.sequential("pi extension wiring", () => {
     expect(error?.message).toContain("[contraction]")
   })
 
-  test("toggles write, commit, and reply enforcement for the session", async () => {
-    const { pi, context, widgets } = await startExtension({
+  test("toggles write, edit, commit, and reply enforcement for the session", async () => {
+    const { cwd, pi, context, widgets } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
 
@@ -498,17 +501,16 @@ describe.sequential("pi extension wiring", () => {
         context,
       ),
     ).rejects.toThrow("[contraction]")
-    await expect(
-      pi.emit(
-        "tool_call",
-        {
-          toolName: "bash",
-          toolCallId: "commit-enabled",
-          input: { command: `git commit -m "fix: This isn't permitted."` },
-        },
-        context,
-      ),
-    ).resolves.toMatchObject({ block: true })
+    expect(
+      (
+        await executeBash(
+          pi,
+          context,
+          "commit-enabled",
+          `git commit -m "fix: This isn't permitted."`,
+        )
+      )?.message,
+    ).toContain("[contraction]")
 
     await pi.runCommand("ste", "", context)
 
@@ -521,14 +523,23 @@ describe.sequential("pi extension wiring", () => {
       ),
     ).resolves.toBeDefined()
     await expect(
-      pi.emit(
-        "tool_call",
+      pi.executeTool(
+        "edit",
+        "edit-disabled",
         {
-          toolName: "bash",
-          toolCallId: "commit-disabled",
-          input: { command: `git commit -m "fix: This isn't permitted."` },
+          path: "notes.md",
+          edits: [{ oldText: "This isn't permitted.", newText: "This can't be permitted." }],
         },
         context,
+      ),
+    ).resolves.toBeDefined()
+    expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This can't be permitted.")
+    await expect(
+      executeBash(
+        pi,
+        context,
+        "commit-disabled",
+        `git commit -m "fix: This isn't permitted."`,
       ),
     ).resolves.toBeUndefined()
     await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
@@ -549,16 +560,27 @@ describe.sequential("pi extension wiring", () => {
       ),
     ).rejects.toThrow("[contraction]")
     await expect(
-      pi.emit(
-        "tool_call",
+      pi.executeTool(
+        "edit",
+        "edit-reenabled",
         {
-          toolName: "bash",
-          toolCallId: "commit-reenabled",
-          input: { command: `git commit -m "fix: This isn't permitted."` },
+          path: "notes.md",
+          edits: [{ oldText: "This can't be permitted.", newText: "This won't be permitted." }],
         },
         context,
       ),
-    ).resolves.toMatchObject({ block: true })
+    ).rejects.toThrow("[contraction]")
+    expect(await readFile(join(cwd, "notes.md"), "utf8")).toBe("This can't be permitted.")
+    expect(
+      (
+        await executeBash(
+          pi,
+          context,
+          "commit-reenabled",
+          `git commit -m "fix: This isn't permitted."`,
+        )
+      )?.message,
+    ).toContain("[contraction]")
     await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
     expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
   })
@@ -576,6 +598,14 @@ describe.sequential("pi extension wiring", () => {
     })
     expect(notifications.at(-1)?.message).toContain("Rules: 6 hard, 4 soft, 1 off")
     expect(notifications.at(-1)?.message).toContain("Dictionary: loaded")
+
+    await pi.runCommand("ste", "off", context)
+    await pi.runCommand("ste", "status", context)
+    expect(notifications.at(-1)?.message).toContain("Mode: disabled")
+
+    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ste", "status", context)
+    expect(notifications.at(-1)?.message).toContain("Mode: strict")
   })
 
   test("reports the dictionary as not loaded when config loading fails", async () => {
@@ -586,6 +616,17 @@ describe.sequential("pi extension wiring", () => {
     expect(notifications.at(-1)?.message).toContain("Mode: enabled")
     expect(notifications.at(-1)?.message).toContain("Dictionary: not loaded")
     expect(notifications.at(-1)?.message).not.toContain("Dictionary: failed")
+  })
+
+  test("reports a failed dictionary load", async () => {
+    process.env.SIMPLE_ENGLISH_DICTIONARY = join(process.cwd(), "missing-dictionary.json")
+    const { pi, context, notifications } = await startExtension()
+
+    await pi.runCommand("ste", "status", context)
+
+    expect(notifications.at(-1)?.message).toContain("Mode: enabled")
+    expect(notifications.at(-1)?.message).toContain("Dictionary: failed (")
+    expect(notifications.at(-1)?.message).toContain("missing-dictionary.json")
   })
 
   test("gates strict replies through say until a clean rewrite passes", async () => {
@@ -688,10 +729,7 @@ describe.sequential("pi extension wiring", () => {
     expect(thinkingEnd.assistantMessageEvent.content).toBe("")
     expect(thinkingEnd.assistantMessageEvent.partial.content).toEqual([])
 
-    const finalized = await pi.finalizeAssistant(
-      assistantMessage("This isn't permitted."),
-      context,
-    )
+    const finalized = await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
     expect(finalized.content).toEqual([])
   })
 
@@ -729,12 +767,7 @@ describe.sequential("pi extension wiring", () => {
       text: "[redacted until STE approval]",
     })
     await expect(
-      pi.executeTool(
-        "say",
-        "say-redacted",
-        { text: "[redacted until STE approval]" },
-        context,
-      ),
+      pi.executeTool("say", "say-redacted", { text: "[redacted until STE approval]" }, context),
     ).resolves.toMatchObject({ content: [{ type: "text", text: "Open the valve." }] })
   })
 
@@ -746,23 +779,27 @@ describe.sequential("pi extension wiring", () => {
     await pi.executeTool("say", "say-approved", { text: "Open the valve." }, context)
 
     const runner = boundaryRunner(context.sessionManager, {
-      message_end: [() => ({
-        message: {
-          ...assistantMessage(""),
-          content: [{ type: "thinking", thinking: "This isn't permitted." }],
+      message_end: [
+        () => ({
+          message: {
+            ...assistantMessage(""),
+            content: [{ type: "thinking", thinking: "This isn't permitted." }],
+          },
+        }),
+      ],
+      message_update: [
+        (event) => {
+          const update = event.assistantMessageEvent as {
+            delta: string
+            partial: ReturnType<typeof assistantMessage>
+          }
+          update.delta = "This isn't permitted."
+          update.partial = {
+            ...assistantMessage(""),
+            content: [{ type: "thinking", thinking: "This isn't permitted." }],
+          } as never
         },
-      })],
-      message_update: [(event) => {
-        const update = event.assistantMessageEvent as {
-          delta: string
-          partial: ReturnType<typeof assistantMessage>
-        }
-        update.delta = "This isn't permitted."
-        update.partial = {
-          ...assistantMessage(""),
-          content: [{ type: "thinking", thinking: "This isn't permitted." }],
-        } as never
-      }],
+      ],
       tool_result: [() => ({ content: [{ type: "text", text: "This isn't permitted." }] })],
     })
     const streamedThinking = {
@@ -784,7 +821,10 @@ describe.sequential("pi extension wiring", () => {
     await runner.emit(streamedThinking as never)
 
     const assistant = assistantMessage("Open the valve.")
-    const finalized = await runner.emitMessageEnd({ type: "message_end", message: assistant } as never)
+    const finalized = await runner.emitMessageEnd({
+      type: "message_end",
+      message: assistant,
+    } as never)
     const result = await runner.emitToolResult({
       type: "tool_result",
       toolName: "say",
@@ -798,7 +838,7 @@ describe.sequential("pi extension wiring", () => {
     expect(streamedThinking.message.content).toEqual([])
     expect(streamedThinking.assistantMessageEvent.delta).toBe("")
     expect(streamedThinking.assistantMessageEvent.partial.content).toEqual([])
-    expect(finalized?.content).toEqual([])
+    expect(finalized).toMatchObject({ content: [] })
     expect(result).toMatchObject({
       content: [{ type: "text", text: "Open the valve." }],
       details: {},

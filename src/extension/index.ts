@@ -180,16 +180,22 @@ type BoundaryGlobal = typeof globalThis & {
 
 const REDACTED_SAY_TEXT = "[redacted until STE approval]"
 const boundaryGlobal = globalThis as BoundaryGlobal
-const boundaryRegistry = (boundaryGlobal.__simpleEnglishStrictBoundaryV1 ??= {
+const boundaryRegistry = boundaryGlobal.__simpleEnglishStrictBoundaryV1 ?? {
   installed: false,
   states: new WeakMap(),
-})
+}
+if (boundaryGlobal.__simpleEnglishStrictBoundaryV1 === undefined) {
+  boundaryGlobal.__simpleEnglishStrictBoundaryV1 = boundaryRegistry
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function replaceRecord(target: Record<string, unknown>, replacement: Record<string, unknown>): void {
+function replaceRecord(
+  target: Record<string, unknown>,
+  replacement: Record<string, unknown>,
+): void {
   for (const key of Object.keys(target)) delete target[key]
   Object.assign(target, replacement)
 }
@@ -264,12 +270,14 @@ function enforceStrictMessage(state: SessionState, message: Message): void {
   Object.assign(message, strictSayContent(state, message.toolCallId))
 }
 
-function enforceStrictEvent(state: SessionState, event: Record<string, unknown>): void {
-  if (!state.enabled || !state.strict) return
+function enforceStrictEvent(state: SessionState, eventValue: unknown): void {
+  if (!state.enabled || !state.strict || !isRecord(eventValue)) return
+  const event = eventValue
   if (isRecord(event.message) && "role" in event.message) {
-    enforceStrictMessage(state, event.message as Message)
+    enforceStrictMessage(state, event.message as unknown as Message)
   }
-  if (event.type === "message_update") suppressAssistantReplyUpdate(state, event as MessageUpdateEvent)
+  if (event.type === "message_update")
+    suppressAssistantReplyUpdate(state, event as unknown as MessageUpdateEvent)
   if (
     (event.type === "tool_execution_start" || event.type === "tool_execution_update") &&
     event.toolName === "say" &&
@@ -288,13 +296,15 @@ function enforceStrictEvent(state: SessionState, event: Record<string, unknown>)
   if (event.type === "turn_end" && Array.isArray(event.toolResults)) {
     for (const result of event.toolResults) {
       if (isRecord(result) && result.role === "toolResult" && result.toolName === "say") {
-        enforceStrictMessage(state, result as Message)
+        enforceStrictMessage(state, result as unknown as Message)
       }
     }
   }
   if (event.type === "agent_end" && Array.isArray(event.messages)) {
     for (const message of event.messages) {
-      if (isRecord(message) && "role" in message) enforceStrictMessage(state, message as Message)
+      if (isRecord(message) && "role" in message) {
+        enforceStrictMessage(state, message as unknown as Message)
+      }
     }
     state.approvedSayReplies.clear()
     state.pendingSayArguments.clear()
@@ -341,12 +351,7 @@ function installStrictOutputBoundary(): void {
     ) {
       const replacement = await originalEmitToolResult.call(this, event as never)
       const state = boundaryRegistry.states.get(this.createContext().sessionManager as object)
-      if (
-        state === undefined ||
-        !state.enabled ||
-        !state.strict ||
-        event.toolName !== "say"
-      ) {
+      if (state === undefined || !state.enabled || !state.strict || event.toolName !== "say") {
         return replacement
       }
       return strictSayContent(state, event.toolCallId)
@@ -762,13 +767,9 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     return { message: event.message }
   })
 
-  for (const eventName of [
-    "tool_execution_start",
-    "tool_execution_update",
-    "tool_execution_end",
-  ] as const) {
-    pi.on(eventName, (event) => enforceStrictEvent(state, event))
-  }
+  pi.on("tool_execution_start", (event) => enforceStrictEvent(state, event))
+  pi.on("tool_execution_update", (event) => enforceStrictEvent(state, event))
+  pi.on("tool_execution_end", (event) => enforceStrictEvent(state, event))
 
   pi.on("turn_end", (event, ctx) => {
     if (!state.enabled || !state.ready || event.message.role !== "assistant") return
