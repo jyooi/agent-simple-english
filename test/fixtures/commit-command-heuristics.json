@@ -61,6 +61,31 @@
     "expected": "explicit-message"
   },
   {
+    "name": "unquoted star pathname expansion fails closed",
+    "command": "git commit -m *",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted question mark pathname expansion fails closed",
+    "command": "git commit -m ?",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted bracket pathname expansion fails closed",
+    "command": "git commit -m [abc]",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted tilde expansion fails closed",
+    "command": "git commit -m ~",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "unquoted brace expansion fails closed",
+    "command": "git commit -m {allowed,blocked}",
+    "expected": "explicit-message"
+  },
+  {
     "name": "message files fail closed",
     "command": "git commit --file message.txt",
     "expected": "explicit-message"

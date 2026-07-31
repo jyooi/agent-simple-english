@@ -188,7 +188,18 @@ function tokenize(command: string): ShellToken[] {
       if (command[index] === "'") index++
       continue
     }
-    if (character === "$" || character === "`") dynamic = true
+    if (
+      character === "$" ||
+      character === "`" ||
+      character === "*" ||
+      character === "?" ||
+      character === "[" ||
+      character === "{" ||
+      character === "}" ||
+      (character === "~" && !started)
+    ) {
+      dynamic = true
+    }
     started = true
     value += character
     index++
