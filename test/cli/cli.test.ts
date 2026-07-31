@@ -94,6 +94,22 @@ describe("simple-english CLI", () => {
     })
   })
 
+  test("exits 1 on progressive tense, a hard violation", async () => {
+    const result = await runCli([], "The pump is running.")
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("<stdin>:1:10 verb-progressive")
+    expect(result.stdout).toContain("Do not use the progressive")
+  })
+
+  test("prints passive voice but exits 0 because it is soft", async () => {
+    const result = await runCli([], "The bolt was removed.")
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("<stdin>:1:10 verb-passive")
+    expect(result.stdout).toContain("active voice")
+  })
+
   test("errors with exit code 2 on an unreadable file", async () => {
     const result = await runCli(["test/fixtures/does-not-exist.md"])
 
