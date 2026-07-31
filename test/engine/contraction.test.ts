@@ -38,4 +38,8 @@ describe("lint prose-file: contraction rule", () => {
   test("does not flag plain prose", () => {
     expect(idsFor("Do not remove the bolt.")).not.toContain("contraction")
   })
+
+  test("ignores contractions inside inline code", () => {
+    expect(idsFor("Use `don't` here.")).not.toContain("contraction")
+  })
 })

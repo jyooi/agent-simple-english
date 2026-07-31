@@ -61,6 +61,13 @@ describe("lint prose-file: sentence-length rule", () => {
     expect(violation).toMatchObject({ line: 1, column: prefix.length + 1 })
   })
 
+  test("ignores inline code for all rules except semicolons", () => {
+    const text = `Use \`don't; carry out this seamless task as mentioned. One. Two. Three. Four. Five. Six. Seven. ${words(30)}.\` here.`
+    const report = lint("prose-file", text)
+
+    expect(report.violations.map((violation) => violation.ruleId)).toEqual(["semicolon"])
+  })
+
   test("counts a sentence that spans multiple lines once, at its start", () => {
     const text = `${words(13)}\n${words(13)}.`
     const report = lint("prose-file", text)

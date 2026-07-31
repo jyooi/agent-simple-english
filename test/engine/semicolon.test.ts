@@ -28,6 +28,14 @@ describe("lint prose-file: semicolon rule", () => {
     expect(idsFor("Start the job. Then stop it.")).not.toContain("semicolon")
   })
 
+  test("flags semicolons inside inline code", () => {
+    const report = lint("prose-file", "Use `const value = 1;` here.")
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "semicolon", line: 1, column: 21 }),
+    ])
+  })
+
   test("ignores semicolons inside fenced code blocks", () => {
     const text = "A sentence.\n```ts\nconst x = 1;\n```\nAnother sentence."
 

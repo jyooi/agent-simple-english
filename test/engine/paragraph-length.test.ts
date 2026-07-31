@@ -29,9 +29,15 @@ describe("lint prose-file: paragraph-length rule", () => {
   })
 
   test("flags sentences before closing Markdown delimiters", () => {
-    const text = "*One.* **Two.** _Three._ ~~Four.~~ `Five.` **Six!** _Seven?_"
+    const text = "*One.* **Two.** _Three._ ~~Four.~~ **Five.** _Six!_ *Seven?*"
 
     expect(idsFor(text)).toContain("paragraph-length")
+  })
+
+  test("ignores punctuation inside inline code spans", () => {
+    const text = "One. Two. Three. Four. Five. Six. `Seven. Eight.`"
+
+    expect(idsFor(text)).not.toContain("paragraph-length")
   })
 
   test("flags sentences in Markdown links and references", () => {
@@ -115,8 +121,8 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor(text)).not.toContain("paragraph-length")
   })
 
-  test("scans malformed Markdown suffixes in linear time", () => {
-    const text = ".[".repeat(30_000)
+  test.each([".[", "](<"])("scans malformed Markdown suffixes in linear time", (part) => {
+    const text = part.repeat(30_000)
     const start = performance.now()
 
     lint("prose-file", text)

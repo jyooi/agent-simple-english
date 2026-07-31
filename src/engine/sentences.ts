@@ -6,21 +6,6 @@ export interface Sentence {
 
 const CLOSING_DELIMITERS = new Set(["\"", "'", "’", "”", "»", "›", ")", "]", "}", "*", "_", "~", "`"])
 
-function closingDelimiterIndex(
-  text: string,
-  start: number,
-  delimiter: string,
-): number | undefined {
-  for (let index = start + 1; index < text.length; index += 1) {
-    if (text[index] === "\\") {
-      index += 1
-    } else if (text[index] === delimiter) {
-      return index
-    }
-  }
-  return undefined
-}
-
 function markdownDelimiterEnds(text: string): {
   readonly parentheses: Int32Array
   readonly brackets: Int32Array
@@ -31,9 +16,20 @@ function markdownDelimiterEnds(text: string): {
   const linkSuffixes = new Int32Array(text.length).fill(-1)
   const parenthesisStack: number[] = []
   const bracketStack: number[] = []
+  let opaqueDelimiter: string | undefined
 
   for (let index = 0; index < text.length; index += 1) {
-    switch (text[index]) {
+    const character = text[index]
+    if (opaqueDelimiter !== undefined) {
+      if (character === "\\") {
+        index += 1
+      } else if (character === opaqueDelimiter) {
+        opaqueDelimiter = undefined
+      }
+      continue
+    }
+
+    switch (character) {
       case "\\":
         index += 1
         break
@@ -42,20 +38,14 @@ function markdownDelimiterEnds(text: string): {
         const opening = parenthesisStack[parenthesisStack.length - 1]
         const isLinkTitle =
           opening !== undefined && text[opening - 1] === "]" && /\s/.test(text[index - 1] ?? "")
-        if (isLinkTitle) {
-          const end = closingDelimiterIndex(text, index, text[index] ?? "")
-          if (end !== undefined) index = end
-        }
+        if (isLinkTitle) opaqueDelimiter = character
         break
       }
       case "<": {
         const opening = parenthesisStack[parenthesisStack.length - 1]
         const isAngleDestination =
           opening !== undefined && text[opening - 1] === "]" && index === opening + 1
-        if (isAngleDestination) {
-          const end = closingDelimiterIndex(text, index, ">")
-          if (end !== undefined) index = end
-        }
+        if (isAngleDestination) opaqueDelimiter = ">"
         break
       }
       case "(":
