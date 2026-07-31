@@ -16,7 +16,7 @@ export function paragraphLength(paragraphs: readonly Paragraph[]): Violation[] {
         severity: "hard" as const,
         message: `Paragraph has ${count} sentences; the maximum is ${MAX_SENTENCES}.`,
         line: paragraph.line,
-        column: 1,
+        column: paragraph.column,
       },
     ]
   })

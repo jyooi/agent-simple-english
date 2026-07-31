@@ -179,6 +179,23 @@ describe("lint slash-source: comment extraction", () => {
       "paragraph-length",
     )
   })
+
+  test("reports a long paragraph at its original comment column", () => {
+    const report = lint("slash-source", "x // One. Two. Three. Four. Five. Six. Seven.")
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "paragraph-length", line: 1, column: 6 }),
+    ])
+  })
+
+  test("handles many separate block-comment prose runs", () => {
+    const text = Array.from(
+      { length: 5_000 },
+      () => "/* Carry */ execute() /* out */ execute()",
+    ).join(" ")
+
+    expect(lint("slash-source", text).violations).toHaveLength(0)
+  })
 })
 
 describe("lint hash-source: comment extraction", () => {

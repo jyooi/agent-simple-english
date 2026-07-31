@@ -30,14 +30,17 @@ interface ExtractedProse {
   readonly proseBreaks: readonly ProseBreak[]
 }
 
+interface ProseRun extends ExtractedProse {
+  readonly lineOffset: number
+  readonly firstColumnOffset: number
+}
+
 const wholeText = (text: string): ExtractedProse => {
   const lines = text.split("\n")
   return { lines, contentStarts: lines.map(() => 0), proseBreaks: [] }
 }
 
-const splitProseRuns = (extracted: ExtractedProse): readonly ExtractedProse[] => {
-  if (extracted.proseBreaks.length === 0) return [extracted]
-
+const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
   const boundaries: readonly (ProseBreak | undefined)[] = [
     undefined,
     ...extracted.proseBreaks,
@@ -45,21 +48,32 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ExtractedProse[] =>
   ]
   return boundaries.slice(0, -1).map((start, runIndex) => {
     const end = boundaries[runIndex + 1]
-    const lines = extracted.lines.map((line, lineIndex) => {
-      if (start !== undefined && lineIndex < start.line) return " ".repeat(line.length)
-      if (end !== undefined && lineIndex > end.line) return " ".repeat(line.length)
-
-      const from = start?.line === lineIndex ? Math.min(start.column, line.length) : 0
+    const firstLine = start?.line ?? 0
+    const lastLine = end?.line ?? extracted.lines.length - 1
+    const firstColumnOffset = Math.min(
+      start?.column ?? 0,
+      extracted.lines[firstLine]?.length ?? 0,
+    )
+    const sourceLines = extracted.lines.slice(firstLine, lastLine + 1)
+    const lines = sourceLines.map((line, index) => {
+      const lineIndex = firstLine + index
+      const from = lineIndex === firstLine ? firstColumnOffset : 0
       const to = end?.line === lineIndex ? Math.min(end.column, line.length) : line.length
-      if (from >= to) return " ".repeat(line.length)
-      return `${" ".repeat(from)}${line.slice(from, to)}${" ".repeat(line.length - to)}`
+      return line.slice(from, to)
     })
-    const contentStarts = extracted.contentStarts.map((contentStart, lineIndex) => {
-      if (start !== undefined && lineIndex < start.line) return extracted.lines[lineIndex]?.length ?? 0
-      if (end !== undefined && lineIndex > end.line) return extracted.lines[lineIndex]?.length ?? 0
-      return start?.line === lineIndex ? Math.max(contentStart, start.column) : contentStart
+    const contentStarts = lines.map((line, index) => {
+      const lineIndex = firstLine + index
+      const from = lineIndex === firstLine ? firstColumnOffset : 0
+      const contentStart = extracted.contentStarts[lineIndex] ?? from
+      return Math.min(Math.max(contentStart - from, 0), line.length)
     })
-    return { lines, contentStarts, proseBreaks: [] }
+    return {
+      lines,
+      contentStarts,
+      proseBreaks: [],
+      lineOffset: firstLine,
+      firstColumnOffset,
+    }
   })
 }
 
@@ -79,7 +93,10 @@ const lintProse = (
 ) => [
   ...sentenceLength(segmentSentences(lines, structuralBlanks), maxSentenceWords),
   ...paragraphLength(
-    segmentParagraphs(structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0))),
+    segmentParagraphs(
+      structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
+      contentStarts.map((contentStart) => contentStart + 1),
+    ),
   ),
   ...contraction(lines),
   ...semicolon(mechanicalLines),
@@ -118,7 +135,14 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
     dictionary: options.dictionary,
     tagger: options.tagger,
   }
-  const raw = splitProseRuns(extracted).flatMap((run) => lintExtracted(run, resolved))
+  const raw = splitProseRuns(extracted).flatMap((run) =>
+    lintExtracted(run, resolved).map((violation) => ({
+      ...violation,
+      line: violation.line + run.lineOffset,
+      column:
+        violation.column + (violation.line === 1 ? run.firstColumnOffset : 0),
+    })),
+  )
   const violations: Violation[] = raw
     .flatMap((violation) => {
       const setting = options.rules?.[violation.ruleId]
