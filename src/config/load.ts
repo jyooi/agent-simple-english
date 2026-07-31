@@ -13,7 +13,8 @@ const agentConfigDirectory = (): string => {
   if (configured === "~") {
     return homedir()
   }
-  return configured.startsWith("~/") || (process.platform === "win32" && configured.startsWith("~\\"))
+  return configured.startsWith("~/") ||
+    (process.platform === "win32" && configured.startsWith("~\\"))
     ? join(homedir(), configured.slice(2))
     : configured
 }
