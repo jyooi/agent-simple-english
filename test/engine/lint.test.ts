@@ -1,5 +1,7 @@
-import { describe, expect, test } from "vitest"
+import { describe, expect, expectTypeOf, test } from "vitest"
 import { lint } from "../../src/engine/lint.ts"
+import type { RuleId } from "../../src/engine/rules/registry.ts"
+import type { LintOptions, RuleSetting, Violation } from "../../src/engine/types.ts"
 
 describe("lint prose-file: sentence-length rule", () => {
   const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(" ")
@@ -108,13 +110,11 @@ describe("lint prose-file: sentence-length rule", () => {
     expect(report.summary).toEqual({ total: 1, hard: 1 })
   })
 
-  test("overrides for other rules do not affect this rule", () => {
-    const report = lint("prose-file", `${words(26)}.`, {
-      rules: { "some-future-rule": "off" },
-    })
-
-    expect(report.violations).toHaveLength(1)
-    expect(report.violations[0]?.severity).toBe("hard")
+  test("engine types are keyed by registry-derived rule IDs", () => {
+    expectTypeOf<Violation["ruleId"]>().toEqualTypeOf<RuleId>()
+    expectTypeOf<LintOptions["rules"]>().toEqualTypeOf<
+      Partial<Record<RuleId, RuleSetting>> | undefined
+    >()
   })
 
   test("summary counts total and hard violations", () => {

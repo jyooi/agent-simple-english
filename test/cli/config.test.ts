@@ -44,6 +44,17 @@ describe("simple-english CLI config", () => {
     expect(result.stdout).toContain("maximum is 5")
   })
 
+  test("PI_CODING_AGENT_DIR overrides the default pi agent config directory", async () => {
+    const home = await makeHome({ maxSentenceWords: 20 })
+    const agentDir = await makeTempDir()
+    await writeJson(join(agentDir, "simple-english.json"), { maxSentenceWords: 5 })
+    const cwd = await makeProject()
+    const result = await runCli([], { cwd, home, agentDir, stdin: tenWords })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("maximum is 5")
+  })
+
   test("project config deep-merges over global with project winning per key", async () => {
     const home = await makeHome({ maxSentenceWords: 5, rules: { "sentence-length": "soft" } })
     const cwd = await makeProject({ maxSentenceWords: 8 })

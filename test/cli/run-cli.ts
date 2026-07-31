@@ -17,6 +17,7 @@ export interface CliOptions {
   stdin?: string
   cwd?: string
   home?: string
+  agentDir?: string
 }
 
 export const makeTempDir = (): Promise<string> => mkdtemp(join(tmpdir(), "ste-cli-"))
@@ -26,11 +27,12 @@ const hermeticHome = makeTempDir()
 
 export async function runCli(args: string[], options: CliOptions = {}): Promise<CliResult> {
   const home = options.home ?? (await hermeticHome)
+  const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: options.agentDir }
   return new Promise((resolve, reject) => {
     const child = execFile(
       "bun",
       [cliPath, ...args],
-      { cwd: options.cwd ?? repoRoot, env: { ...process.env, HOME: home } },
+      { cwd: options.cwd ?? repoRoot, env },
       (error, stdout, stderr) => {
         const code = error && typeof error.code === "number" ? error.code : 0
         if (error && typeof error.code !== "number") {

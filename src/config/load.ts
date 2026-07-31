@@ -5,7 +5,20 @@ import { Effect } from "effect"
 import { mergeConfigs } from "./merge.ts"
 import { ConfigError, type SteConfig, decodeConfig } from "./schema.ts"
 
-export const globalConfigPath = (): string => join(homedir(), ".pi", "agent", "simple-english.json")
+const agentConfigDirectory = (): string => {
+  const configured = process.env.PI_CODING_AGENT_DIR
+  if (!configured) {
+    return join(homedir(), ".pi", "agent")
+  }
+  if (configured === "~") {
+    return homedir()
+  }
+  return configured.startsWith("~/") || (process.platform === "win32" && configured.startsWith("~\\"))
+    ? join(homedir(), configured.slice(2))
+    : configured
+}
+
+export const globalConfigPath = (): string => join(agentConfigDirectory(), "simple-english.json")
 
 export const projectConfigPath = (cwd: string): string => join(cwd, ".pi", "simple-english.json")
 
