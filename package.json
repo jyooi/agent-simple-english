@@ -10,7 +10,7 @@
   },
   "files": ["src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
   "bin": {
-    "simple-english": "./src/cli/main.ts"
+    "simple-english": "src/cli/main.ts"
   },
   "scripts": {
     "test": "vitest run",
