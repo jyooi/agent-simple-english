@@ -88,6 +88,36 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
   })
 
+  test("inserting a terminator reports an overlong retained trailing sentence", () => {
+    const previous = `${words(40)}.`
+    const insertionOffset = words(10).length
+    const current = `${previous.slice(0, insertionOffset)}.${previous.slice(insertionOffset)}`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({
+      message: "Sentence has 30 words; the maximum is 25.",
+      line: 1,
+      column: insertionOffset + 3,
+    })
+  })
+
+  test("inserting a paragraph boundary reports an overlong retained trailing sentence", () => {
+    const previous = `${words(10)}\n${words(30)}.`
+    const current = `${words(10)}\n\n${words(30)}.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 3, column: 1 })
+  })
+
+  test("inserting a standalone sentence does not report an unchanged long sentence", () => {
+    const previous = `Intro. ${words(30)}.`
+    const current = `Intro. Added sentence. ${words(30)}.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("editing a later line of a multi-line sentence flags the sentence at its start", () => {
     const previous = `${words(13)}\n${words(11)}.`
     const current = `${words(13)}\n${words(11)} plus two.`

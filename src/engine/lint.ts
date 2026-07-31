@@ -1,6 +1,11 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
-import { type ChangedRange, changedText, type TextChanges } from "./diff.ts"
+import {
+  type ChangedRange,
+  changedText,
+  type RetainedRange,
+  type TextChanges,
+} from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import {
   blankMarkdownCodeWithStructure,
@@ -180,6 +185,95 @@ function nearestNonWhitespaceAfter(
   return result
 }
 
+interface CorrespondingOffset {
+  readonly current: number
+  readonly previous: number
+}
+
+function nearestRetainedProseBefore(
+  text: string,
+  retained: readonly RetainedRange[],
+  offsets: readonly number[],
+): Array<CorrespondingOffset | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => left.offset - right.offset)
+  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
+  let cursor = 0
+  let retainedIndex = 0
+  let nearest: CorrespondingOffset | undefined
+
+  for (const query of ordered) {
+    while (cursor < query.offset && cursor < text.length) {
+      while (
+        retainedIndex < retained.length &&
+        (retained[retainedIndex]?.currentStart ?? 0) +
+          (retained[retainedIndex]?.length ?? 0) <=
+          cursor
+      ) {
+        retainedIndex++
+      }
+      const range = retained[retainedIndex]
+      if (
+        range &&
+        range.currentStart <= cursor &&
+        cursor < range.currentStart + range.length &&
+        !/\s/u.test(text[cursor] ?? "")
+      ) {
+        nearest = {
+          current: cursor,
+          previous: range.previousStart + cursor - range.currentStart,
+        }
+      }
+      cursor++
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
+function nearestRetainedProseAfter(
+  text: string,
+  retained: readonly RetainedRange[],
+  offsets: readonly number[],
+): Array<CorrespondingOffset | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => right.offset - left.offset)
+  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
+  let cursor = text.length - 1
+  let retainedIndex = retained.length - 1
+  let nearest: CorrespondingOffset | undefined
+
+  for (const query of ordered) {
+    while (cursor >= query.offset) {
+      while (
+        retainedIndex >= 0 &&
+        cursor < (retained[retainedIndex]?.currentStart ?? Number.POSITIVE_INFINITY)
+      ) {
+        retainedIndex--
+      }
+      const range = retained[retainedIndex]
+      if (
+        range &&
+        range.currentStart <= cursor &&
+        cursor < range.currentStart + range.length &&
+        !/\s/u.test(text[cursor] ?? "")
+      ) {
+        nearest = {
+          current: cursor,
+          previous: range.previousStart + cursor - range.currentStart,
+        }
+      }
+      cursor--
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
 function contains(sentence: Sentence, offset: number): boolean {
   return sentence.startOffset <= offset && offset < sentence.endOffset
 }
@@ -302,16 +396,77 @@ function normalizeRanges(ranges: readonly ChangedRange[]): ChangedRange[] {
   return normalized
 }
 
+function insertionSplitSentenceIndexes(
+  previousSentences: readonly Sentence[],
+  currentSentences: readonly Sentence[],
+  currentProse: string,
+  changes: TextChanges,
+): ReadonlySet<number> {
+  const insertions = normalizeRanges(changes.ranges)
+  const before = nearestRetainedProseBefore(
+    currentProse,
+    changes.retained,
+    insertions.map((range) => range.start),
+  )
+  const after = nearestRetainedProseAfter(
+    currentProse,
+    changes.retained,
+    insertions.map((range) => range.end),
+  )
+  const previousBefore = containingSentenceIndexes(
+    previousSentences,
+    before.map((offset) => offset?.previous),
+  )
+  const previousAfter = containingSentenceIndexes(
+    previousSentences,
+    after.map((offset) => offset?.previous),
+  )
+  const currentBefore = containingSentenceIndexes(
+    currentSentences,
+    before.map((offset) => offset?.current),
+  )
+  const currentAfter = containingSentenceIndexes(
+    currentSentences,
+    after.map((offset) => offset?.current),
+  )
+  const affected = new Set<number>()
+
+  for (let index = 0; index < insertions.length; index++) {
+    const oldBefore = previousBefore[index]
+    const oldAfter = previousAfter[index]
+    const newBefore = currentBefore[index]
+    const newAfter = currentAfter[index]
+    if (
+      oldBefore !== undefined &&
+      oldBefore !== -1 &&
+      oldBefore === oldAfter &&
+      newBefore !== undefined &&
+      newBefore !== -1 &&
+      newAfter !== undefined &&
+      newAfter !== -1 &&
+      newBefore !== newAfter
+    ) {
+      affected.add(newBefore)
+      affected.add(newAfter)
+    }
+  }
+
+  return affected
+}
+
 function selectChangedSentences(
   sentences: readonly Sentence[],
   changedRanges: readonly ChangedRange[],
   mergedBoundaries: readonly MergedBoundary[],
+  splitSentenceIndexes: ReadonlySet<number>,
 ): Sentence[] {
   const selected: Sentence[] = []
   let rangeIndex = 0
   let boundaryIndex = 0
 
-  for (const sentence of sentences) {
+  for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
+    const sentence = sentences[sentenceIndex]
+    if (!sentence) continue
     while (
       rangeIndex < changedRanges.length &&
       (changedRanges[rangeIndex]?.end ?? 0) <= sentence.startOffset
@@ -353,7 +508,9 @@ function selectChangedSentences(
     }
     boundaryIndex = nextBoundary
 
-    if (intersectsRange || containsBoundary) selected.push(sentence)
+    if (intersectsRange || containsBoundary || splitSentenceIndexes.has(sentenceIndex)) {
+      selected.push(sentence)
+    }
   }
 
   return selected
@@ -377,7 +534,13 @@ function sentenceSelector(text: string, previousText: string | undefined): Sente
     changes,
   )
 
-  return (sentences) => selectChangedSentences(sentences, changedRanges, mergedBoundaries)
+  return (sentences) =>
+    selectChangedSentences(
+      sentences,
+      changedRanges,
+      mergedBoundaries,
+      insertionSplitSentenceIndexes(previousSentences, sentences, currentProse, changes),
+    )
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
