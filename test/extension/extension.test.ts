@@ -340,13 +340,15 @@ describe.sequential("pi extension wiring", () => {
     expect(manifest.pi.extensions).toEqual(["./src/extension/index.ts"])
     expect(manifest.dependencies).toMatchObject({
       effect: expect.any(String),
-      typebox: expect.any(String),
       "wink-eng-lite-web-model": expect.any(String),
       "wink-nlp": expect.any(String),
     })
+    expect(manifest.dependencies).not.toHaveProperty("typebox")
     expect(manifest.peerDependencies).toMatchObject({
       "@earendil-works/pi-coding-agent": "*",
+      typebox: "*",
     })
+    expect(manifest.devDependencies).toMatchObject({ typebox: "1.3.7" })
   })
 
   test("injects an STE rule summary that reflects merged active settings", async () => {
