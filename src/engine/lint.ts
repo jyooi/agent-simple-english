@@ -1,7 +1,8 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
+import { type ChangedRange, type RetainedRange, type TextChanges, changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure } from "./markdown.ts"
+import { blankMarkdownCodeWithStructure, maskMarkdownCode, proseVisibility } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
@@ -12,16 +13,35 @@ import { phrasalVerb } from "./rules/phrasal-verb.ts"
 import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
-import { segmentSentences } from "./sentences.ts"
+import { type Sentence, segmentSentences } from "./sentences.ts"
 import type { Tagger } from "./tagger.ts"
 import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 
 export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
+type SentenceSelector = (sentences: readonly Sentence[]) => readonly Sentence[]
+
 interface ResolvedOptions {
   readonly maxSentenceWords: number
   readonly dictionary?: Dictionary
   readonly tagger?: Tagger
+  readonly selectSentences: SentenceSelector
+  readonly diffOnly: boolean
+}
+
+function selectedProseLines(text: string, sentences: readonly Sentence[]): string[] {
+  const selected: string[] = Array.from({ length: text.length }, (_, offset) => {
+    const character = text[offset]
+    return character === "\n" || character === "\r" ? character : " "
+  })
+  for (const sentence of sentences) {
+    for (const range of sentence.contentRanges) {
+      for (let offset = range.start; offset < range.end; offset++) {
+        selected[offset] = text[offset] ?? " "
+      }
+    }
+  }
+  return selected.join("").split("\n")
 }
 
 interface ExtractedProse {
@@ -86,25 +106,35 @@ const lintProse = (
   mechanicalLines: readonly string[],
   contentStarts: readonly number[],
   structuralBlanks: readonly boolean[],
-  { maxSentenceWords, dictionary, tagger }: ResolvedOptions,
-) => [
-  ...sentenceLength(segmentSentences(lines, structuralBlanks), maxSentenceWords),
-  ...paragraphLength(
-    segmentParagraphs(
-      structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
-      contentStarts.map((contentStart) => contentStart + 1),
+  { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
+) => {
+  const sentences = selectSentences(segmentSentences(lines, lines.join("\n"), structuralBlanks))
+  const selectedProse = diffOnly ? selectedProseLines(lines.join("\n"), sentences) : lines
+  const selectedStructural = diffOnly
+    ? selectedProseLines(structuralLines.join("\n"), sentences)
+    : structuralLines
+  const selectedMechanical = diffOnly
+    ? selectedProseLines(mechanicalLines.join("\n"), sentences)
+    : mechanicalLines
+  return [
+    ...sentenceLength(sentences, maxSentenceWords),
+    ...paragraphLength(
+      segmentParagraphs(
+        selectedStructural.map((line, index) => line.slice(contentStarts[index] ?? 0)),
+        contentStarts.map((contentStart) => contentStart + 1),
+      ),
     ),
-  ),
-  ...contraction(lines),
-  ...semicolon(mechanicalLines),
-  ...phrasalVerb(lines),
-  ...hedging(lines),
-  ...marketing(lines),
-  ...(dictionary === undefined
-    ? []
-    : dictionaryRule(structuralLines, dictionary, tagger, contentStarts)),
-  ...(tagger === undefined ? [] : verbForm(lines, tagger)),
-]
+    ...contraction(selectedProse),
+    ...semicolon(selectedMechanical),
+    ...phrasalVerb(selectedProse),
+    ...hedging(selectedProse),
+    ...marketing(selectedProse),
+    ...(dictionary === undefined
+      ? []
+      : dictionaryRule(selectedStructural, dictionary, tagger, contentStarts)),
+    ...(tagger === undefined ? [] : verbForm(selectedProse, tagger)),
+  ]
+}
 
 const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Violation[] => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
@@ -125,12 +155,530 @@ const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Vio
   )
 }
 
+function nearestNonWhitespaceBefore(
+  text: string,
+  offsets: readonly number[],
+): Array<number | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => left.offset - right.offset)
+  const result: Array<number | undefined> = new Array(offsets.length)
+  let cursor = 0
+  let nearest: number | undefined
+
+  for (const query of ordered) {
+    while (cursor < query.offset && cursor < text.length) {
+      if (!/\s/u.test(text[cursor] ?? "")) nearest = cursor
+      cursor++
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
+function nearestNonWhitespaceAfter(
+  text: string,
+  offsets: readonly number[],
+): Array<number | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => right.offset - left.offset)
+  const result: Array<number | undefined> = new Array(offsets.length)
+  let cursor = text.length - 1
+  let nearest: number | undefined
+
+  for (const query of ordered) {
+    while (cursor >= query.offset) {
+      if (!/\s/u.test(text[cursor] ?? "")) nearest = cursor
+      cursor--
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
+interface CorrespondingOffset {
+  readonly current: number
+  readonly previous: number
+}
+
+function nearestRetainedProseBefore(
+  text: string,
+  retained: readonly RetainedRange[],
+  offsets: readonly number[],
+): Array<CorrespondingOffset | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => left.offset - right.offset)
+  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
+  let cursor = 0
+  let retainedIndex = 0
+  let nearest: CorrespondingOffset | undefined
+
+  for (const query of ordered) {
+    while (cursor < query.offset && cursor < text.length) {
+      while (
+        retainedIndex < retained.length &&
+        (retained[retainedIndex]?.currentStart ?? 0) + (retained[retainedIndex]?.length ?? 0) <=
+          cursor
+      ) {
+        retainedIndex++
+      }
+      const range = retained[retainedIndex]
+      if (
+        range &&
+        range.currentStart <= cursor &&
+        cursor < range.currentStart + range.length &&
+        !/\s/u.test(text[cursor] ?? "")
+      ) {
+        nearest = {
+          current: cursor,
+          previous: range.previousStart + cursor - range.currentStart,
+        }
+      }
+      cursor++
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
+function nearestRetainedProseAfter(
+  text: string,
+  retained: readonly RetainedRange[],
+  offsets: readonly number[],
+): Array<CorrespondingOffset | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => right.offset - left.offset)
+  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
+  let cursor = text.length - 1
+  let retainedIndex = retained.length - 1
+  let nearest: CorrespondingOffset | undefined
+
+  for (const query of ordered) {
+    while (cursor >= query.offset) {
+      while (
+        retainedIndex >= 0 &&
+        cursor < (retained[retainedIndex]?.currentStart ?? Number.POSITIVE_INFINITY)
+      ) {
+        retainedIndex--
+      }
+      const range = retained[retainedIndex]
+      if (
+        range &&
+        range.currentStart <= cursor &&
+        cursor < range.currentStart + range.length &&
+        !/\s/u.test(text[cursor] ?? "")
+      ) {
+        nearest = {
+          current: cursor,
+          previous: range.previousStart + cursor - range.currentStart,
+        }
+      }
+      cursor--
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
+function contains(sentence: Sentence, offset: number): boolean {
+  return sentence.startOffset <= offset && offset < sentence.endOffset
+}
+
+function newlyVisibleRanges(
+  previousText: string,
+  text: string,
+  changes: TextChanges,
+): ChangedRange[] {
+  const previousVisibility = proseVisibility(previousText)
+  const currentVisibility = proseVisibility(text)
+  const ranges: ChangedRange[] = []
+
+  for (const retained of changes.retained) {
+    let rangeStart: number | undefined
+    for (let index = 0; index < retained.length; index++) {
+      const previousOffset = retained.previousStart + index
+      const currentOffset = retained.currentStart + index
+      const newlyVisible =
+        previousVisibility[previousOffset] === 0 && currentVisibility[currentOffset] === 1
+      if (newlyVisible && rangeStart === undefined) rangeStart = currentOffset
+      if (!newlyVisible && rangeStart !== undefined) {
+        ranges.push({ start: rangeStart, end: currentOffset })
+        rangeStart = undefined
+      }
+    }
+    if (rangeStart !== undefined) {
+      ranges.push({ start: rangeStart, end: retained.currentStart + retained.length })
+    }
+  }
+
+  return ranges
+}
+
+function containingSentenceIndexes(
+  sentences: readonly Sentence[],
+  offsets: readonly (number | undefined)[],
+): number[] {
+  const ordered: Array<{ offset: number; index: number }> = []
+  for (let index = 0; index < offsets.length; index++) {
+    const offset = offsets[index]
+    if (offset !== undefined) ordered.push({ offset, index })
+  }
+  ordered.sort((left, right) => left.offset - right.offset)
+
+  const result = new Array<number>(offsets.length).fill(-1)
+  let sentenceIndex = 0
+  for (const query of ordered) {
+    while (
+      sentenceIndex < sentences.length &&
+      (sentences[sentenceIndex]?.endOffset ?? 0) <= query.offset
+    ) {
+      sentenceIndex++
+    }
+    const sentence = sentences[sentenceIndex]
+    if (sentence && contains(sentence, query.offset)) result[query.index] = sentenceIndex
+  }
+  return result
+}
+
+interface DeletionBoundary {
+  readonly before?: number
+  readonly after?: number
+}
+
+function deletionBoundaryStart(boundary: DeletionBoundary): number {
+  return boundary.before ?? boundary.after ?? Number.POSITIVE_INFINITY
+}
+
+function deletionBoundaryEnd(boundary: DeletionBoundary): number {
+  return boundary.after ?? boundary.before ?? Number.NEGATIVE_INFINITY
+}
+
+function deletionBoundaries(
+  previousProse: string,
+  currentProse: string,
+  previousSentences: readonly Sentence[],
+  changes: TextChanges,
+): DeletionBoundary[] {
+  const previousStarts = changes.deletions.map((deletion) => deletion.previousStart)
+  const previousEnds = changes.deletions.map((deletion) => deletion.previousEnd)
+  const currentOffsets = changes.deletions.map((deletion) => deletion.currentOffset)
+  const oldBefore = nearestNonWhitespaceBefore(previousProse, previousStarts)
+  const oldAfter = nearestNonWhitespaceAfter(previousProse, previousEnds)
+  const newBefore = nearestNonWhitespaceBefore(currentProse, currentOffsets)
+  const newAfter = nearestNonWhitespaceAfter(currentProse, currentOffsets)
+  const deletedFirst = nearestNonWhitespaceAfter(previousProse, previousStarts).map(
+    (offset, index) =>
+      offset !== undefined && offset < (changes.deletions[index]?.previousEnd ?? 0)
+        ? offset
+        : undefined,
+  )
+  const deletedLast = nearestNonWhitespaceBefore(previousProse, previousEnds).map(
+    (offset, index) =>
+      offset !== undefined && offset >= (changes.deletions[index]?.previousStart ?? 0)
+        ? offset
+        : undefined,
+  )
+  const oldBeforeSentences = containingSentenceIndexes(previousSentences, oldBefore)
+  const oldAfterSentences = containingSentenceIndexes(previousSentences, oldAfter)
+  const deletedFirstSentences = containingSentenceIndexes(previousSentences, deletedFirst)
+  const deletedLastSentences = containingSentenceIndexes(previousSentences, deletedLast)
+  const boundaries: DeletionBoundary[] = []
+
+  for (let index = 0; index < changes.deletions.length; index++) {
+    const deletion = changes.deletions[index]
+    const before = newBefore[index]
+    const after = newAfter[index]
+    if (deletion === undefined || (before === undefined && after === undefined)) continue
+
+    const beforeSentence = oldBeforeSentences[index] ?? -1
+    const afterSentence = oldAfterSentences[index] ?? -1
+    const deletedProse = previousProse.slice(deletion.previousStart, deletion.previousEnd)
+
+    if (before !== undefined && after !== undefined) {
+      if (beforeSentence === -1 || afterSentence === -1) continue
+      const previousTogether = beforeSentence === afterSentence
+      if (previousTogether && !/\S/u.test(deletedProse) && before + 1 < after) continue
+      boundaries.push({ before, after })
+      continue
+    }
+
+    if (!/\S/u.test(deletedProse)) continue
+    if (
+      before === undefined &&
+      after !== undefined &&
+      afterSentence !== -1 &&
+      deletedLastSentences[index] === afterSentence
+    ) {
+      boundaries.push({ after })
+    }
+    if (
+      after === undefined &&
+      before !== undefined &&
+      beforeSentence !== -1 &&
+      deletedFirstSentences[index] === beforeSentence
+    ) {
+      boundaries.push({ before })
+    }
+  }
+
+  return boundaries.sort(
+    (left, right) =>
+      deletionBoundaryStart(left) - deletionBoundaryStart(right) ||
+      deletionBoundaryEnd(left) - deletionBoundaryEnd(right),
+  )
+}
+
+function normalizeRanges(ranges: readonly ChangedRange[]): ChangedRange[] {
+  const ordered = ranges
+    .filter((range) => range.start < range.end)
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+  const normalized: ChangedRange[] = []
+
+  for (const range of ordered) {
+    const last = normalized.at(-1)
+    if (last && range.start <= last.end) {
+      normalized[normalized.length - 1] = {
+        start: last.start,
+        end: Math.max(last.end, range.end),
+      }
+    } else {
+      normalized.push(range)
+    }
+  }
+
+  return normalized
+}
+
+function changedSentenceIdentityIndexes(
+  previousSentences: readonly Sentence[],
+  currentSentences: readonly Sentence[],
+  previousProse: string,
+  currentProse: string,
+  changes: TextChanges,
+): ReadonlySet<number> {
+  const insertedRanges = normalizeRanges(changes.ranges)
+  const before = nearestRetainedProseBefore(
+    currentProse,
+    changes.retained,
+    insertedRanges.map((range) => range.start),
+  )
+  const after = nearestRetainedProseAfter(
+    currentProse,
+    changes.retained,
+    insertedRanges.map((range) => range.end),
+  )
+  const retainedOffsets = [...before, ...after]
+  const currentIndexes = containingSentenceIndexes(
+    currentSentences,
+    retainedOffsets.map((offset) => offset?.current),
+  )
+  const previousIndexes = containingSentenceIndexes(
+    previousSentences,
+    retainedOffsets.map((offset) => offset?.previous),
+  )
+  const deletionBeforeOffsets = nearestNonWhitespaceBefore(
+    previousProse,
+    changes.deletions.map((deletion) => deletion.previousEnd),
+  ).map((offset, index) =>
+    offset !== undefined && offset >= (changes.deletions[index]?.previousStart ?? 0)
+      ? offset
+      : undefined,
+  )
+  const deletionAfterOffsets = nearestNonWhitespaceAfter(
+    previousProse,
+    changes.deletions.map((deletion) => deletion.previousStart),
+  ).map((offset, index) =>
+    offset !== undefined && offset < (changes.deletions[index]?.previousEnd ?? 0)
+      ? offset
+      : undefined,
+  )
+  const deletionBeforeIndexes = containingSentenceIndexes(previousSentences, deletionBeforeOffsets)
+  const deletionAfterIndexes = containingSentenceIndexes(previousSentences, deletionAfterOffsets)
+  const deletionEdges = changes.deletions
+    .map((deletion, index) => ({
+      currentOffset: deletion.currentOffset,
+      beforeSentence: deletionBeforeIndexes[index] ?? -1,
+      afterSentence: deletionAfterIndexes[index] ?? -1,
+    }))
+    .sort((left, right) => left.currentOffset - right.currentOffset)
+  const changed = new Set<number>()
+  let deletionIndex = 0
+
+  for (let rangeIndex = 0; rangeIndex < insertedRanges.length; rangeIndex++) {
+    const range = insertedRanges[rangeIndex]
+    if (!range) continue
+    const beforeOffset = before[rangeIndex]
+    const afterOffset = after[rangeIndex]
+    const beforeCurrent = currentIndexes[rangeIndex] ?? -1
+    const afterCurrent = currentIndexes[insertedRanges.length + rangeIndex] ?? -1
+    const beforePrevious = previousIndexes[rangeIndex] ?? -1
+    const afterPrevious = previousIndexes[insertedRanges.length + rangeIndex] ?? -1
+    const hasBefore = beforeOffset !== undefined && beforeCurrent !== -1 && beforePrevious !== -1
+    const hasAfter = afterOffset !== undefined && afterCurrent !== -1 && afterPrevious !== -1
+
+    if (hasBefore && hasAfter) {
+      const previousTogether = beforePrevious === afterPrevious
+      const currentTogether = beforeCurrent === afterCurrent
+      if (previousTogether !== currentTogether) {
+        changed.add(beforeCurrent)
+        changed.add(afterCurrent)
+      } else if (
+        previousTogether &&
+        currentTogether &&
+        beforeOffset.previous + 1 === afterOffset.previous &&
+        beforeOffset.current + 1 < afterOffset.current
+      ) {
+        let separatorOnly = true
+        for (let offset = range.start; offset < range.end; offset++) {
+          if (!/\s/u.test(currentProse[offset] ?? "")) {
+            separatorOnly = false
+            break
+          }
+        }
+        if (separatorOnly) changed.add(beforeCurrent)
+      }
+    }
+
+    while (
+      deletionIndex < deletionEdges.length &&
+      (deletionEdges[deletionIndex]?.currentOffset ?? 0) < range.start
+    ) {
+      deletionIndex++
+    }
+    for (
+      let localDeletion = deletionIndex;
+      localDeletion < deletionEdges.length &&
+      (deletionEdges[localDeletion]?.currentOffset ?? Number.POSITIVE_INFINITY) <= range.end;
+      localDeletion++
+    ) {
+      const deletion = deletionEdges[localDeletion]
+      if (!deletion) continue
+      if (!hasBefore && hasAfter && deletion.beforeSentence === afterPrevious) {
+        changed.add(afterCurrent)
+      }
+      if (hasBefore && !hasAfter && deletion.afterSentence === beforePrevious) {
+        changed.add(beforeCurrent)
+      }
+    }
+  }
+
+  return changed
+}
+
+function selectChangedSentences(
+  sentences: readonly Sentence[],
+  changedRanges: readonly ChangedRange[],
+  deletionBoundaries: readonly DeletionBoundary[],
+  changedSentenceIndexes: ReadonlySet<number>,
+): Sentence[] {
+  const selected: Sentence[] = []
+  let rangeIndex = 0
+  let boundaryIndex = 0
+
+  for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
+    const sentence = sentences[sentenceIndex]
+    if (!sentence) continue
+    while (
+      rangeIndex < changedRanges.length &&
+      (changedRanges[rangeIndex]?.end ?? 0) <= sentence.startOffset
+    ) {
+      rangeIndex++
+    }
+    let intersectsRange = false
+    for (const contentRange of sentence.contentRanges) {
+      while (
+        rangeIndex < changedRanges.length &&
+        (changedRanges[rangeIndex]?.end ?? 0) <= contentRange.start
+      ) {
+        rangeIndex++
+      }
+      const range = changedRanges[rangeIndex]
+      if (range && range.start < contentRange.end && range.end > contentRange.start) {
+        intersectsRange = true
+        break
+      }
+    }
+
+    while (
+      boundaryIndex < deletionBoundaries.length &&
+      deletionBoundaryEnd(deletionBoundaries[boundaryIndex] ?? {}) < sentence.startOffset
+    ) {
+      boundaryIndex++
+    }
+    let nextBoundary = boundaryIndex
+    let containsBoundary = false
+    while (
+      nextBoundary < deletionBoundaries.length &&
+      deletionBoundaryStart(deletionBoundaries[nextBoundary] ?? {}) < sentence.endOffset
+    ) {
+      const boundary = deletionBoundaries[nextBoundary]
+      if (
+        boundary &&
+        (boundary.before === undefined || contains(sentence, boundary.before)) &&
+        (boundary.after === undefined || contains(sentence, boundary.after))
+      ) {
+        containsBoundary = true
+      }
+      nextBoundary++
+    }
+    boundaryIndex = nextBoundary
+
+    if (intersectsRange || containsBoundary || changedSentenceIndexes.has(sentenceIndex)) {
+      selected.push(sentence)
+    }
+  }
+
+  return selected
+}
+
+function sentenceSelector(text: string, previousText: string | undefined): SentenceSelector {
+  if (previousText === undefined) return (sentences) => sentences
+
+  const changes = changedText(previousText, text)
+  const previousProse = maskMarkdownCode(previousText)
+  const currentProse = maskMarkdownCode(text)
+  const changedRanges = normalizeRanges([
+    ...changes.ranges,
+    ...newlyVisibleRanges(previousText, text, changes),
+  ])
+  const previousSentences = segmentSentences(previousProse.split("\n"), previousText)
+  const changedDeletionBoundaries = deletionBoundaries(
+    previousProse,
+    currentProse,
+    previousSentences,
+    changes,
+  )
+
+  return (sentences) =>
+    selectChangedSentences(
+      sentences,
+      changedRanges,
+      changedDeletionBoundaries,
+      changedSentenceIdentityIndexes(
+        previousSentences,
+        sentences,
+        previousProse,
+        currentProse,
+        changes,
+      ),
+    )
+}
+
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
   const extracted = extract(kind, text, options)
   const resolved = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
+    selectSentences: sentenceSelector(text, options.previousText),
+    diffOnly: options.previousText !== undefined,
   }
   const raw = splitProseRuns(extracted).flatMap((run) =>
     lintExtracted(run, resolved).map((violation) => ({
@@ -142,12 +690,10 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
   const violations: Violation[] = raw
     .flatMap((violation) => {
       const setting = options.rules?.[violation.ruleId]
-      if (setting === undefined) {
-        return [violation]
-      }
+      if (setting === undefined) return [violation]
       return setting === "off" ? [] : [{ ...violation, severity: setting }]
     })
-    .sort((a, b) => a.line - b.line || a.column - b.column)
+    .sort((left, right) => left.line - right.line || left.column - right.column)
   return {
     violations,
     summary: {

@@ -2,6 +2,13 @@ export interface Sentence {
   readonly text: string
   readonly line: number
   readonly column: number
+  readonly endLine: number
+  readonly startOffset: number
+  readonly endOffset: number
+  readonly contentRanges: readonly {
+    readonly start: number
+    readonly end: number
+  }[]
 }
 
 const CLOSING_DELIMITERS = new Set([
@@ -179,16 +186,49 @@ function sentenceTerminatorEnds(text: string): number[] {
 // Sentences may span lines; position is where the sentence starts (1-based).
 export function segmentSentences(
   lines: readonly string[],
+  sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
 ): Sentence[] {
   const sentences: Sentence[] = []
-  let open: { line: number; column: number; parts: string[] } | null = null
+  const lineOffsets = [0]
+  for (let index = 0; index < sourceText.length; index++) {
+    if (sourceText[index] === "\n") lineOffsets.push(index + 1)
+  }
+  let open: {
+    line: number
+    column: number
+    endLine: number
+    startOffset: number
+    endOffset: number
+    parts: string[]
+    contentRanges: Array<{ start: number; end: number }>
+  } | null = null
+
+  const appendPart = (part: string, startOffset: number) => {
+    if (!open) return
+    const leadingWhitespace = part.length - part.trimStart().length
+    const text = part.trim()
+    open.parts.push(text)
+    if (text === "") return
+    const start = startOffset + leadingWhitespace
+    const end = start + text.length
+    open.contentRanges.push({ start, end })
+    open.endOffset = end
+  }
 
   const close = () => {
     if (!open) return
     const text = open.parts.join(" ").trim()
     if (text !== "") {
-      sentences.push({ text, line: open.line, column: open.column })
+      sentences.push({
+        text,
+        line: open.line,
+        column: open.column,
+        endLine: open.endLine,
+        startOffset: open.startOffset,
+        endOffset: open.endOffset,
+        contentRanges: open.contentRanges,
+      })
     }
     open = null
   }
@@ -203,9 +243,19 @@ export function segmentSentences(
       const part = raw.slice(offset, end)
       if (!open) {
         const indent = part.length - part.trimStart().length
-        open = { line: index + 1, column: offset + indent + 1, parts: [] }
+        const startOffset = (lineOffsets[index] ?? 0) + offset + indent
+        open = {
+          line: index + 1,
+          column: offset + indent + 1,
+          endLine: index + 1,
+          startOffset,
+          endOffset: startOffset,
+          parts: [],
+          contentRanges: [],
+        }
       }
-      open.parts.push(part.trim())
+      open.endLine = index + 1
+      appendPart(part, (lineOffsets[index] ?? 0) + offset)
       close()
       offset = end
     }
@@ -214,9 +264,19 @@ export function segmentSentences(
     if (rest.trim() !== "") {
       if (!open) {
         const indent = rest.length - rest.trimStart().length
-        open = { line: index + 1, column: offset + indent + 1, parts: [] }
+        const startOffset = (lineOffsets[index] ?? 0) + offset + indent
+        open = {
+          line: index + 1,
+          column: offset + indent + 1,
+          endLine: index + 1,
+          startOffset,
+          endOffset: startOffset,
+          parts: [],
+          contentRanges: [],
+        }
       }
-      open.parts.push(rest.trim())
+      open.endLine = index + 1
+      appendPart(rest, (lineOffsets[index] ?? 0) + offset)
     }
   })
   close()

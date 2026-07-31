@@ -270,6 +270,10 @@ export function blankMarkdownCode(
   return blankMarkdownCodeWithStructure(inputLines, contentStarts).lines
 }
 
+export function maskMarkdownCode(text: string): string {
+  return blankMarkdownCode(text.split("\n")).join("\n")
+}
+
 interface InlineBacktickRun {
   readonly start: number
   readonly length: number
@@ -310,4 +314,25 @@ function blankInlineCodeLine(line: string): string {
 
 export function blankInlineCode(lines: readonly string[]): string[] {
   return lines.map(blankInlineCodeLine)
+}
+
+export function proseVisibility(text: string): Uint8Array {
+  const visibility = new Uint8Array(text.length)
+  const sourceLines = text.split("\n")
+  const proseLines = blankMarkdownCode(sourceLines)
+  let offset = 0
+
+  for (let index = 0; index < sourceLines.length; index++) {
+    const line = sourceLines[index] ?? ""
+    if (line === proseLines[index]) {
+      visibility.fill(1, offset, offset + line.length)
+    }
+    offset += line.length
+    if (offset < text.length) {
+      visibility[offset] = 1
+      offset++
+    }
+  }
+
+  return visibility
 }
