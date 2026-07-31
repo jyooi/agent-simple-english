@@ -68,7 +68,7 @@ The extension starts in enabled mode without strict reply gating.
 | `/ste status` | Show the mode, severity counts, and dictionary state. |
 | `/ste strict` | Enable strict reply gating and the other checks. |
 | `/ste strict on` | Enable strict reply gating and the other checks. |
-| `/ste strict off` | Leave strict reply gating but keep the other checks enabled. |
+| `/ste strict off` | Disable strict reply gating without changing the other checks. |
 
 ## Install and use the CLI
 
@@ -215,8 +215,33 @@ A phrase match stays on one source line.
 ### `marketing`
 
 Default: soft.
-Reports the curated marketing terms in [`src/engine/rules/marketing.ts`](src/engine/rules/marketing.ts).
-Examples include `seamless`, `cutting-edge`, `world-class`, `turnkey`, and `game-changing`.
+Reports the first listed term in each token.
+Matching does not depend on letter case, and it also examines components of hyphenated tokens.
+
+- `seamless`.
+- `seamlessly`.
+- `robust`.
+- `powerful`.
+- `cutting-edge`.
+- `effortless`.
+- `effortlessly`.
+- `world-class`.
+- `next-generation`.
+- `revolutionary`.
+- `blazing`.
+- `lightning-fast`.
+- `elegant`.
+- `delightful`.
+- `turnkey`.
+- `best-in-class`.
+- `state-of-the-art`.
+- `game-changing`.
+- `battle-tested`.
+- `enterprise-grade`.
+- `supercharge`.
+- `unleash`.
+- `empower`.
+- `empowers`.
 
 ### `paragraph-length`
 
@@ -227,20 +252,23 @@ Markdown block boundaries and list items start separate paragraphs.
 ### `phrasal-verb`
 
 Default: hard.
-Reports these verb groups and their suggestions:
+Reports these forms and supplies the listed suggestion:
 
-- `carry out` to `do`.
-- `spin up` to `start`.
-- `spin down` to `stop`.
-- `tear down` to `remove`.
-- `reach out` to `ask`.
-- `dive into` to `examine`.
-- `kick off` to `start`.
-- `roll out` to `release`.
-- `ramp up` to `increase`.
-- `circle back` to `return`.
-- `drill down` to `examine`.
-The rule also recognizes the conjugated forms in [`src/engine/rules/phrasal-verb.ts`](src/engine/rules/phrasal-verb.ts).
+| Forms | Suggestion |
+| --- | --- |
+| `carry out`, `carries out`, `carried out`, `carrying out` | `do` |
+| `spin up`, `spins up`, `spun up`, `spinning up` | `start` |
+| `spin down`, `spins down`, `spun down`, `spinning down` | `stop` |
+| `tear down`, `tears down`, `tore down`, `torn down`, `tearing down` | `remove` |
+| `reach out`, `reaches out`, `reached out`, `reaching out` | `ask` |
+| `dive into`, `dives into`, `dived into`, `dove into`, `diving into` | `examine` |
+| `kick off`, `kicks off`, `kicked off`, `kicking off` | `start` |
+| `roll out`, `rolls out`, `rolled out`, `rolling out` | `release` |
+| `ramp up`, `ramps up`, `ramped up`, `ramping up` | `increase` |
+| `circle back`, `circles back`, `circled back`, `circling back` | `return` |
+| `drill down`, `drills down`, `drilled down`, `drilling down` | `examine` |
+
+Matching does not depend on letter case.
 A phrase match stays on one source line.
 
 ### `semicolon`
@@ -275,8 +303,7 @@ The three verb rules and applicable dictionary entries use the bundled English p
 ## Dictionary and attribution
 
 The package vendors dictionary data converted from Cameron Moore's MIT-licensed [`ctotheameron/pi-ste`](https://github.com/ctotheameron/pi-ste).
-The conversion uses the upstream dictionary entries at commit `18a8cc686be2cc0e680705daf2327fb0d1ef93ce`.
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) records the exact source, conversion scope, and license details.
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) records the pinned source, conversion scope, and license details.
 
 ASD owns ASD-STE100 and limits redistribution of the official specification and dictionary.
 This package does not include the official specification or the complete ASD dictionary.

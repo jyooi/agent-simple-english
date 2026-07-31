@@ -8,7 +8,7 @@ The checks used Bun 1.3.14, npm 11.6.2, Node.js 24.12.0, and pi 0.83.0.
 The npm package did not exist in the public registry before release.
 The check created the publishable tarball and gave that tarball to the npm source path in pi.
 This uses the same managed npm installation flow as the documented registry command.
-A new `PI_CODING_AGENT_DIR` isolated the package settings and installed dependencies from the normal user profile.
+A new `PI_CODING_AGENT_DIR` isolated the user-scoped package settings and installation directory.
 
 Commands:
 
@@ -19,6 +19,8 @@ export PI_CODING_AGENT_DIR="$PWD/.release-verification/pi-agent"
 pi install "npm:pi-simple-english@file:$tarball"
 pi list
 ```
+
+The recorded output uses shell variable names in place of worktree-specific absolute paths.
 
 Output:
 
