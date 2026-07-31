@@ -186,6 +186,24 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations.at(-1)).toMatchObject({ line: 1000, column: 1 })
   })
 
+  test("character fallback reports a sentence merged by a large replacement", () => {
+    const fragment = words(13)
+    const previous = `${fragment}. ${"x".repeat(1_000_001)}\n${fragment}.`
+    const current = `${fragment}\r\n${fragment}.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
+  test("character fallback does not report an unchanged neighboring sentence", () => {
+    const longSentence = `${words(30)}.`
+    const previous = `${longSentence}\n${"x".repeat(1_000_001)}.\nClosing sentence.`
+    const current = `${longSentence}\nChanged sentence.\nClosing sentence.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("bounds deletion analysis across many edits in a large fenced block", () => {
     const padding = "x".repeat(20_000)
     const previousCode = "ab".repeat(400)

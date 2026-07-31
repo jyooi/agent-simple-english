@@ -152,6 +152,11 @@ function diffCharacters(
   if (!reserveCells(budget, oldText.length, newText.length)) {
     retainEdges()
     addRange(ranges, newBase, newBase + newText.length)
+    deletions.push({
+      previousStart: oldBase,
+      previousEnd: oldBase + oldText.length,
+      currentOffset: newBase,
+    })
     return
   }
 
