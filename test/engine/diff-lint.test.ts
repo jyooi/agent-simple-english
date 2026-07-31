@@ -170,6 +170,31 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations.at(-1)).toMatchObject({ line: 1000, column: 1 })
   })
 
+  test("bounds deletion analysis across many edits in a large fenced block", () => {
+    const padding = "x".repeat(20_000)
+    const previousCode = "ab".repeat(400)
+    const currentCode = "a".repeat(400)
+    const previous = ["Before.", "```", padding, previousCode, padding, "```", "After."].join("\n")
+    const current = ["Before.", "```", padding, currentCode, padding, "```", "After."].join("\n")
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
+  test("sweeps many changed visibility ranges against many sentences", () => {
+    const longSentence = `${words(26)}.`
+    const blocks = 2_000
+    const previous = [
+      "```",
+      ...Array.from({ length: blocks }, () => [longSentence, "```"]).flat(),
+    ].join("\n")
+    const current = previous.slice(4)
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(blocks / 2)
+    expect(report.violations.at(0)).toMatchObject({ line: 1, column: 1 })
+    expect(report.violations.at(-1)).toMatchObject({ line: blocks * 2 - 3, column: 1 })
+  })
+
   test("positions refer to the new text when an insertion shifts pre-existing prose", () => {
     const previous = `Intro.\n\n${words(30)}.`
     const current = `Intro.\n\n${words(28)} inserted.\n\n${words(30)}.`

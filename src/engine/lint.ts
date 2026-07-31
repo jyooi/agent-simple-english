@@ -23,13 +23,13 @@ import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 
 export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
-type SentenceFilter = (sentence: Sentence) => boolean
+type SentenceSelector = (sentences: readonly Sentence[]) => readonly Sentence[]
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
   readonly dictionary?: Dictionary
   readonly tagger?: Tagger
-  readonly includeSentence: SentenceFilter
+  readonly selectSentences: SentenceSelector
 }
 
 interface ExtractedProse {
@@ -94,10 +94,10 @@ const lintProse = (
   mechanicalLines: readonly string[],
   contentStarts: readonly number[],
   structuralBlanks: readonly boolean[],
-  { maxSentenceWords, dictionary, tagger, includeSentence }: ResolvedOptions,
+  { maxSentenceWords, dictionary, tagger, selectSentences }: ResolvedOptions,
 ) => [
   ...sentenceLength(
-    segmentSentences(lines, lines.join("\n"), structuralBlanks).filter(includeSentence),
+    selectSentences(segmentSentences(lines, lines.join("\n"), structuralBlanks)),
     maxSentenceWords,
   ),
   ...paragraphLength(
@@ -136,18 +136,48 @@ const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Vio
   )
 }
 
-function nearestNonWhitespaceBefore(text: string, offset: number): number | undefined {
-  for (let index = offset - 1; index >= 0; index--) {
-    if (!/\s/u.test(text[index] ?? "")) return index
+function nearestNonWhitespaceBefore(
+  text: string,
+  offsets: readonly number[],
+): Array<number | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => left.offset - right.offset)
+  const result: Array<number | undefined> = new Array(offsets.length)
+  let cursor = 0
+  let nearest: number | undefined
+
+  for (const query of ordered) {
+    while (cursor < query.offset && cursor < text.length) {
+      if (!/\s/u.test(text[cursor] ?? "")) nearest = cursor
+      cursor++
+    }
+    result[query.index] = nearest
   }
-  return undefined
+
+  return result
 }
 
-function nearestNonWhitespaceAfter(text: string, offset: number): number | undefined {
-  for (let index = offset; index < text.length; index++) {
-    if (!/\s/u.test(text[index] ?? "")) return index
+function nearestNonWhitespaceAfter(
+  text: string,
+  offsets: readonly number[],
+): Array<number | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => right.offset - left.offset)
+  const result: Array<number | undefined> = new Array(offsets.length)
+  let cursor = text.length - 1
+  let nearest: number | undefined
+
+  for (const query of ordered) {
+    while (cursor >= query.offset) {
+      if (!/\s/u.test(text[cursor] ?? "")) nearest = cursor
+      cursor--
+    }
+    result[query.index] = nearest
   }
-  return undefined
+
+  return result
 }
 
 function contains(sentence: Sentence, offset: number): boolean {
@@ -184,42 +214,159 @@ function newlyVisibleRanges(
   return ranges
 }
 
-function sentenceFilter(text: string, previousText: string | undefined): SentenceFilter {
-  if (previousText === undefined) {
-    return () => true
+function containingSentenceIndexes(
+  sentences: readonly Sentence[],
+  offsets: readonly (number | undefined)[],
+): number[] {
+  const ordered: Array<{ offset: number; index: number }> = []
+  for (let index = 0; index < offsets.length; index++) {
+    const offset = offsets[index]
+    if (offset !== undefined) ordered.push({ offset, index })
   }
+  ordered.sort((left, right) => left.offset - right.offset)
+
+  const result = new Array<number>(offsets.length).fill(-1)
+  let sentenceIndex = 0
+  for (const query of ordered) {
+    while (
+      sentenceIndex < sentences.length &&
+      (sentences[sentenceIndex]?.endOffset ?? 0) <= query.offset
+    ) {
+      sentenceIndex++
+    }
+    const sentence = sentences[sentenceIndex]
+    if (sentence && contains(sentence, query.offset)) result[query.index] = sentenceIndex
+  }
+  return result
+}
+
+interface MergedBoundary {
+  readonly before: number
+  readonly after: number
+}
+
+function deletionMergeBoundaries(
+  previousProse: string,
+  currentProse: string,
+  previousSentences: readonly Sentence[],
+  changes: TextChanges,
+): MergedBoundary[] {
+  const previousStarts = changes.deletions.map((deletion) => deletion.previousStart)
+  const previousEnds = changes.deletions.map((deletion) => deletion.previousEnd)
+  const currentOffsets = changes.deletions.map((deletion) => deletion.currentOffset)
+  const oldBefore = nearestNonWhitespaceBefore(previousProse, previousStarts)
+  const oldAfter = nearestNonWhitespaceAfter(previousProse, previousEnds)
+  const newBefore = nearestNonWhitespaceBefore(currentProse, currentOffsets)
+  const newAfter = nearestNonWhitespaceAfter(currentProse, currentOffsets)
+  const oldBeforeSentences = containingSentenceIndexes(previousSentences, oldBefore)
+  const oldAfterSentences = containingSentenceIndexes(previousSentences, oldAfter)
+  const boundaries: MergedBoundary[] = []
+
+  for (let index = 0; index < changes.deletions.length; index++) {
+    const before = newBefore[index]
+    const after = newAfter[index]
+    if (
+      oldBefore[index] === undefined ||
+      oldAfter[index] === undefined ||
+      before === undefined ||
+      after === undefined
+    ) {
+      continue
+    }
+    const beforeSentence = oldBeforeSentences[index]
+    if (beforeSentence !== -1 && beforeSentence === oldAfterSentences[index]) continue
+    boundaries.push({ before, after })
+  }
+
+  return boundaries.sort((left, right) => left.before - right.before || left.after - right.after)
+}
+
+function normalizeRanges(ranges: readonly ChangedRange[]): ChangedRange[] {
+  const ordered = ranges
+    .filter((range) => range.start < range.end)
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+  const normalized: ChangedRange[] = []
+
+  for (const range of ordered) {
+    const last = normalized.at(-1)
+    if (last && range.start <= last.end) {
+      normalized[normalized.length - 1] = {
+        start: last.start,
+        end: Math.max(last.end, range.end),
+      }
+    } else {
+      normalized.push(range)
+    }
+  }
+
+  return normalized
+}
+
+function selectChangedSentences(
+  sentences: readonly Sentence[],
+  changedRanges: readonly ChangedRange[],
+  mergedBoundaries: readonly MergedBoundary[],
+): Sentence[] {
+  const selected: Sentence[] = []
+  let rangeIndex = 0
+  let boundaryIndex = 0
+
+  for (const sentence of sentences) {
+    while (
+      rangeIndex < changedRanges.length &&
+      (changedRanges[rangeIndex]?.end ?? 0) <= sentence.startOffset
+    ) {
+      rangeIndex++
+    }
+    const range = changedRanges[rangeIndex]
+    const intersectsRange =
+      range !== undefined && range.start < sentence.endOffset && range.end > sentence.startOffset
+
+    while (
+      boundaryIndex < mergedBoundaries.length &&
+      (mergedBoundaries[boundaryIndex]?.before ?? 0) < sentence.startOffset
+    ) {
+      boundaryIndex++
+    }
+    let nextBoundary = boundaryIndex
+    let containsBoundary = false
+    while (
+      nextBoundary < mergedBoundaries.length &&
+      (mergedBoundaries[nextBoundary]?.before ?? Number.POSITIVE_INFINITY) < sentence.endOffset
+    ) {
+      const boundary = mergedBoundaries[nextBoundary]
+      if (boundary && contains(sentence, boundary.before) && contains(sentence, boundary.after)) {
+        containsBoundary = true
+      }
+      nextBoundary++
+    }
+    boundaryIndex = nextBoundary
+
+    if (intersectsRange || containsBoundary) selected.push(sentence)
+  }
+
+  return selected
+}
+
+function sentenceSelector(text: string, previousText: string | undefined): SentenceSelector {
+  if (previousText === undefined) return (sentences) => sentences
 
   const changes = changedText(previousText, text)
   const previousProse = maskMarkdownCode(previousText)
   const currentProse = maskMarkdownCode(text)
-  const changedRanges = [...changes.ranges, ...newlyVisibleRanges(previousText, text, changes)]
+  const changedRanges = normalizeRanges([
+    ...changes.ranges,
+    ...newlyVisibleRanges(previousText, text, changes),
+  ])
   const previousSentences = segmentSentences(previousProse.split("\n"), previousText)
-  const mergedBoundaries = changes.deletions.flatMap((deletion) => {
-    const oldBefore = nearestNonWhitespaceBefore(previousProse, deletion.previousStart)
-    const oldAfter = nearestNonWhitespaceAfter(previousProse, deletion.previousEnd)
-    const newBefore = nearestNonWhitespaceBefore(currentProse, deletion.currentOffset)
-    const newAfter = nearestNonWhitespaceAfter(currentProse, deletion.currentOffset)
-    if (
-      oldBefore === undefined ||
-      oldAfter === undefined ||
-      newBefore === undefined ||
-      newAfter === undefined
-    ) {
-      return []
-    }
-    const wasOneSentence = previousSentences.some(
-      (sentence) => contains(sentence, oldBefore) && contains(sentence, oldAfter),
-    )
-    return wasOneSentence ? [] : [{ before: newBefore, after: newAfter }]
-  })
+  const mergedBoundaries = deletionMergeBoundaries(
+    previousProse,
+    currentProse,
+    previousSentences,
+    changes,
+  )
 
-  return (sentence) =>
-    changedRanges.some(
-      (range) => range.start < sentence.endOffset && range.end > sentence.startOffset,
-    ) ||
-    mergedBoundaries.some(
-      (boundary) => contains(sentence, boundary.before) && contains(sentence, boundary.after),
-    )
+  return (sentences) => selectChangedSentences(sentences, changedRanges, mergedBoundaries)
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
@@ -228,7 +375,7 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
-    includeSentence: sentenceFilter(text, options.previousText),
+    selectSentences: sentenceSelector(text, options.previousText),
   }
   const raw = splitProseRuns(extracted).flatMap((run) =>
     lintExtracted(run, resolved).map((violation) => ({
