@@ -7,6 +7,7 @@ import {
   type ToolCallEventResult,
   createEditToolDefinition,
   createWriteToolDefinition,
+  isToolCallEventType,
 } from "@earendil-works/pi-coding-agent"
 import { Effect } from "effect"
 import { loadConfig } from "../config/load.ts"
@@ -19,6 +20,7 @@ import type { RuleId } from "../engine/rules/registry.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { RuleSetting, Violation } from "../engine/types.ts"
 import { makeWinkTagger } from "../tagger/wink.ts"
+import { blankCommitMetadata, findCommitInvocations } from "./commit-message.ts"
 
 const DEFAULT_RULE_SETTINGS: Readonly<Record<RuleId, RuleSetting>> = {
   contraction: "hard",
@@ -74,7 +76,7 @@ function ruleSummary(config: SteConfig): string {
       return `- [${resolvedSetting(config, ruleId)}] ${summary}`
     })
     .join("\n")
-  return `## Simplified Technical English\n\nFollow these STE rules in prose that you write or edit:\n${rules}\n\nThe write and edit tools reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
+  return `## Simplified Technical English\n\nFollow these STE rules in prose that you write or edit:\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
 }
 
 function suggestedFix(violation: Violation): string {
@@ -193,6 +195,54 @@ function lintProposedText(
     block: true,
     reason: formatViolations(path, `STE blocked ${operation} for`, hard),
   }
+}
+
+function lintCommitCommand(
+  state: SessionState,
+  ctx: ExtensionContext,
+  toolCallId: string,
+  command: string,
+): ToolCallEventResult | undefined {
+  const invocations = findCommitInvocations(command)
+  if (invocations.length === 0) return undefined
+  if (!state.ready) {
+    return {
+      block: true,
+      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+    }
+  }
+
+  const warnings: string[] = []
+  for (const invocation of invocations) {
+    if (invocation.requiresExplicitMessage) {
+      return {
+        block: true,
+        reason:
+          "STE could not check the git commit message. Use git commit with a static -m or --message argument.",
+      }
+    }
+
+    const report = lint("commit-message", blankCommitMetadata(invocation.message), {
+      ...state.config,
+      dictionary: state.dictionary,
+      tagger: state.tagger,
+    })
+    const hard = report.violations.filter((violation) => violation.severity === "hard")
+    const soft = report.violations.filter((violation) => violation.severity === "soft")
+    notifyWarnings(ctx, "commit message", soft)
+    if (hard.length > 0) {
+      return {
+        block: true,
+        reason: formatViolations("commit message", "STE blocked commit for", hard),
+      }
+    }
+    if (soft.length > 0) {
+      warnings.push(formatViolations("commit message", "STE warnings for", soft))
+    }
+  }
+
+  if (warnings.length > 0) state.pendingWarnings.set(toolCallId, warnings.join("\n\n"))
+  return undefined
 }
 
 function createGatedWriteTool(cwd: string, state: SessionState) {
@@ -319,7 +369,10 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
   })
 
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, ctx) => {
+    if (isToolCallEventType("bash", event)) {
+      return lintCommitCommand(state, ctx, event.toolCallId, event.input.command)
+    }
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
     if (state.ready) return undefined
     return {

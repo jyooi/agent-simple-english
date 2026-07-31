@@ -32,6 +32,17 @@ type ToolHandler = {
   ): unknown
 }
 
+interface CommitCommandFixture {
+  readonly name: string
+  readonly command: string
+}
+
+type CommitHeuristicFixture = CommitCommandFixture &
+  (
+    | { readonly expected: "pass" | "explicit-message" }
+    | { readonly expected: "contraction"; readonly location: string }
+  )
+
 interface ExtensionContextStub {
   readonly cwd: string
   readonly hasUI: boolean
@@ -250,6 +261,119 @@ describe.sequential("pi extension wiring", () => {
     expect(result).toMatchObject({
       systemPrompt: expect.not.stringContaining("Do not use contractions"),
     })
+    expect(result).toMatchObject({
+      systemPrompt: expect.stringContaining("git commit messages reject hard violations"),
+    })
+  })
+
+  test("blocks a hard commit message with structured feedback", async () => {
+    const { pi, context } = await startExtension()
+
+    const result = await pi.emit(
+      "tool_call",
+      {
+        toolName: "bash",
+        toolCallId: "commit-blocked",
+        input: { command: `git commit -m "fix: This isn't permitted."` },
+      },
+      context,
+    )
+
+    expect(result).toMatchObject({ block: true })
+    expect(result).toMatchObject({ reason: expect.stringContaining("line 1, column 11") })
+    expect(result).toMatchObject({ reason: expect.stringContaining("[contraction]") })
+    expect(result).toMatchObject({ reason: expect.stringContaining("Suggested fix:") })
+  })
+
+  test("permits a clean commit message", async () => {
+    const { pi, context } = await startExtension()
+
+    await expect(
+      pi.emit(
+        "tool_call",
+        {
+          toolName: "bash",
+          toolCallId: "commit-clean",
+          input: { command: `git add notes.md && git commit -m "fix: Close the valve."` },
+        },
+        context,
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  test("exempts Conventional Commit prefixes and trailer lines from fixtures", async () => {
+    const { pi, context } = await startExtension()
+    const fixtures = JSON.parse(
+      await readFile(join(process.cwd(), "test/fixtures/commit-commands.json"), "utf8"),
+    ) as CommitCommandFixture[]
+
+    for (const fixture of fixtures) {
+      await expect(
+        pi.emit(
+          "tool_call",
+          {
+            toolName: "bash",
+            toolCallId: `commit-fixture-${fixture.name}`,
+            input: { command: fixture.command },
+          },
+          context,
+        ),
+        fixture.name,
+      ).resolves.toBeUndefined()
+    }
+  })
+
+  test("pins bounded commit command detection heuristics in fixtures", async () => {
+    const { pi, context } = await startExtension()
+    const fixtures = JSON.parse(
+      await readFile(join(process.cwd(), "test/fixtures/commit-command-heuristics.json"), "utf8"),
+    ) as CommitHeuristicFixture[]
+
+    for (const fixture of fixtures) {
+      const result = await pi.emit(
+        "tool_call",
+        {
+          toolName: "bash",
+          toolCallId: `commit-heuristic-${fixture.name}`,
+          input: { command: fixture.command },
+        },
+        context,
+      )
+      if (fixture.expected === "pass") {
+        expect(result, fixture.name).toBeUndefined()
+      } else if (fixture.expected === "contraction") {
+        expect(result, fixture.name).toMatchObject({
+          block: true,
+          reason: expect.stringContaining("[contraction]"),
+        })
+        expect(result, fixture.name).toMatchObject({
+          reason: expect.stringContaining(fixture.location),
+        })
+      } else {
+        expect(result, fixture.name).toMatchObject({
+          block: true,
+          reason: expect.stringContaining("static -m or --message argument"),
+        })
+      }
+    }
+  })
+
+  test("reports original positions in a multi-line commit subject and body", async () => {
+    const { pi, context } = await startExtension()
+
+    const result = await pi.emit(
+      "tool_call",
+      {
+        toolName: "bash",
+        toolCallId: "commit-multiline",
+        input: { command: `git commit -m "fix: Close the valve." -m "This isn't permitted."` },
+      },
+      context,
+    )
+
+    expect(result).toMatchObject({ block: true })
+    expect(result).toMatchObject({ reason: expect.stringContaining("line 3, column 6") })
+    expect(result).toMatchObject({ reason: expect.stringContaining("[contraction]") })
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {

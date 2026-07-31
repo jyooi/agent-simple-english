@@ -1,0 +1,39 @@
+[
+  {
+    "name": "quoted command text is not an invocation",
+    "command": "printf '%s\\n' \"git commit -m bad\"",
+    "expected": "pass"
+  },
+  {
+    "name": "command wrapper and combined short flags are detected",
+    "command": "git status && command git commit -am \"fix: This isn't permitted.\"",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C quoting preserves multi-line positions",
+    "command": "git commit -m $'fix: Close the valve.\\n\\nThis isn\\'t permitted.'",
+    "expected": "contraction",
+    "location": "line 3, column 6"
+  },
+  {
+    "name": "dynamic messages fail closed",
+    "command": "git commit -m \"$MESSAGE\"",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "dynamic amend messages fail closed even with no-edit",
+    "command": "git commit --amend --no-edit -m \"$MESSAGE\"",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "message files fail closed",
+    "command": "git commit --file message.txt",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "amend without an extractable message fails closed",
+    "command": "git commit --amend --no-edit",
+    "expected": "explicit-message"
+  }
+]
