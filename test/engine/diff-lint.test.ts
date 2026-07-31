@@ -111,6 +111,32 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations[0]).toMatchObject({ line: 3, column: 1 })
   })
 
+  test("inserting a line break inside a word reports the overlong changed sentence", () => {
+    const previous = `firsttoken ${words(24)}.`
+    const current = `first\ntoken ${words(24)}.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({
+      message: "Sentence has 26 words; the maximum is 25.",
+      line: 1,
+      column: 1,
+    })
+  })
+
+  test("replacing a sentence prefix reports an overlong retained trailing sentence", () => {
+    const previous = `${words(40)}.`
+    const current = `ZZZ.${previous.slice(words(10).length)}`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({
+      message: "Sentence has 30 words; the maximum is 25.",
+      line: 1,
+      column: 6,
+    })
+  })
+
   test("inserting a standalone sentence does not report an unchanged long sentence", () => {
     const previous = `Intro. ${words(30)}.`
     const current = `Intro. Added sentence. ${words(30)}.`
