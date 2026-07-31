@@ -4,6 +4,21 @@ A pi extension that makes the pi coding agent comply with ASD-STE100 Simplified 
 
 This project is a TypeScript and Effect reimplementation of [pi-ste](https://github.com/ctotheameron/pi-ste).
 
+## pi extension
+
+Install the package from npm:
+
+```sh
+pi install npm:pi-simple-english
+```
+
+For local development, run `pi -e .` from the repository instead.
+The extension adds a concise STE rule summary to the system prompt after it loads global and project configuration.
+It checks prose in `write` and `edit` tool calls before the tools change a file.
+Hard violations block the tool call with the line, column, rule ID, and a suggested fix so that the agent can correct the text and retry.
+Soft violations permit the tool call and appear as warnings.
+Edits use the existing file as a baseline, so unchanged violations do not block unrelated changes.
+
 ## CLI
 
 ```sh

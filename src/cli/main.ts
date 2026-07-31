@@ -3,51 +3,12 @@ import { readFile } from "node:fs/promises"
 import { Effect, Either } from "effect"
 import { loadConfig } from "../config/load.ts"
 import { loadDictionary } from "../dictionary/load.ts"
+import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
-import type { LintKind, LintReport, SourceDialect } from "../engine/types.ts"
+import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
 
 const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
-
-const SLASH_EXTENSIONS = new Set([
-  "ts",
-  "tsx",
-  "js",
-  "jsx",
-  "mjs",
-  "cjs",
-  "go",
-  "rs",
-  "java",
-  "c",
-  "h",
-  "cpp",
-  "hpp",
-  "cc",
-  "cs",
-  "swift",
-  "kt",
-  "scala",
-])
-
-const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
-
-interface PathClassification {
-  readonly kind: LintKind
-  readonly sourceDialect: SourceDialect
-}
-
-const classifyPath = (path: string): PathClassification => {
-  const dot = path.lastIndexOf(".")
-  if (dot <= path.lastIndexOf("/")) return { kind: "prose-file", sourceDialect: "general" }
-  const extension = path.slice(dot + 1).toLowerCase()
-  if (SLASH_EXTENSIONS.has(extension)) return { kind: "slash-source", sourceDialect: "general" }
-  if (HASH_EXTENSIONS.has(extension)) {
-    const sourceDialect = ["sh", "bash", "zsh"].includes(extension) ? "shell" : "general"
-    return { kind: "hash-source", sourceDialect }
-  }
-  return { kind: "prose-file", sourceDialect: "general" }
-}
 
 interface CliArgs {
   readonly json: boolean
