@@ -4,7 +4,31 @@ export interface Sentence {
   readonly column: number
 }
 
-const CLOSING_DELIMITERS = new Set(["\"", "'", "’", "”", "»", "›", ")", "]", "}", "*", "_", "~", "`"])
+const CLOSING_DELIMITERS = new Set([
+  '"',
+  "'",
+  "’",
+  "”",
+  "»",
+  "›",
+  ")",
+  "]",
+  "}",
+  "*",
+  "_",
+  "~",
+  "`",
+])
+
+function valueAt(values: Int32Array | Uint32Array, index: number): number {
+  const value = values[index]
+  if (value === undefined) throw new RangeError(`Array index ${index} is out of bounds`)
+  return value
+}
+
+function sentinelAt(values: Int32Array, index: number): number {
+  return values[index] ?? -1
+}
 
 function markdownDelimiterEnds(text: string): {
   readonly parentheses: Int32Array
@@ -33,7 +57,7 @@ function markdownDelimiterEnds(text: string): {
       case "\\":
         index += 1
         break
-      case "\"":
+      case '"':
       case "'": {
         const opening = parenthesisStack[parenthesisStack.length - 1]
         const isLinkTitle =
@@ -70,10 +94,12 @@ function markdownDelimiterEnds(text: string): {
   for (let index = 0; index < text.length - 1; index += 1) {
     if (text[index] !== "]") continue
     const suffixStart = index + 1
-    if (text[suffixStart] === "(" && parentheses[suffixStart] >= 0) {
-      linkSuffixes[suffixStart] = parentheses[suffixStart]
-    } else if (text[suffixStart] === "[" && brackets[suffixStart] >= 0) {
-      linkSuffixes[suffixStart] = brackets[suffixStart]
+    const parenthesisEnd = valueAt(parentheses, suffixStart)
+    const bracketEnd = valueAt(brackets, suffixStart)
+    if (text[suffixStart] === "(" && parenthesisEnd >= 0) {
+      linkSuffixes[suffixStart] = parenthesisEnd
+    } else if (text[suffixStart] === "[" && bracketEnd >= 0) {
+      linkSuffixes[suffixStart] = bracketEnd
     }
   }
 
@@ -90,22 +116,25 @@ function sentenceTerminatorEnds(text: string): number[] {
 
   for (let index = text.length - 1; index >= 0; index -= 1) {
     closingRuns[index] = CLOSING_DELIMITERS.has(text[index] ?? "")
-      ? closingRuns[index + 1]
+      ? valueAt(closingRuns, index + 1)
       : index
     closingBracketCounts[index] =
-      closingBracketCounts[index + 1] + (text[index] === "]" ? 1 : 0)
+      valueAt(closingBracketCounts, index + 1) + (text[index] === "]" ? 1 : 0)
   }
 
   for (let index = text.length - 1; index >= 0; index -= 1) {
-    if (text[index] !== "[" || brackets[index] < 0) continue
-    let end = closingRuns[brackets[index]]
-    if (text[end] === "[" && referenceRuns[end] >= 0) end = referenceRuns[end]
+    const bracketEnd = valueAt(brackets, index)
+    if (text[index] !== "[" || bracketEnd < 0) continue
+    let end = valueAt(closingRuns, bracketEnd)
+    const referenceEnd = sentinelAt(referenceRuns, end)
+    if (text[end] === "[" && referenceEnd >= 0) end = referenceEnd
     referenceRuns[index] = end
   }
 
   for (let index = 0; index < text.length; index += 1) {
-    if (linkSuffixes[index] >= 0) {
-      index = linkSuffixes[index] - 1
+    const linkSuffixEnd = valueAt(linkSuffixes, index)
+    if (linkSuffixEnd >= 0) {
+      index = linkSuffixEnd - 1
       continue
     }
     if (text[index] !== "." && text[index] !== "!" && text[index] !== "?") continue
@@ -119,19 +148,21 @@ function sentenceTerminatorEnds(text: string): number[] {
       punctuationEnd += 1
     }
 
-    let end = closingRuns[punctuationEnd]
+    let end = valueAt(closingRuns, punctuationEnd)
     const closedLinkLabel =
-      closingBracketCounts[punctuationEnd] > closingBracketCounts[end]
+      valueAt(closingBracketCounts, punctuationEnd) > valueAt(closingBracketCounts, end)
 
     if (closedLinkLabel && text[end] === "(") {
-      if (parentheses[end] < 0) {
+      const parenthesisEnd = valueAt(parentheses, end)
+      if (parenthesisEnd < 0) {
         index = punctuationEnd - 1
         continue
       }
-      end = closingRuns[parentheses[end]]
+      end = valueAt(closingRuns, parenthesisEnd)
     }
 
-    if (text[end] === "[" && referenceRuns[end] >= 0) end = referenceRuns[end]
+    const referenceEnd = sentinelAt(referenceRuns, end)
+    if (text[end] === "[" && referenceEnd >= 0) end = referenceEnd
     if (end === text.length || /\s/.test(text[end] ?? "")) {
       ends.push(end)
       index = end - 1

@@ -91,7 +91,7 @@ describe("simple-english CLI", () => {
     const result = await runCli([], { stdin: "The pump is running." })
 
     expect(result.code).toBe(1)
-    expect(result.stdout).toContain("<stdin>:1:10 verb-progressive")
+    expect(result.stdout).toContain("<stdin>:1:10 [hard] verb-progressive")
     expect(result.stdout).toContain("Do not use the progressive")
   })
 
@@ -99,7 +99,7 @@ describe("simple-english CLI", () => {
     const result = await runCli([], { stdin: "The bolt was removed." })
 
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("<stdin>:1:10 verb-passive")
+    expect(result.stdout).toContain("<stdin>:1:10 [soft] verb-passive")
     expect(result.stdout).toContain("active voice")
   })
 
@@ -107,7 +107,7 @@ describe("simple-english CLI", () => {
     const result = await runCli([], { stdin: "We attempt the repair." })
 
     expect(result.code).toBe(1)
-    expect(result.stdout).toContain("<stdin>:1:4 dictionary-not-approved-word")
+    expect(result.stdout).toContain("<stdin>:1:4 [hard] dictionary-not-approved-word")
     expect(result.stdout).toContain('Use "try", not "attempt".')
   })
 
