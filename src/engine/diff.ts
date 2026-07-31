@@ -16,6 +16,17 @@ export interface TextChanges {
 
 const DIFF_CELL_LIMIT = 1_000_000
 
+interface DiffBudget {
+  remaining: number
+}
+
+function reserveCells(budget: DiffBudget, previousLength: number, currentLength: number): boolean {
+  const cells = previousLength * currentLength
+  if (cells > budget.remaining) return false
+  budget.remaining -= cells
+  return true
+}
+
 function lineTokens(text: string): string[] {
   const tokens: string[] = []
   let start = 0
@@ -48,6 +59,7 @@ function diffCharacters(
   currentOffset: number,
   ranges: ChangedRange[],
   deletions: Deletion[],
+  budget: DiffBudget,
 ): void {
   let prefix = 0
   while (
@@ -86,7 +98,7 @@ function diffCharacters(
     })
     return
   }
-  if (oldText.length * newText.length > DIFF_CELL_LIMIT) {
+  if (!reserveCells(budget, oldText.length, newText.length)) {
     addRange(ranges, newBase, newBase + newText.length)
     return
   }
@@ -173,8 +185,9 @@ export function changedText(previousText: string, currentText: string): TextChan
   const newLines = current.slice(start, currentEnd)
   const ranges: ChangedRange[] = []
   const deletions: Deletion[] = []
+  const budget: DiffBudget = { remaining: DIFF_CELL_LIMIT }
 
-  if (oldLines.length * newLines.length > DIFF_CELL_LIMIT) {
+  if (!reserveCells(budget, oldLines.length, newLines.length)) {
     const oldText = oldLines.join("")
     const newText = newLines.join("")
     if (newText.length > 0) {
@@ -216,6 +229,7 @@ export function changedText(previousText: string, currentText: string): TextChan
       newChunkOffset,
       ranges,
       deletions,
+      budget,
     )
     oldChunk = ""
     newChunk = ""

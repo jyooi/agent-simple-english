@@ -6,6 +6,7 @@ import {
   blankInlineCode,
   blankMarkdownCode,
   blankMarkdownCodeWithStructure,
+  maskMarkdownCode,
 } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
@@ -159,7 +160,7 @@ function sentenceFilter(text: string, previousText: string | undefined): Sentenc
     return () => true
   }
 
-  const changes = changedText(previousText, text)
+  const changes = changedText(maskMarkdownCode(previousText), maskMarkdownCode(text))
   const previousLines = blankInlineCode(blankMarkdownCode(previousText.split("\n")))
   const previousSentences = segmentSentences(previousLines, previousText)
   const mergedBoundaries = changes.deletions.flatMap((deletion) => {

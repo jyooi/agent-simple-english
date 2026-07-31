@@ -270,6 +270,10 @@ export function blankMarkdownCode(
   return blankMarkdownCodeWithStructure(inputLines, contentStarts).lines
 }
 
+export function maskMarkdownCode(text: string): string {
+  return blankMarkdownCode(text.split("\n")).join("\n")
+}
+
 interface InlineBacktickRun {
   readonly start: number
   readonly length: number

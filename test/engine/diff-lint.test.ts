@@ -49,6 +49,13 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("changing line endings does not report an unchanged sentence", () => {
+    const previous = `${words(30)}.\nA short sentence.`
+    const current = `${words(30)}.\r\nA short sentence.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("an insertion that pushes an existing sentence over the word cap is reported", () => {
     const previous = `${words(20)}.`
     const current = `extra extra extra extra extra extra ${words(20)}.`
@@ -110,6 +117,15 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     })
   })
 
+  test("deleting code fences lints prose newly exposed by the change", () => {
+    const previous = `\`\`\`\n${words(30)}.\n\`\`\``
+    const current = `${words(30)}.`
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
   test("edits past the DP size bound conservatively treat the whole middle as changed", () => {
     const previous = Array.from({ length: 1001 }, (_, i) => `Old line ${i}.`).join("\n")
     const current = Array.from({ length: 1001 }, (_, i) =>
@@ -118,6 +134,22 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     const report = lint("prose-file", current, { previousText: previous })
 
     expect(report.violations.map((violation) => violation.line)).toEqual([1, 501, 1001])
+  })
+
+  test("the aggregate diff budget bounds many large changed chunks", () => {
+    const oldLine = `${"old ".repeat(248)}old.`
+    const newLine = `${"new ".repeat(248)}new.`
+    const previous = Array.from({ length: 1000 }, (_, index) =>
+      index % 2 === 0 ? `Anchor ${index}.` : oldLine,
+    ).join("\n")
+    const current = Array.from({ length: 1000 }, (_, index) =>
+      index % 2 === 0 ? `Anchor ${index}.` : newLine,
+    ).join("\n")
+    const report = lint("prose-file", current, { previousText: previous })
+
+    expect(report.violations).toHaveLength(500)
+    expect(report.violations.at(0)).toMatchObject({ line: 2, column: 1 })
+    expect(report.violations.at(-1)).toMatchObject({ line: 1000, column: 1 })
   })
 
   test("positions refer to the new text when an insertion shifts pre-existing prose", () => {
