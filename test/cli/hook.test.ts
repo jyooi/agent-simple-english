@@ -119,6 +119,47 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 2, column 6 [contraction]")
   })
 
+  test("denies an Edit that adds a seventh sentence to a paragraph", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "One. Two. Three. Four. Five. Six.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Six.",
+        new_string: "Six. Seven.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 1, column 1 [paragraph-length]")
+  })
+
+  test("does not report an untouched paragraph with seven sentences", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "One. Two. Three. Four. Five. Six. Seven.\n\nReplace this sentence.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Replace this sentence.",
+        new_string: "Keep this sentence.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
+  })
+
   test("denies an Edit when a comment marker exposes retained source prose", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "sample.ts")

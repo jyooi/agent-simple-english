@@ -3,7 +3,7 @@ import { type ProseBreak, extractHashComments, extractSlashComments } from "./co
 import { type ChangedRange, type RetainedRange, type TextChanges, changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownCodeWithStructure } from "./markdown.ts"
-import { segmentParagraphs } from "./paragraphs.ts"
+import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
 import { hedging } from "./rules/hedging.ts"
@@ -111,6 +111,29 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
   return wholeText(text)
 }
 
+function selectChangedParagraphs(
+  paragraphs: readonly Paragraph[],
+  sentences: readonly Sentence[],
+): Paragraph[] {
+  let sentenceIndex = 0
+
+  return paragraphs.filter((paragraph) => {
+    const paragraphEndLine = paragraph.line + paragraph.lines.length - 1
+    while (
+      sentenceIndex < sentences.length &&
+      (sentences[sentenceIndex]?.endLine ?? 0) < paragraph.line
+    ) {
+      sentenceIndex++
+    }
+    const sentence = sentences[sentenceIndex]
+    return (
+      sentence !== undefined &&
+      sentence.line <= paragraphEndLine &&
+      sentence.endLine >= paragraph.line
+    )
+  })
+}
+
 const lintProse = (
   lines: readonly string[],
   structuralLines: readonly string[],
@@ -120,10 +143,8 @@ const lintProse = (
   sourceOffset: number,
   { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
 ) => {
-  const sentences = selectSentences(
-    segmentSentences(lines, lines.join("\n"), structuralBlanks),
-    sourceOffset,
-  )
+  const allSentences = segmentSentences(lines, lines.join("\n"), structuralBlanks)
+  const sentences = selectSentences(allSentences, sourceOffset)
   const selectedProse = diffOnly ? selectedProseLines(lines.join("\n"), sentences) : lines
   const selectedStructural = diffOnly
     ? selectedProseLines(structuralLines.join("\n"), sentences)
@@ -134,9 +155,12 @@ const lintProse = (
   return [
     ...sentenceLength(sentences, maxSentenceWords),
     ...paragraphLength(
-      segmentParagraphs(
-        selectedStructural.map((line, index) => line.slice(contentStarts[index] ?? 0)),
-        contentStarts.map((contentStart) => contentStart + 1),
+      selectChangedParagraphs(
+        segmentParagraphs(
+          structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
+          contentStarts.map((contentStart) => contentStart + 1),
+        ),
+        sentences,
       ),
     ),
     ...contraction(selectedProse),
