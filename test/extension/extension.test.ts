@@ -6,6 +6,28 @@ import simpleEnglishExtension from "../../src/extension/index.ts"
 const mkdirControl = vi.hoisted(() => ({
   afterMkdir: undefined as (() => Promise<void>) | undefined,
 }))
+const bashControl = vi.hoisted(() => ({ executedCommands: [] as string[] }))
+
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>()
+  return {
+    ...actual,
+    createBashToolDefinition: (
+      cwd: Parameters<typeof actual.createBashToolDefinition>[0],
+      options?: Parameters<typeof actual.createBashToolDefinition>[1],
+    ) =>
+      actual.createBashToolDefinition(cwd, {
+        ...options,
+        exposeSessionEnvironment: false,
+        operations: {
+          exec: async (command: string) => {
+            bashControl.executedCommands.push(command)
+            return { exitCode: 0 }
+          },
+        },
+      }),
+  }
+})
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
@@ -134,6 +156,7 @@ const originalHome = process.env.HOME
 
 afterEach(async () => {
   mkdirControl.afterMkdir = undefined
+  bashControl.executedCommands.length = 0
   if (originalAgentDirectory === undefined) process.env.PI_CODING_AGENT_DIR = undefined
   else process.env.PI_CODING_AGENT_DIR = originalAgentDirectory
   if (originalHome === undefined) process.env.HOME = undefined
@@ -216,6 +239,18 @@ function assistantEntry(text: string, id = "assistant-reply") {
   }
 }
 
+async function executeBash(
+  pi: ExtensionApiStub,
+  context: ExtensionContextStub,
+  toolCallId: string,
+  command: string,
+): Promise<Error | undefined> {
+  return pi.executeTool("bash", toolCallId, { command }, context).then(
+    () => undefined,
+    (error: Error) => error,
+  )
+}
+
 describe.sequential("pi extension wiring", () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
@@ -269,36 +304,48 @@ describe.sequential("pi extension wiring", () => {
   test("blocks a hard commit message with structured feedback", async () => {
     const { pi, context } = await startExtension()
 
-    const result = await pi.emit(
-      "tool_call",
-      {
-        toolName: "bash",
-        toolCallId: "commit-blocked",
-        input: { command: `git commit -m "fix: This isn't permitted."` },
-      },
+    const error = await executeBash(
+      pi,
       context,
+      "commit-blocked",
+      `git commit -m "fix: This isn't permitted."`,
     )
 
-    expect(result).toMatchObject({ block: true })
-    expect(result).toMatchObject({ reason: expect.stringContaining("line 1, column 11") })
-    expect(result).toMatchObject({ reason: expect.stringContaining("[contraction]") })
-    expect(result).toMatchObject({ reason: expect.stringContaining("Suggested fix:") })
+    expect(error?.message).toContain("line 1, column 11")
+    expect(error?.message).toContain("[contraction]")
+    expect(error?.message).toContain("Suggested fix:")
+    expect(bashControl.executedCommands).toHaveLength(0)
   })
 
   test("permits a clean commit message", async () => {
     const { pi, context } = await startExtension()
 
     await expect(
-      pi.emit(
-        "tool_call",
-        {
-          toolName: "bash",
-          toolCallId: "commit-clean",
-          input: { command: `git add notes.md && git commit -m "fix: Close the valve."` },
-        },
+      executeBash(
+        pi,
         context,
+        "commit-clean",
+        `git add notes.md && git commit -m "fix: Close the valve."`,
       ),
     ).resolves.toBeUndefined()
+    expect(bashControl.executedCommands).toEqual([
+      `git add notes.md && git commit -m "fix: Close the valve."`,
+    ])
+  })
+
+  test("gates the bash command after later tool-call handlers mutate it", async () => {
+    const { pi, context } = await startExtension()
+    pi.on("tool_call", (event) => {
+      if (event.toolName !== "bash") return undefined
+      const input = event.input as Record<string, unknown>
+      input.command = `git commit -m "fix: This isn't permitted."`
+      return undefined
+    })
+
+    const error = await executeBash(pi, context, "commit-mutated", "printf 'safe'")
+
+    expect(error?.message).toContain("[contraction]")
+    expect(bashControl.executedCommands).toHaveLength(0)
   })
 
   test("exempts Conventional Commit prefixes and trailer lines from fixtures", async () => {
@@ -309,15 +356,7 @@ describe.sequential("pi extension wiring", () => {
 
     for (const fixture of fixtures) {
       await expect(
-        pi.emit(
-          "tool_call",
-          {
-            toolName: "bash",
-            toolCallId: `commit-fixture-${fixture.name}`,
-            input: { command: fixture.command },
-          },
-          context,
-        ),
+        executeBash(pi, context, `commit-fixture-${fixture.name}`, fixture.command),
         fixture.name,
       ).resolves.toBeUndefined()
     }
@@ -330,30 +369,19 @@ describe.sequential("pi extension wiring", () => {
     ) as CommitHeuristicFixture[]
 
     for (const fixture of fixtures) {
-      const result = await pi.emit(
-        "tool_call",
-        {
-          toolName: "bash",
-          toolCallId: `commit-heuristic-${fixture.name}`,
-          input: { command: fixture.command },
-        },
+      const error = await executeBash(
+        pi,
         context,
+        `commit-heuristic-${fixture.name}`,
+        fixture.command,
       )
       if (fixture.expected === "pass") {
-        expect(result, fixture.name).toBeUndefined()
+        expect(error, fixture.name).toBeUndefined()
       } else if (fixture.expected === "contraction") {
-        expect(result, fixture.name).toMatchObject({
-          block: true,
-          reason: expect.stringContaining("[contraction]"),
-        })
-        expect(result, fixture.name).toMatchObject({
-          reason: expect.stringContaining(fixture.location),
-        })
+        expect(error?.message, fixture.name).toContain("[contraction]")
+        expect(error?.message, fixture.name).toContain(fixture.location)
       } else {
-        expect(result, fixture.name).toMatchObject({
-          block: true,
-          reason: expect.stringContaining("static -m or --message argument"),
-        })
+        expect(error?.message, fixture.name).toContain("static -m or --message argument")
       }
     }
   })
@@ -361,19 +389,15 @@ describe.sequential("pi extension wiring", () => {
   test("reports original positions in a multi-line commit subject and body", async () => {
     const { pi, context } = await startExtension()
 
-    const result = await pi.emit(
-      "tool_call",
-      {
-        toolName: "bash",
-        toolCallId: "commit-multiline",
-        input: { command: `git commit -m "fix: Close the valve." -m "This isn't permitted."` },
-      },
+    const error = await executeBash(
+      pi,
       context,
+      "commit-multiline",
+      `git commit -m "fix: Close the valve." -m "This isn't permitted."`,
     )
 
-    expect(result).toMatchObject({ block: true })
-    expect(result).toMatchObject({ reason: expect.stringContaining("line 3, column 6") })
-    expect(result).toMatchObject({ reason: expect.stringContaining("[contraction]") })
+    expect(error?.message).toContain("line 3, column 6")
+    expect(error?.message).toContain("[contraction]")
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {

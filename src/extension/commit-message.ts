@@ -14,12 +14,34 @@ export type CommitInvocation =
   | { readonly message: string; readonly requiresExplicitMessage: false }
   | { readonly requiresExplicitMessage: true }
 
-function ansiEscape(character: string): string {
+interface AnsiEscape {
+  readonly value: string
+  readonly width: number
+  readonly extractable: boolean
+}
+
+function numericEscape(command: string, index: number, pattern: RegExp, limit: number): AnsiEscape {
+  const digits = command.slice(index + 1, index + 1 + limit).match(pattern)?.[0] ?? ""
+  if (digits.length === 0) {
+    return { value: `\\${command[index] ?? ""}`, width: 1, extractable: true }
+  }
+
+  const codePoint = Number.parseInt(digits, 16)
+  const validCodePoint = codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+  return {
+    value: validCodePoint ? String.fromCodePoint(codePoint) : "",
+    width: digits.length + 1,
+    extractable: validCodePoint,
+  }
+}
+
+function ansiEscape(command: string, index: number): AnsiEscape {
+  const character = command[index] ?? ""
   const escapes: Readonly<Record<string, string>> = {
-    "0": "\0",
     a: "\x07",
     b: "\b",
     e: "\x1b",
+    E: "\x1b",
     f: "\f",
     n: "\n",
     r: "\r",
@@ -28,8 +50,28 @@ function ansiEscape(character: string): string {
     "\\": "\\",
     "'": "'",
     '"': '"',
+    "?": "?",
   }
-  return escapes[character] ?? character
+  const escaped = escapes[character]
+  if (escaped !== undefined) return { value: escaped, width: 1, extractable: true }
+
+  if (/[0-7]/u.test(character)) {
+    const digits = command.slice(index, index + 3).match(/^[0-7]{1,3}/u)?.[0] ?? character
+    return {
+      value: String.fromCharCode(Number.parseInt(digits, 8) & 0xff),
+      width: digits.length,
+      extractable: true,
+    }
+  }
+  if (character === "x") return numericEscape(command, index, /^[0-9A-Fa-f]{1,2}/u, 2)
+  if (character === "u") return numericEscape(command, index, /^[0-9A-Fa-f]{1,4}/u, 4)
+  if (character === "U") return numericEscape(command, index, /^[0-9A-Fa-f]{1,8}/u, 8)
+  if (character === "c" && command[index + 1] !== undefined) {
+    const controlled = command[index + 1] ?? ""
+    const codePoint = controlled === "?" ? 0x7f : controlled.toUpperCase().charCodeAt(0) & 0x1f
+    return { value: String.fromCharCode(codePoint), width: 2, extractable: true }
+  }
+  return { value: `\\${character}`, width: 1, extractable: true }
 }
 
 function tokenize(command: string): ShellToken[] {
@@ -134,8 +176,10 @@ function tokenize(command: string): ShellToken[] {
       while (index < command.length && command[index] !== "'") {
         const quoted = command[index] ?? ""
         if (quoted === "\\" && command[index + 1] !== undefined) {
-          value += ansiEscape(command[index + 1] ?? "")
-          index += 2
+          const escape = ansiEscape(command, index + 1)
+          value += escape.value
+          dynamic ||= !escape.extractable
+          index += escape.width + 1
         } else {
           value += quoted
           index++
@@ -213,6 +257,47 @@ function commitSubcommandIndex(
   return undefined
 }
 
+const SHORT_OPTIONS_WITHOUT_VALUE = new Set(["a", "p", "s", "n", "e", "i", "o", "v", "q", "z"])
+const SHORT_OPTIONS_WITH_VALUE = new Set(["C", "c", "F", "m", "t", "u"])
+const LONG_OPTIONS_WITH_VALUE = new Set([
+  "--author",
+  "--cleanup",
+  "--date",
+  "--file",
+  "--fixup",
+  "--message",
+  "--pathspec-from-file",
+  "--reedit-message",
+  "--reuse-message",
+  "--squash",
+  "--template",
+  "--trailer",
+])
+
+type ShortOption =
+  | { readonly type: "message"; readonly attached: string }
+  | { readonly type: "next-message" }
+  | { readonly type: "skip-next" }
+  | { readonly type: "other" }
+
+function classifyShortOption(argument: string): ShortOption {
+  for (let index = 1; index < argument.length; index++) {
+    const option = argument[index] ?? ""
+    if (SHORT_OPTIONS_WITHOUT_VALUE.has(option)) continue
+    if (option === "S") return { type: "other" }
+    if (!SHORT_OPTIONS_WITH_VALUE.has(option)) return { type: "other" }
+
+    const attached = argument.slice(index + 1)
+    if (option === "m") {
+      return attached.length > 0
+        ? { type: "message", attached }
+        : { type: "next-message" }
+    }
+    return attached.length > 0 ? { type: "other" } : { type: "skip-next" }
+  }
+  return { type: "other" }
+}
+
 function invocation(segment: readonly WordToken[]): CommitInvocation | undefined {
   const gitIndex = gitCommandIndex(segment)
   if (gitIndex === undefined) return undefined
@@ -225,6 +310,7 @@ function invocation(segment: readonly WordToken[]): CommitInvocation | undefined
   for (let index = commitIndex + 1; index < segment.length; index++) {
     const argument = segment[index]
     if (argument === undefined) continue
+    if (argument.value === "--") break
     if (argument.value === "-m" || argument.value === "--message") {
       const message = segment[++index]
       if (message === undefined) return { requiresExplicitMessage: true }
@@ -237,19 +323,28 @@ function invocation(segment: readonly WordToken[]): CommitInvocation | undefined
       messageIsDynamic ||= argument.dynamic
       continue
     }
-    const shortMessage = argument.value.match(/^-[A-Za-z]*?m(.*)$/u)
-    if (shortMessage !== null) {
-      const attached = shortMessage[1] ?? ""
-      if (attached.length > 0) {
-        messageParts.push(attached)
-        messageIsDynamic ||= argument.dynamic
-      } else {
-        const message = segment[++index]
-        if (message === undefined) return { requiresExplicitMessage: true }
-        messageParts.push(message.value)
-        messageIsDynamic ||= message.dynamic
-      }
+    if (LONG_OPTIONS_WITH_VALUE.has(argument.value)) {
+      index++
+      continue
     }
+    if (!argument.value.startsWith("-") || argument.value.startsWith("--")) continue
+
+    const shortOption = classifyShortOption(argument.value)
+    if (shortOption.type === "skip-next") {
+      index++
+      continue
+    }
+    if (shortOption.type === "other") continue
+    if (shortOption.type === "message") {
+      messageParts.push(shortOption.attached)
+      messageIsDynamic ||= argument.dynamic
+      continue
+    }
+
+    const message = segment[++index]
+    if (message === undefined) return { requiresExplicitMessage: true }
+    messageParts.push(message.value)
+    messageIsDynamic ||= message.dynamic
   }
 
   if (messageParts.length > 0) {

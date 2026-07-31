@@ -17,6 +17,40 @@
     "location": "line 3, column 6"
   },
   {
+    "name": "ANSI C hexadecimal escapes consume two digits",
+    "command": "git commit -m $'fix: This isn\\x27t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C octal escapes consume three digits",
+    "command": "git commit -m $'fix: This isn\\047t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C short Unicode escapes are decoded",
+    "command": "git commit -m $'fix: This isn\\u0027t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "ANSI C long Unicode escapes are decoded",
+    "command": "git commit -m $'fix: This isn\\U00000027t permitted.'",
+    "expected": "contraction",
+    "location": "line 1, column 11"
+  },
+  {
+    "name": "attached reuse-message values are not messages",
+    "command": "git commit -Cmain",
+    "expected": "explicit-message"
+  },
+  {
+    "name": "attached signing keys containing m are not messages",
+    "command": "git commit -Smkey",
+    "expected": "explicit-message"
+  },
+  {
     "name": "dynamic messages fail closed",
     "command": "git commit -m \"$MESSAGE\"",
     "expected": "explicit-message"

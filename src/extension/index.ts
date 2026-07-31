@@ -5,9 +5,9 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type ToolCallEventResult,
+  createBashToolDefinition,
   createEditToolDefinition,
   createWriteToolDefinition,
-  isToolCallEventType,
 } from "@earendil-works/pi-coding-agent"
 import { Effect } from "effect"
 import { loadConfig } from "../config/load.ts"
@@ -245,6 +245,17 @@ function lintCommitCommand(
   return undefined
 }
 
+function createGatedBashTool(cwd: string, state: SessionState) {
+  const definition = createBashToolDefinition(cwd)
+  const execute: typeof definition.execute = async (...args) => {
+    const [toolCallId, input, _signal, _onUpdate, ctx] = args
+    const result = lintCommitCommand(state, ctx, toolCallId, input.command)
+    if (result?.block) throw new Error(result.reason)
+    return definition.execute(...args)
+  }
+  return { ...definition, execute }
+}
+
 function createGatedWriteTool(cwd: string, state: SessionState) {
   const definition = createWriteToolDefinition(cwd)
   const execute: typeof definition.execute = async (...args) => {
@@ -317,6 +328,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     state.error = undefined
     state.pendingWarnings.clear()
     updateReplyState(state, ctx)
+    pi.registerTool(createGatedBashTool(ctx.cwd, state))
     pi.registerTool(createGatedWriteTool(ctx.cwd, state))
     pi.registerTool(createGatedEditTool(ctx.cwd, state))
     try {
@@ -369,10 +381,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
   })
 
-  pi.on("tool_call", async (event, ctx) => {
-    if (isToolCallEventType("bash", event)) {
-      return lintCommitCommand(state, ctx, event.toolCallId, event.input.command)
-    }
+  pi.on("tool_call", async (event) => {
     if (event.toolName !== "write" && event.toolName !== "edit") return undefined
     if (state.ready) return undefined
     return {
