@@ -555,6 +555,38 @@ describe.sequential("pi extension wiring", () => {
     })
   })
 
+  test("suppresses ordinary assistant text throughout strict reply streaming", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ste", "strict", context)
+
+    const started = assistantMessage("This isn't permitted.")
+    await pi.emit("message_start", { message: started }, context)
+    expect(started.content).toEqual([])
+
+    const partial = assistantMessage("This isn't permitted.")
+    const update = {
+      message: partial,
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "This isn't permitted.",
+        partial: assistantMessage("This isn't permitted."),
+      },
+    }
+    await pi.emit("message_update", update, context)
+    expect(partial.content).toEqual([])
+    expect(update.assistantMessageEvent.delta).toBe("")
+    expect(update.assistantMessageEvent.partial.content).toEqual([])
+
+    const finalized = await pi.finalizeAssistant(
+      assistantMessage("This isn't permitted."),
+      context,
+    )
+    expect(finalized.content).toEqual([])
+  })
+
   test("gates strict say input after later tool-call handlers mutate it", async () => {
     const { pi, context } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
@@ -593,6 +625,20 @@ describe.sequential("pi extension wiring", () => {
         "Send every user-facing reply through the `say` tool",
       ),
     })
+
+    const streamed = assistantMessage("This isn't permitted.")
+    const update = {
+      message: streamed,
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "This isn't permitted.",
+        partial: assistantMessage("This isn't permitted."),
+      },
+    }
+    await pi.emit("message_update", update, context)
+    expect(streamed.content).toEqual([{ type: "text", text: "This isn't permitted." }])
+    expect(update.assistantMessageEvent.delta).toBe("This isn't permitted.")
 
     const reply = assistantMessage("This isn't permitted.")
     await expect(pi.finalizeAssistant(reply, context)).resolves.toBe(reply)

@@ -4,6 +4,8 @@ import { dirname } from "node:path"
 import {
   type ExtensionAPI,
   type ExtensionContext,
+  type MessageStartEvent,
+  type MessageUpdateEvent,
   type ToolCallEventResult,
   createBashToolDefinition,
   createEditToolDefinition,
@@ -157,6 +159,26 @@ function lintReply(state: SessionState, text: string): LintReport {
     dictionary: state.dictionary,
     tagger: state.tagger,
   })
+}
+
+type AssistantMessage = Extract<MessageStartEvent["message"], { role: "assistant" }>
+
+function contentWithoutText(message: AssistantMessage): AssistantMessage["content"] {
+  return message.content.filter((block) => block.type !== "text")
+}
+
+function suppressAssistantText(message: MessageStartEvent["message"]): void {
+  if (message.role === "assistant") message.content = contentWithoutText(message)
+}
+
+function suppressAssistantTextUpdate(event: MessageUpdateEvent): void {
+  suppressAssistantText(event.message)
+  const update = event.assistantMessageEvent
+  if ("partial" in update) {
+    update.partial = { ...update.partial, content: contentWithoutText(update.partial) }
+  }
+  if (update.type === "text_delta") update.delta = ""
+  if (update.type === "text_end") update.content = ""
 }
 
 function showReplyReport(
@@ -501,6 +523,21 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     const additions = [ruleSummary(state.config)]
     if (state.strict) additions.push(STRICT_MODE_NOTE)
     return { systemPrompt: `${event.systemPrompt}\n\n${additions.join("\n\n")}` }
+  })
+
+  pi.on("message_start", (event) => {
+    if (state.enabled && state.strict) suppressAssistantText(event.message)
+  })
+
+  pi.on("message_update", (event) => {
+    if (state.enabled && state.strict) suppressAssistantTextUpdate(event)
+  })
+
+  pi.on("message_end", (event) => {
+    if (!state.enabled || !state.strict || event.message.role !== "assistant") return undefined
+    return {
+      message: { ...event.message, content: contentWithoutText(event.message) },
+    }
   })
 
   pi.on("turn_end", (event, ctx) => {
