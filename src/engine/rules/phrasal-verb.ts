@@ -11,13 +11,16 @@ interface PhrasalVerbEntry {
 const PHRASAL_VERBS: readonly PhrasalVerbEntry[] = [
   { forms: ["carry out", "carries out", "carried out", "carrying out"], suggestion: "do" },
   { forms: ["spin up", "spins up", "spun up", "spinning up"], suggestion: "start" },
-  { forms: ["spin down", "spins down", "spinning down"], suggestion: "stop" },
+  { forms: ["spin down", "spins down", "spun down", "spinning down"], suggestion: "stop" },
   {
     forms: ["tear down", "tears down", "tore down", "torn down", "tearing down"],
     suggestion: "remove",
   },
   { forms: ["reach out", "reaches out", "reached out", "reaching out"], suggestion: "ask" },
-  { forms: ["dive into", "dives into", "dived into", "diving into"], suggestion: "examine" },
+  {
+    forms: ["dive into", "dives into", "dived into", "dove into", "diving into"],
+    suggestion: "examine",
+  },
   { forms: ["kick off", "kicks off", "kicked off", "kicking off"], suggestion: "start" },
   { forms: ["roll out", "rolls out", "rolled out", "rolling out"], suggestion: "release" },
   { forms: ["ramp up", "ramps up", "ramped up", "ramping up"], suggestion: "increase" },
@@ -34,7 +37,7 @@ const PHRASAL_VERBS: readonly PhrasalVerbEntry[] = [
 const patterns = PHRASAL_VERBS.map((entry) => ({
   suggestion: entry.suggestion,
   pattern: new RegExp(
-    `\\b(?:${entry.forms.map((form) => form.replace(" ", "\\s+")).join("|")})\\b`,
+    `\\b(?:${entry.forms.map((form) => form.replace(/ /g, "\\s+")).join("|")})\\b`,
     "gi",
   ),
 }))

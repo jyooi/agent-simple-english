@@ -20,7 +20,12 @@ describe("lint prose-file: phrasal-verb rule", () => {
   })
 
   test("flags conjugated forms", () => {
-    for (const text of ["The runner carries out the job.", "We carried out the check."]) {
+    for (const text of [
+      "The runner carries out the job.",
+      "We carried out the check.",
+      "We spun down the cluster.",
+      "They dove into the logs.",
+    ]) {
       expect(idsFor(text), text).toContain("phrasal-verb")
     }
   })
