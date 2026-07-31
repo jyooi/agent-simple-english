@@ -79,6 +79,44 @@ describe("lint prose-file: sentence-length rule", () => {
     expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
   })
 
+  test("per-rule override to soft downgrades the violation and the hard count", () => {
+    const report = lint("prose-file", `${words(26)}.`, {
+      rules: { "sentence-length": "soft" },
+    })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]?.severity).toBe("soft")
+    expect(report.summary).toEqual({ total: 1, hard: 0 })
+  })
+
+  test("per-rule override to off suppresses the rule entirely", () => {
+    const report = lint("prose-file", `${words(26)}.`, {
+      rules: { "sentence-length": "off" },
+    })
+
+    expect(report.violations).toHaveLength(0)
+    expect(report.summary).toEqual({ total: 0, hard: 0 })
+  })
+
+  test("per-rule override to hard keeps the violation hard", () => {
+    const report = lint("prose-file", `${words(26)}.`, {
+      rules: { "sentence-length": "hard" },
+    })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]?.severity).toBe("hard")
+    expect(report.summary).toEqual({ total: 1, hard: 1 })
+  })
+
+  test("overrides for other rules do not affect this rule", () => {
+    const report = lint("prose-file", `${words(26)}.`, {
+      rules: { "some-future-rule": "off" },
+    })
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]?.severity).toBe("hard")
+  })
+
   test("summary counts total and hard violations", () => {
     const text = `${words(26)}. ${words(27)}.`
     const report = lint("prose-file", text)

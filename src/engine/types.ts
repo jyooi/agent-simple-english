@@ -4,6 +4,8 @@ export type LintKind = "prose-file"
 
 export type Severity = "hard" | "soft"
 
+export type RuleSetting = Severity | "off"
+
 export interface Violation {
   readonly ruleId: string
   readonly severity: Severity
@@ -13,6 +15,7 @@ export interface Violation {
 }
 
 export interface LintOptions {
+  readonly rules?: Readonly<Record<string, RuleSetting>>
   readonly maxSentenceWords?: number
   // POS tagger for the verb-form rules; when absent those rules do not run.
   readonly tagger?: Tagger

@@ -1,0 +1,48 @@
+import { execFile } from "node:child_process"
+import { mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+export const repoRoot = fileURLToPath(new URL("../..", import.meta.url))
+const cliPath = join(repoRoot, "src", "cli", "main.ts")
+
+export interface CliResult {
+  code: number
+  stdout: string
+  stderr: string
+}
+
+export interface CliOptions {
+  stdin?: string
+  cwd?: string
+  home?: string
+}
+
+export const makeTempDir = (): Promise<string> => mkdtemp(join(tmpdir(), "ste-cli-"))
+
+// HOME defaults to an empty temp dir so tests never read the developer's real global config.
+const hermeticHome = makeTempDir()
+
+export async function runCli(args: string[], options: CliOptions = {}): Promise<CliResult> {
+  const home = options.home ?? (await hermeticHome)
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      "bun",
+      [cliPath, ...args],
+      { cwd: options.cwd ?? repoRoot, env: { ...process.env, HOME: home } },
+      (error, stdout, stderr) => {
+        const code = error && typeof error.code === "number" ? error.code : 0
+        if (error && typeof error.code !== "number") {
+          reject(error)
+          return
+        }
+        resolve({ code, stdout, stderr })
+      },
+    )
+    if (options.stdin !== undefined) {
+      child.stdin?.write(options.stdin)
+    }
+    child.stdin?.end()
+  })
+}

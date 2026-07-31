@@ -1,9 +1,37 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises"
 import { Effect } from "effect"
+import { loadConfig } from "../config/load.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
+
+interface CliArgs {
+  readonly json: boolean
+  readonly configPath: string | undefined
+  readonly paths: readonly string[]
+}
+
+const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
+  Effect.gen(function* () {
+    let json = false
+    let configPath: string | undefined
+    const paths: string[] = []
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i] as string
+      if (arg === "--json") {
+        json = true
+      } else if (arg === "--config") {
+        configPath = args[++i]
+        if (configPath === undefined) {
+          yield* Effect.fail(new Error("--config requires a file path"))
+        }
+      } else {
+        paths.push(arg)
+      }
+    }
+    return { json, configPath, paths }
+  })
 
 interface FileViolation {
   readonly file: string
@@ -59,16 +87,18 @@ const render = (report: CliReport, json: boolean): string => {
 
 const program = Effect.gen(function* () {
   const tagger = yield* TaggerService
-  const args = process.argv.slice(2)
-  const json = args.includes("--json")
-  const paths = args.filter((arg) => arg !== "--json")
+  const { json, configPath, paths } = yield* parseArgs(process.argv.slice(2))
+  const config = yield* loadConfig(configPath)
   const inputs =
     paths.length === 0
       ? [{ path: "<stdin>", text: yield* readStdin }]
       : yield* Effect.forEach(paths, readInput)
 
   const report = toCliReport(
-    inputs.map(({ path, text }) => ({ path, report: lint("prose-file", text, { tagger }) })),
+    inputs.map(({ path, text }) => ({
+      path,
+      report: lint("prose-file", text, { ...config, tagger }),
+    })),
   )
 
   const output = render(report, json)
@@ -78,7 +108,17 @@ const program = Effect.gen(function* () {
   return report.summary.hard > 0 ? 1 : 0
 })
 
-const exitCode = await Effect.runPromise(Effect.provide(program, WinkTaggerLive)).catch((error) => {
+const handled = program.pipe(
+  Effect.provide(WinkTaggerLive),
+  Effect.catchAll((error) =>
+    Effect.sync(() => {
+      console.error(error.message)
+      return 2
+    }),
+  ),
+)
+
+const exitCode = await Effect.runPromise(handled).catch((error) => {
   console.error(String(error))
   return 2
 })
