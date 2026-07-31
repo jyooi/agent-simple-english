@@ -27,6 +27,7 @@ export interface LintOptions {
   // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger
   readonly sourceDialect?: SourceDialect
+  readonly previousText?: string
 }
 
 export interface LintReport {

@@ -2,6 +2,7 @@ export interface Sentence {
   readonly text: string
   readonly line: number
   readonly column: number
+  readonly endLine: number
 }
 
 const CLOSING_DELIMITERS = new Set([
@@ -182,13 +183,13 @@ export function segmentSentences(
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
 ): Sentence[] {
   const sentences: Sentence[] = []
-  let open: { line: number; column: number; parts: string[] } | null = null
+  let open: { line: number; column: number; endLine: number; parts: string[] } | null = null
 
   const close = () => {
     if (!open) return
     const text = open.parts.join(" ").trim()
     if (text !== "") {
-      sentences.push({ text, line: open.line, column: open.column })
+      sentences.push({ text, line: open.line, column: open.column, endLine: open.endLine })
     }
     open = null
   }
@@ -203,8 +204,14 @@ export function segmentSentences(
       const part = raw.slice(offset, end)
       if (!open) {
         const indent = part.length - part.trimStart().length
-        open = { line: index + 1, column: offset + indent + 1, parts: [] }
+        open = {
+          line: index + 1,
+          column: offset + indent + 1,
+          endLine: index + 1,
+          parts: [],
+        }
       }
+      open.endLine = index + 1
       open.parts.push(part.trim())
       close()
       offset = end
@@ -214,8 +221,14 @@ export function segmentSentences(
     if (rest.trim() !== "") {
       if (!open) {
         const indent = rest.length - rest.trimStart().length
-        open = { line: index + 1, column: offset + indent + 1, parts: [] }
+        open = {
+          line: index + 1,
+          column: offset + indent + 1,
+          endLine: index + 1,
+          parts: [],
+        }
       }
+      open.endLine = index + 1
       open.parts.push(rest.trim())
     }
   })

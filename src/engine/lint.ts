@@ -1,5 +1,6 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
+import { changedLineNumbers } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownCodeWithStructure } from "./markdown.ts"
 import { segmentParagraphs } from "./paragraphs.ts"
@@ -12,16 +13,19 @@ import { phrasalVerb } from "./rules/phrasal-verb.ts"
 import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
-import { segmentSentences } from "./sentences.ts"
+import { type Sentence, segmentSentences } from "./sentences.ts"
 import type { Tagger } from "./tagger.ts"
 import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 
 export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
+type SentenceFilter = (sentence: Sentence) => boolean
+
 interface ResolvedOptions {
   readonly maxSentenceWords: number
   readonly dictionary?: Dictionary
   readonly tagger?: Tagger
+  readonly includeSentence: SentenceFilter
 }
 
 interface ExtractedProse {
@@ -86,9 +90,12 @@ const lintProse = (
   mechanicalLines: readonly string[],
   contentStarts: readonly number[],
   structuralBlanks: readonly boolean[],
-  { maxSentenceWords, dictionary, tagger }: ResolvedOptions,
+  { maxSentenceWords, dictionary, tagger, includeSentence }: ResolvedOptions,
 ) => [
-  ...sentenceLength(segmentSentences(lines, structuralBlanks), maxSentenceWords),
+  ...sentenceLength(
+    segmentSentences(lines, structuralBlanks).filter(includeSentence),
+    maxSentenceWords,
+  ),
   ...paragraphLength(
     segmentParagraphs(
       structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
@@ -125,12 +132,30 @@ const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Vio
   )
 }
 
+// With a previousText, only sentences that touch a changed line are linted,
+// so pre-existing prose the author did not edit never blocks the edit.
+function sentenceFilter(text: string, previousText: string | undefined): SentenceFilter {
+  if (previousText === undefined) {
+    return () => true
+  }
+  const changed = changedLineNumbers(previousText, text)
+  return (sentence) => {
+    for (let line = sentence.line; line <= sentence.endLine; line++) {
+      if (changed.has(line)) {
+        return true
+      }
+    }
+    return false
+  }
+}
+
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
   const extracted = extract(kind, text, options)
   const resolved = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
+    includeSentence: sentenceFilter(text, options.previousText),
   }
   const raw = splitProseRuns(extracted).flatMap((run) =>
     lintExtracted(run, resolved).map((violation) => ({
