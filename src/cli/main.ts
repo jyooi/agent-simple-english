@@ -7,6 +7,7 @@ import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
+import { runHookMode } from "./hook.ts"
 
 const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
 
@@ -109,10 +110,15 @@ const render = (report: CliReport, json: boolean): string => {
 }
 
 const program = Effect.gen(function* () {
+  const args = process.argv.slice(2)
+  if (args[0] === "hook") {
+    const output = yield* runHookMode(yield* readStdin)
+    console.log(JSON.stringify(output))
+    return 0
+  }
+
   const tagger = yield* TaggerService
-  const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(
-    process.argv.slice(2),
-  )
+  const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(args)
   if (kindMissingValue) {
     return yield* Effect.fail(
       new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`),
