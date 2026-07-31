@@ -159,7 +159,7 @@ Inline Markdown code is outside every rule except `semicolon`.
 Configuration is an optional JSON object.
 The project file is `.simple-english.json` at the repository root.
 The global file is `$XDG_CONFIG_HOME/simple-english/config.json`.
-Without `XDG_CONFIG_HOME`, the global path is `~/.config/simple-english/config.json`.
+If `XDG_CONFIG_HOME` is unset or not absolute, the global path is `~/.config/simple-english/config.json`.
 
 Global and project files are deep-merged.
 Global values load first, and project values have precedence.
