@@ -160,6 +160,13 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("deleting duplicate internal whitespace does not report an existing violation", () => {
+    const previous = `${words(15)}  ${words(15)}.`
+    const current = `${words(15)} ${words(15)}.`
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("deleting one paragraph does not surface untouched pre-existing violations", () => {
     const previous = `${words(30)}.\n\n${words(28)}.`
     const current = `${words(28)}.`

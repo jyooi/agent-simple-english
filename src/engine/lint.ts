@@ -190,6 +190,49 @@ interface CorrespondingOffset {
   readonly previous: number
 }
 
+function nearestRetainedProseBefore(
+  text: string,
+  retained: readonly RetainedRange[],
+  offsets: readonly number[],
+): Array<CorrespondingOffset | undefined> {
+  const ordered = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => left.offset - right.offset)
+  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
+  let cursor = 0
+  let retainedIndex = 0
+  let nearest: CorrespondingOffset | undefined
+
+  for (const query of ordered) {
+    while (cursor < query.offset && cursor < text.length) {
+      while (
+        retainedIndex < retained.length &&
+        (retained[retainedIndex]?.currentStart ?? 0) +
+          (retained[retainedIndex]?.length ?? 0) <=
+          cursor
+      ) {
+        retainedIndex++
+      }
+      const range = retained[retainedIndex]
+      if (
+        range &&
+        range.currentStart <= cursor &&
+        cursor < range.currentStart + range.length &&
+        !/\s/u.test(text[cursor] ?? "")
+      ) {
+        nearest = {
+          current: cursor,
+          previous: range.previousStart + cursor - range.currentStart,
+        }
+      }
+      cursor++
+    }
+    result[query.index] = nearest
+  }
+
+  return result
+}
+
 function nearestRetainedProseAfter(
   text: string,
   retained: readonly RetainedRange[],
@@ -359,10 +402,22 @@ function changedSentenceIdentityIndexes(
   currentProse: string,
   changes: TextChanges,
 ): ReadonlySet<number> {
-  const retainedOffsets = nearestRetainedProseAfter(
-    currentProse,
-    changes.retained,
-    currentSentences.map((sentence) => sentence.startOffset),
+  const insertedRanges = normalizeRanges(changes.ranges)
+  const retainedOffsets = [
+    ...nearestRetainedProseBefore(
+      currentProse,
+      changes.retained,
+      insertedRanges.map((range) => range.start),
+    ),
+    ...nearestRetainedProseAfter(
+      currentProse,
+      changes.retained,
+      insertedRanges.map((range) => range.end),
+    ),
+  ]
+  const currentIndexes = containingSentenceIndexes(
+    currentSentences,
+    retainedOffsets.map((offset) => offset?.current),
   )
   const previousIndexes = containingSentenceIndexes(
     previousSentences,
@@ -370,20 +425,20 @@ function changedSentenceIdentityIndexes(
   )
   const changed = new Set<number>()
 
-  for (let index = 0; index < currentSentences.length; index++) {
-    const sentence = currentSentences[index]
-    const retainedOffset = retainedOffsets[index]
+  for (let index = 0; index < retainedOffsets.length; index++) {
+    const currentIndex = currentIndexes[index]
     const previousIndex = previousIndexes[index]
     if (
-      !sentence ||
-      !retainedOffset ||
-      !contains(sentence, retainedOffset.current) ||
+      currentIndex === undefined ||
+      currentIndex === -1 ||
       previousIndex === undefined ||
       previousIndex === -1
     ) {
       continue
     }
-    if (sentence.text !== previousSentences[previousIndex]?.text) changed.add(index)
+    if (currentSentences[currentIndex]?.text !== previousSentences[previousIndex]?.text) {
+      changed.add(currentIndex)
+    }
   }
 
   return changed
