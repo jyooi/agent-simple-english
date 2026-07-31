@@ -59,7 +59,8 @@ pi -e .
 
 The mode applies to the current pi session.
 The extension starts in enabled mode without strict reply gating.
-Type `/ste ` to see its subcommands as autocomplete suggestions, which narrow as you type.
+Type `/ste ` to see autocomplete suggestions for `on`, `off`, `status`, and `strict`.
+The list changes to match the text that you type.
 
 | Command | Result |
 | --- | --- |
