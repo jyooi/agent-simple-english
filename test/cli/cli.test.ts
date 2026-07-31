@@ -1,5 +1,29 @@
 import { describe, expect, test } from "vitest"
-import { runCli } from "./run-cli.ts"
+import { type CliOptions, runCli as runCliBase } from "./run-cli.ts"
+
+interface DictionaryCliOptions extends CliOptions {
+  readonly dictionaryPath?: string
+}
+
+async function runCli(args: string[], options: DictionaryCliOptions = {}) {
+  const originalDictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
+  if (options.dictionaryPath === undefined) {
+    Reflect.deleteProperty(process.env, "SIMPLE_ENGLISH_DICTIONARY")
+  } else {
+    process.env.SIMPLE_ENGLISH_DICTIONARY = options.dictionaryPath
+  }
+
+  const { dictionaryPath: _, ...cliOptions } = options
+  try {
+    return await runCliBase(args, cliOptions)
+  } finally {
+    if (originalDictionaryPath === undefined) {
+      Reflect.deleteProperty(process.env, "SIMPLE_ENGLISH_DICTIONARY")
+    } else {
+      process.env.SIMPLE_ENGLISH_DICTIONARY = originalDictionaryPath
+    }
+  }
+}
 
 describe("simple-english CLI", () => {
   test("exits 0 on a clean file", async () => {
@@ -77,6 +101,66 @@ describe("simple-english CLI", () => {
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("<stdin>:1:10 verb-passive")
     expect(result.stdout).toContain("active voice")
+  })
+
+  test("uses the bundled dictionary and prints its approved alternative", async () => {
+    const result = await runCli([], { stdin: "We attempt the repair." })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("<stdin>:1:4 dictionary-not-approved-word")
+    expect(result.stdout).toContain('Use "try", not "attempt".')
+  })
+
+  test("loads and matches a hyphenated dictionary form", async () => {
+    const result = await runCli([], {
+      stdin: "Use state-of-the-art parts.",
+      dictionaryPath: "test/fixtures/hyphenated-dictionary.json",
+    })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('Use "advanced", not "state-of-the-art".')
+  })
+
+  test("accepts an approved alternative and a word used as an allowed POS", async () => {
+    const result = await runCli([], { stdin: "We try the repair. The attempt failed." })
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toBe("")
+  })
+
+  test("uses word-level fallback for bundled entries without POS metadata", async () => {
+    const result = await runCli([], { stdin: "It is approximately five millimeters." })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('Use "about", not "approximately".')
+  })
+
+  test.each([
+    ["invalid", "test/fixtures/invalid-dictionary.json", "entries[0].unapproved"],
+    ["unknown-property", "test/fixtures/unknown-dictionary-property.json", "partOfSpeech"],
+    [
+      "unsupported-form",
+      "test/fixtures/unsupported-dictionary-form.json",
+      "entries[0].unapproved[0]",
+    ],
+    ["unreadable", "test/fixtures/missing-dictionary.json", "cannot read file"],
+  ])("reports an %s dictionary and continues other rules", async (_kind, path, error) => {
+    const longSentence = `${Array.from({ length: 26 }, (_, i) => `word${i}`).join(" ")}.`
+    const input = [
+      longSentence,
+      "The pump is running.",
+      "The technician has finished the task.",
+      "The bolt was removed.",
+    ].join("\n")
+    const result = await runCli([], { stdin: input, dictionaryPath: path })
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("Cannot load STE dictionary")
+    expect(result.stderr).toContain(error)
+    expect(result.stdout).toContain("sentence-length")
+    expect(result.stdout).toContain("verb-progressive")
+    expect(result.stdout).toContain("verb-perfect")
+    expect(result.stdout).toContain("verb-passive")
   })
 
   test("errors with exit code 2 on an unreadable file", async () => {

@@ -1,4 +1,5 @@
 export const ruleIds = [
+  "dictionary-not-approved-word",
   "sentence-length",
   "verb-progressive",
   "verb-passive",

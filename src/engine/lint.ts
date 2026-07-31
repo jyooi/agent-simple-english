@@ -1,4 +1,6 @@
-import { blankCodeFences } from "./markdown.ts"
+import type { Dictionary } from "../dictionary/schema.ts"
+import { blankMarkdownCode } from "./markdown.ts"
+import { dictionaryRule } from "./rules/dictionary.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
 import { segmentSentences } from "./sentences.ts"
@@ -9,14 +11,16 @@ export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
+  readonly dictionary?: Dictionary
   readonly tagger?: Tagger
 }
 
 const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Violation[]> = {
-  "prose-file": (text, { maxSentenceWords, tagger }) => {
-    const lines = blankCodeFences(text)
+  "prose-file": (text, { maxSentenceWords, dictionary, tagger }) => {
+    const lines = blankMarkdownCode(text)
     return [
       ...sentenceLength(segmentSentences(lines), maxSentenceWords),
+      ...(dictionary === undefined ? [] : dictionaryRule(lines, dictionary, tagger)),
       ...(tagger === undefined ? [] : verbForm(lines, tagger)),
     ]
   },
@@ -25,6 +29,7 @@ const linters: Record<LintKind, (text: string, options: ResolvedOptions) => Viol
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
   const raw = linters[kind](text, {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
+    dictionary: options.dictionary,
     tagger: options.tagger,
   })
   const violations = raw

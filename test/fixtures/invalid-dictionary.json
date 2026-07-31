@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "source": {
+    "name": "invalid fixture",
+    "repository": "https://example.test/dictionary",
+    "commit": "fixture",
+    "path": "dictionary.json"
+  },
+  "entries": [
+    {
+      "unapproved": [],
+      "suggestions": ["use"]
+    }
+  ]
+}

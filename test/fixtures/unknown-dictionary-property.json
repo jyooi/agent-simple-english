@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "source": {
+    "name": "unknown property fixture",
+    "repository": "https://example.test/dictionary",
+    "commit": "fixture",
+    "path": "dictionary.json"
+  },
+  "entries": [
+    {
+      "unapproved": ["attempt"],
+      "suggestions": ["try"],
+      "partOfSpeech": ["VERB"]
+    }
+  ]
+}
