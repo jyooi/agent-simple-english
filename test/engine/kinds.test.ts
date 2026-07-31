@@ -346,6 +346,22 @@ describe("lint prose-file: hardened markdown stripping", () => {
     expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
   })
 
+  test("keeps a root fence open across blockquote-looking content", () => {
+    const text = ["~~~", `> ${words(30)}.`, "~~~", `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
+  })
+
+  test("recognizes a closing fence before a CRLF line ending", () => {
+    const text = ["~~~\r", `${words(30)}.\r`, "~~~\r", `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 4, column: 1 })
+  })
+
   test("recognizes indented code inside blockquote containers", () => {
     const text = ["> Intro.", ">", `>     ${words(30)}.`, ">", `${words(30)}.`].join("\n")
     const report = lint("prose-file", text)
@@ -378,8 +394,24 @@ describe("lint prose-file: hardened markdown stripping", () => {
     expect(report.violations[0]).toMatchObject({ line: 3, column: 1 })
   })
 
+  test("retains list scope for a fence on a continuation line", () => {
+    const text = ["- item", "", "  ~~~", `  ${words(30)}.`, `${words(30)}.`].join("\n")
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 5, column: 1 })
+  })
+
   test("does not pair unmatched backtick runs of different lengths", () => {
     const text = `\` \`\` ${words(30)}.`
+    const report = lint("prose-file", text)
+
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+  })
+
+  test("does not treat escaped backticks as inline code delimiters", () => {
+    const text = `\\\`${words(30)}.\\\``
     const report = lint("prose-file", text)
 
     expect(report.violations).toHaveLength(1)

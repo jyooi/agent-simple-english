@@ -255,6 +255,13 @@ describe("simple-english CLI", () => {
     expect(result.stderr).toContain("--kind requires a value")
   })
 
+  test("rejects an option token as a --kind value", async () => {
+    const result = await runCli(["--kind", "--json"], { stdin: "Short." })
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("--kind requires a value")
+  })
+
   test("maps a dotless path to prose-file, not a source kind", async () => {
     const result = await runCli(["go"], { cwd: fixturesPath })
 

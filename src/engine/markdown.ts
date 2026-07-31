@@ -65,13 +65,15 @@ const contentWithin = (
   container: Container,
 ): MarkdownContent | null => {
   const base = Math.min(contentStart, line.length)
+  if (container.quoteDepth === 0 && container.listIndent === 0) {
+    return { text: line.slice(base), start: base, container }
+  }
   if (line.slice(base).trim() === "") {
     return { text: "", start: line.length, container }
   }
 
   const blockquotes = consumeBlockquotes(line, base, container.quoteDepth)
   if (blockquotes.depth !== container.quoteDepth) return null
-  if (container.quoteDepth === 0 && line.slice(base).match(/^ {0,3}>/) !== null) return null
 
   let index = blockquotes.index
   let remaining = container.listIndent
@@ -84,8 +86,10 @@ const contentWithin = (
   return { text: line.slice(index), start: index, container }
 }
 
+const fenceLine = (line: string): string => (line.endsWith("\r") ? line.slice(0, -1) : line)
+
 const openingFence = (line: string): string | null => {
-  const match = line.match(OPENING_FENCE)
+  const match = fenceLine(line).match(OPENING_FENCE)
   if (match === null) return null
   const marker = match[1] as string
   const info = match[2] as string
@@ -93,7 +97,7 @@ const openingFence = (line: string): string | null => {
 }
 
 const closesFence = (line: string, fence: string): boolean => {
-  const marker = line.match(CLOSING_FENCE)?.[1]
+  const marker = fenceLine(line).match(CLOSING_FENCE)?.[1]
   return marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length
 }
 
@@ -114,7 +118,9 @@ const blankInlineCode = (text: string): string => {
     }
     let end = i + 1
     while (text[end] === "`") end++
-    runs.push({ start: i, end, length: end - i })
+    let backslashes = 0
+    for (let j = i - 1; j >= 0 && text[j] === "\\"; j--) backslashes++
+    if (backslashes % 2 === 0) runs.push({ start: i, end, length: end - i })
     i = end
   }
 
@@ -154,6 +160,7 @@ export function blankMarkdownCode(
   contentStarts: readonly number[] = inputLines.map(() => 0),
 ): string[] {
   let fence: FenceState | null = null
+  let activeList: Container | null = null
   let afterBlank = true
   let inIndented = false
   const inlineEligible: boolean[] = []
@@ -170,7 +177,18 @@ export function blankMarkdownCode(
       fence = null
     }
 
-    const content = markdownContent(line, contentStart)
+    let content = markdownContent(line, contentStart)
+    if (content.container.listIndent > 0) {
+      activeList = content.container
+    } else if (content.text.trim() !== "" && activeList !== null) {
+      const continued = contentWithin(line, contentStart, activeList)
+      if (continued === null) {
+        activeList = null
+      } else {
+        content = continued
+      }
+    }
+
     const visibleLine = `${" ".repeat(content.start)}${line.slice(content.start)}`
     const marker = openingFence(content.text)
     if (marker !== null) {

@@ -74,8 +74,13 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
           yield* Effect.fail(new Error("--config requires a file path"))
         }
       } else if (arg === "--kind") {
-        kind = args[++i]
-        if (kind === undefined) kindMissingValue = true
+        const value = args[i + 1]
+        if (value === undefined || value.startsWith("--")) {
+          kindMissingValue = true
+        } else {
+          kind = value
+          i++
+        }
       } else if (arg.startsWith("--kind=")) {
         kind = arg.slice("--kind=".length)
       } else {
