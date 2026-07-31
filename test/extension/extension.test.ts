@@ -35,6 +35,9 @@ type ToolHandler = {
 interface ExtensionContextStub {
   readonly cwd: string
   readonly hasUI: boolean
+  readonly sessionManager: {
+    getBranch(): readonly Record<string, unknown>[]
+  }
   readonly ui: {
     notify(message: string, level: "info" | "warning" | "error"): void
     setWidget(key: string, content: readonly string[] | undefined): void
@@ -57,12 +60,20 @@ class ExtensionApiStub {
   }
 
   async emit(event: string, payload: Record<string, unknown>, context: ExtensionContextStub) {
-    const handlers = this.handlers.get(event)
-    if (handlers === undefined) throw new Error(`No handler registered for ${event}`)
+    const handlers = this.handlers.get(event) ?? []
+    let currentPayload = payload
     let result: unknown
     for (const handler of handlers) {
-      const next = await handler(payload, context)
+      const next = await handler(currentPayload, context)
       if (next !== undefined) result = next
+      if (
+        event === "message_end" &&
+        typeof next === "object" &&
+        next !== null &&
+        "message" in next
+      ) {
+        currentPayload = { ...payload, message: next.message }
+      }
       if (
         event === "tool_call" &&
         typeof next === "object" &&
@@ -74,6 +85,23 @@ class ExtensionApiStub {
       }
     }
     return result
+  }
+
+  async finalizeAssistant(
+    message: ReturnType<typeof assistantMessage>,
+    context: ExtensionContextStub,
+  ) {
+    const result = await this.emit("message_end", { message }, context)
+    const finalized =
+      typeof result === "object" && result !== null && "message" in result
+        ? (result.message as ReturnType<typeof assistantMessage>)
+        : message
+    await this.emit(
+      "turn_end",
+      { turnIndex: 0, message: finalized, toolResults: [] },
+      context,
+    )
+    return finalized
   }
 
   async executeTool(
@@ -107,8 +135,10 @@ afterEach(async () => {
 })
 
 async function startExtension(options?: {
+  readonly branch?: readonly Record<string, unknown>[]
   readonly globalConfig?: object
   readonly projectConfig?: object
+  readonly sessionStartReason?: "startup" | "resume"
   readonly trusted?: boolean
 }) {
   const cwd = await mkdtemp(join(process.cwd(), ".extension-test-"))
@@ -133,9 +163,13 @@ async function startExtension(options?: {
 
   const notifications: Array<{ message: string; level: string }> = []
   const widgets = new Map<string, readonly string[] | undefined>()
+  let branch = options?.branch ?? []
   const context: ExtensionContextStub = {
     cwd,
     hasUI: true,
+    sessionManager: {
+      getBranch: () => branch,
+    },
     ui: {
       notify: (message, level) => notifications.push({ message, level }),
       setWidget: (key, content) => widgets.set(key, content),
@@ -144,8 +178,17 @@ async function startExtension(options?: {
   }
   const pi = new ExtensionApiStub()
   simpleEnglishExtension(pi as never)
-  await pi.emit("session_start", { reason: "startup" }, context)
-  return { cwd, pi, context, notifications, widgets }
+  await pi.emit("session_start", { reason: options?.sessionStartReason ?? "startup" }, context)
+  return {
+    cwd,
+    pi,
+    context,
+    notifications,
+    setBranch: (nextBranch: readonly Record<string, unknown>[]) => {
+      branch = nextBranch
+    },
+    widgets,
+  }
 }
 
 function assistantMessage(text: string) {
@@ -153,6 +196,16 @@ function assistantMessage(text: string) {
     role: "assistant",
     content: [{ type: "text", text }],
     timestamp: Date.now(),
+  }
+}
+
+function assistantEntry(text: string, id = "assistant-reply") {
+  return {
+    type: "message",
+    id,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: assistantMessage(text),
   }
 }
 
@@ -458,9 +511,9 @@ describe.sequential("pi extension wiring", () => {
       "This isn't permitted. It is important to note that the valve is open.",
     )
 
-    const messageResult = await pi.emit("message_end", { message: reply }, context)
+    const finalized = await pi.finalizeAssistant(reply, context)
 
-    expect(messageResult).toBeUndefined()
+    expect(finalized).toBe(reply)
     expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 1 soft"])
 
     const result = await pi.emit(
@@ -486,14 +539,66 @@ describe.sequential("pi extension wiring", () => {
     await expect(pi.emit("context", { messages: [reply] }, context)).resolves.toBeUndefined()
   })
 
+  test("restores reply feedback from the active branch on resume", async () => {
+    const reply = assistantMessage("This isn't permitted.")
+    const { pi, context, widgets } = await startExtension({
+      branch: [assistantEntry("This isn't permitted.")],
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+      sessionStartReason: "resume",
+    })
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
+    const result = await pi.emit("context", { messages: [reply] }, context)
+    expect(result).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          customType: "simple-english-reply-feedback",
+          content: expect.stringContaining("[contraction]"),
+        }),
+      ]),
+    })
+  })
+
+  test("recomputes reply state after session tree navigation", async () => {
+    const { pi, context, setBranch, widgets } = await startExtension({
+      branch: [assistantEntry("This isn't permitted.")],
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    setBranch([assistantEntry("Open the valve.", "clean-reply")])
+
+    await pi.emit(
+      "session_tree",
+      { newLeafId: "clean-reply", oldLeafId: "assistant-reply" },
+      context,
+    )
+
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+  })
+
+  test("lints the finalized reply after message-end replacements", async () => {
+    const { pi, context, widgets } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    pi.on("message_end", () => ({ message: assistantMessage("Open the valve.") }))
+
+    const finalized = await pi.finalizeAssistant(
+      assistantMessage("This isn't permitted."),
+      context,
+    )
+
+    expect(finalized.content).toEqual([{ type: "text", text: "Open the valve." }])
+    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
+  })
+
   test("shows soft reply violations without injecting feedback", async () => {
     const { pi, context, widgets } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
 
-    await pi.emit(
-      "message_end",
-      { message: assistantMessage("It is important to note that the valve is open.") },
+    await pi.finalizeAssistant(
+      assistantMessage("It is important to note that the valve is open."),
       context,
     )
 
@@ -506,7 +611,7 @@ describe.sequential("pi extension wiring", () => {
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
 
-    await pi.emit("message_end", { message: assistantMessage("Open the valve.") }, context)
+    await pi.finalizeAssistant(assistantMessage("Open the valve."), context)
 
     expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
@@ -518,7 +623,7 @@ describe.sequential("pi extension wiring", () => {
     })
     const reply = ["```text", "This isn't permitted.", "```", "Open the valve."].join("\n")
 
-    await pi.emit("message_end", { message: assistantMessage(reply) }, context)
+    await pi.finalizeAssistant(assistantMessage(reply), context)
 
     expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
