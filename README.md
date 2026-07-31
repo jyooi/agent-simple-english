@@ -13,7 +13,7 @@ simple-english --json README.md
 ```
 
 Prints STE violations with line, column, and rule id.
-Exits 1 when hard violations exist, 0 otherwise.
+Exits 1 when hard violations exist, 0 when clean, 2 when a file cannot be read.
 `--json` emits a machine-readable report.
 
 ## Development
