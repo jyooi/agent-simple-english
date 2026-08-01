@@ -51,7 +51,7 @@ interface HookError {
   readonly systemMessage: string
 }
 
-type HookOutput = HookDecision | HookError
+export type HookOutput = HookDecision | HookError
 
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -132,6 +132,10 @@ function nonBlockingError(message: string): HookError {
 
 function nonBlockingWarning(message: string): HookDecision {
   return allow([`STE hook warning: ${message}. The event is allowed.`])
+}
+
+export function hookInternalFailure(cause: Cause.Cause<unknown>): HookOutput {
+  return nonBlockingWarning(`internal failure: ${Cause.pretty(cause)}`)
 }
 
 function proposedEdit(
@@ -245,9 +249,7 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
           return yield* evaluateEvent(event, tagger)
         }).pipe(
           Effect.catchAll((error) => Effect.succeed(nonBlockingWarning(error.message))),
-          Effect.catchAllCause((cause) =>
-            Effect.succeed(nonBlockingWarning(`internal failure: ${Cause.pretty(cause)}`)),
-          ),
+          Effect.catchAllCause((cause) => Effect.succeed(hookInternalFailure(cause))),
         ),
     }),
   )

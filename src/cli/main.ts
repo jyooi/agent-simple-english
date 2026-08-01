@@ -7,7 +7,7 @@ import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
-import { runHookMode } from "./hook.ts"
+import { hookInternalFailure, runHookMode } from "./hook.ts"
 
 const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
 
@@ -109,14 +109,22 @@ const render = (report: CliReport, json: boolean): string => {
     .join("\n")
 }
 
-const program = Effect.gen(function* () {
-  const args = process.argv.slice(2)
-  if (args[0] === "hook") {
-    const output = yield* runHookMode(yield* readStdin)
-    console.log(JSON.stringify(output))
-    return 0
-  }
+const args = process.argv.slice(2)
 
+const hookProgram = Effect.gen(function* () {
+  const output = yield* runHookMode(yield* readStdin).pipe(Effect.provide(WinkTaggerLive))
+  console.log(JSON.stringify(output))
+  return 0
+}).pipe(
+  Effect.catchAllCause((cause) =>
+    Effect.sync(() => {
+      console.log(JSON.stringify(hookInternalFailure(cause)))
+      return 0
+    }),
+  ),
+)
+
+const lintProgram = Effect.gen(function* () {
   const tagger = yield* TaggerService
   const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(args)
   if (kindMissingValue) {
@@ -164,8 +172,9 @@ const program = Effect.gen(function* () {
   return report.summary.hard > 0 ? 1 : 0
 })
 
+const program = args[0] === "hook" ? hookProgram : lintProgram.pipe(Effect.provide(WinkTaggerLive))
+
 const handled = program.pipe(
-  Effect.provide(WinkTaggerLive),
   Effect.catchAll((error) =>
     Effect.sync(() => {
       console.error(error.message)

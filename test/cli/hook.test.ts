@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
-import { runCli } from "./run-cli.ts"
+import { repoRoot, runCli } from "./run-cli.ts"
 
 interface HookSpecificOutput {
   readonly hookEventName: string
@@ -45,8 +45,8 @@ function event(cwd: string, toolName: "Write" | "Edit" | "Bash", toolInput: obje
   })
 }
 
-async function runHook(stdin: string, cwd?: string) {
-  const result = await runCli(["hook"], { stdin, cwd })
+async function runHook(stdin: string, cwd?: string, preload?: string) {
+  const result = await runCli(["hook"], { stdin, cwd, preload })
   return { ...result, output: JSON.parse(result.stdout) as HookOutput }
 }
 
@@ -434,6 +434,24 @@ describe("simple-english CLI hook mode", () => {
     expect(output.additionalContext).toContain("STE hook warning")
     expect(output.additionalContext).toContain(`invalid JSON in ${configPath}`)
     expect(result.output.continue).toBeUndefined()
+  })
+
+  test("allows a valid event with a warning when tagger setup fails", async () => {
+    const cwd = await makeProject()
+    const result = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "notes.md"),
+        content: "This isn't permitted.",
+      }),
+      cwd,
+      join(repoRoot, "test", "fixtures", "failing-tagger-preload.js"),
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("allow")
+    expect(output.additionalContext).toContain("STE hook warning")
+    expect(output.additionalContext).toContain("forced tagger setup failure")
   })
 
   test("returns a non-blocking JSON error for malformed event JSON", async () => {
