@@ -34,5 +34,5 @@ _Avoid_: guard, filter
 A hard violation blocks the gated action; a soft violation only produces a warning.
 
 **Strict mode**:
-The reply gate mode that checks the assistant's user-facing prose before the user reads it.
+The mode that applies the host's strongest available reply gate to hard violations.
 Host support follows the [per-host enforcement ceilings](docs/adr/0001-per-host-enforcement-ceiling.md).

@@ -51,8 +51,8 @@ You do not need a global `simple-english` package or manual hook settings.
 The repository supplies the local marketplace manifest.
 Marketplace publication is outside this package release.
 
-At `SessionStart`, the Adapter loads the merged config from the session working directory.
-It adds the active STE rule summary to context.
+At `SessionStart`, the Adapter loads the merged config for an enabled session.
+It reads the config from the session working directory and adds the active STE rule summary to context.
 The summary honors `hard`, `soft`, and `off` rule settings plus `maxSentenceWords`.
 
 The `PreToolUse` gate checks `Write`, `Edit`, and `Bash` events.
@@ -98,7 +98,7 @@ The `Stop` hook does not block or change the reply in this mode.
 At the next `UserPromptSubmit` event, the Adapter adds the pending feedback to the model context.
 The feedback gives the line, column, rule ID, and suggested fix for each hard violation.
 The Adapter then clears the pending feedback, so it adds each report only one time.
-The session state retains the processed reply turn identity and ignores duplicate `Stop` events.
+The session state retains the processed reply identity and ignores duplicate `Stop` events.
 Clean and soft-only replies leave no pending feedback.
 
 Each session has a separate state file under `$XDG_STATE_HOME/simple-english/sessions`.
