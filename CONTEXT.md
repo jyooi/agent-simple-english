@@ -1,7 +1,8 @@
-# Simple English (STE) Toolkit
+# agent-simple-english
 
-A lint engine for ASD-STE100 Simplified Technical English, enforced inside coding agents.
-One agent-agnostic engine; one adapter per host.
+Coding agents use this lint engine to enforce ASD-STE100 Simplified Technical English.
+One agent-agnostic engine.
+One adapter per host.
 
 ## Language
 
@@ -10,7 +11,7 @@ The pure, synchronous lint core that turns text into a report of violations.
 _Avoid_: linter core, checker
 
 **Host**:
-A coding agent runtime the engine is enforced in.
+A coding agent runtime that enforces STE with the Engine.
 Current hosts: pi and Claude Code.
 _Avoid_: platform, agent (ambiguous with the LLM itself), IDE
 
@@ -20,18 +21,20 @@ _Avoid_: plugin (that is the Claude Code artifact name, not the concept), integr
 
 **Enforcement ceiling**:
 The strongest set of STE behaviors a host's extension surface allows.
-Adapters implement up to their host's ceiling; parity across hosts is not required.
+Each Adapter implements STE behaviors up to its Host's ceiling.
+Adapters do not need parity across Hosts.
 
 **Hook mode**:
 The CLI mode that speaks a host's hook protocol: hook event JSON on stdin, hook decision JSON on stdout.
-Hosts whose adapters are hook-based (Claude Code) enforce STE by spawning the CLI in this mode.
+Hosts with hook-based Adapters enforce STE when they start the CLI in this mode.
 
 **Gate**:
 A check that blocks an action (write, edit, commit, reply) when the text has hard violations.
 _Avoid_: guard, filter
 
 **Hard / soft severity**:
-A hard violation blocks the gated action; a soft violation only produces a warning.
+A hard violation blocks the gated action.
+A soft violation only produces a warning.
 
 **Strict mode**:
 The mode that applies the host's strongest available reply gate to hard violations.

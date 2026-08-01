@@ -1,6 +1,7 @@
 # Release verification
 
 This record captures the HUF-142 release checks from 2026-07-31.
+The captured commands and output predate the npm package rename to `simple-english`.
 The checks used Bun 1.3.14, npm 11.6.2, Node.js 24.12.0, and pi 0.83.0.
 
 ## Isolated pi package installation

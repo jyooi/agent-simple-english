@@ -1,6 +1,6 @@
-# simple-english
+# agent-simple-english
 
-`simple-english` checks ASD-STE100 Simplified Technical English (STE).
+`agent-simple-english` checks ASD-STE100 Simplified Technical English (STE).
 It supplies one Engine, one CLI, a pi Adapter, and a Claude Code Adapter.
 The Claude Code plugin uses CLI Hook mode to enforce the same rules.
 
@@ -161,6 +161,7 @@ A `SessionStart` event returns the active rule summary as added context.
 A `PreToolUse` event applies the write, edit, and commit gates that the plugin registers.
 A `Stop` event records hard reply feedback in enabled non-strict mode.
 In strict mode, it blocks a reply that has hard violations.
+
 A `UserPromptSubmit` event adds pending feedback to context and clears that feedback.
 Every hook reads the current session mode before it applies a gate.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
@@ -258,6 +259,7 @@ The project fallback is `.pi/simple-english.json`.
 The global fallback is `simple-english.json` in the pi agent config directory.
 The default pi agent config directory is `~/.pi/agent`.
 `PI_CODING_AGENT_DIR` can change that directory.
+
 The loader resolves a relative value from the working directory that requested the config.
 The loader reads a fallback file only when the new file at the same level is absent.
 
