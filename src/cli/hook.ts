@@ -190,11 +190,15 @@ const readEditFile = (path: string) =>
     catch: (cause) => new Error(`cannot read edit file ${path}: ${cause}`),
   })
 
-const loadLintOptions = (cwd: string, tagger: Tagger) =>
-  Effect.all({
+const loadLintOptions = (cwd: string, tagger: Tagger) => {
+  const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
+  return Effect.all({
     config: loadConfig(undefined, cwd),
-    dictionary: loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+    dictionary: loadDictionary(
+      dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
+    ),
   }).pipe(Effect.map(({ config, dictionary }): LintOptions => ({ ...config, dictionary, tagger })))
+}
 
 function splitViolations(violations: readonly Violation[]): {
   readonly hard: Violation[]

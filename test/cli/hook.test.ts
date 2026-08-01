@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
@@ -56,8 +56,20 @@ function sessionStartEvent(cwd: string): string {
   })
 }
 
-async function runHook(stdin: string, cwd?: string, preload?: string, xdgConfigHome?: string) {
-  const result = await runCli(["hook"], { stdin, cwd, preload, xdgConfigHome })
+async function runHook(
+  stdin: string,
+  cwd?: string,
+  preload?: string,
+  xdgConfigHome?: string,
+  dictionaryPath?: string,
+) {
+  const result = await runCli(["hook"], {
+    stdin,
+    cwd,
+    preload,
+    xdgConfigHome,
+    dictionaryPath,
+  })
   return { ...result, output: JSON.parse(result.stdout) as HookOutput }
 }
 
@@ -109,6 +121,31 @@ describe("simple-english CLI hook mode", () => {
     const output = decision(result.output)
     expect(output.hookEventName).toBe("SessionStart")
     expect(output.additionalContext).toContain("Simplified Technical English")
+  })
+
+  test("resolves a custom dictionary from the event directory", async () => {
+    const cwd = await makeProject()
+    const dictionaryPath = join(cwd, "dictionary.json")
+    await copyFile(
+      join(repoRoot, "test", "fixtures", "hyphenated-dictionary.json"),
+      dictionaryPath,
+    )
+    const input = event(cwd, "Write", {
+      file_path: join(cwd, "notes.md"),
+      content: "Use state-of-the-art parts.",
+    })
+
+    const relativeResult = await runHook(input, repoRoot, undefined, undefined, "dictionary.json")
+    const absoluteResult = await runHook(input, repoRoot, undefined, undefined, dictionaryPath)
+
+    for (const result of [relativeResult, absoluteResult]) {
+      expect(result.code).toBe(0)
+      const output = decision(result.output)
+      expect(output.permissionDecision).toBe("deny")
+      expect(output.permissionDecisionReason).toContain(
+        'Use "advanced", not "state-of-the-art".',
+      )
+    }
   })
 
   test("denies a Write event and lists every hard violation with a suggested fix", async () => {
