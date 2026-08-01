@@ -5,9 +5,11 @@ Claude Code now supplies `Stop` and `UserPromptSubmit` hooks that increase its e
 This decision replaces that part of ADR 0001.
 Strict reply gates remain outside the current ceiling.
 
-The `Stop` hook reads the last assistant message from the Claude Code transcript.
+The `Stop` hook reads `last_assistant_message` from the event.
+This event field is authoritative because the transcript can lag behind the completed reply.
+The hook reads the latest assistant transcript entry when the event field is absent.
 It checks the reply and records only hard violation feedback.
-Session state retains the processed transcript entry identity and ignores duplicate `Stop` events.
+Session state retains the processed reply identity and ignores duplicate `Stop` events.
 It does not block or change the completed reply.
 
 The `UserPromptSubmit` hook adds pending feedback to the next model context.

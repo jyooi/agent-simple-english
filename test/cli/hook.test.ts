@@ -70,7 +70,12 @@ function sessionStartEvent(cwd: string): string {
   })
 }
 
-function stopEvent(cwd: string, sessionId: string, transcriptPath: string): string {
+function stopEvent(
+  cwd: string,
+  sessionId: string,
+  transcriptPath: string,
+  lastAssistantMessage?: string,
+): string {
   return JSON.stringify({
     session_id: sessionId,
     transcript_path: transcriptPath,
@@ -78,6 +83,9 @@ function stopEvent(cwd: string, sessionId: string, transcriptPath: string): stri
     permission_mode: "default",
     hook_event_name: "Stop",
     stop_hook_active: false,
+    ...(lastAssistantMessage === undefined
+      ? {}
+      : { last_assistant_message: lastAssistantMessage }),
   })
 }
 
@@ -217,6 +225,48 @@ describe("simple-english CLI hook mode", () => {
     await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
     const secondSubmission = await runReplyHook(
       userPromptEvent(cwd, "session-1"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(decision(secondSubmission.output).additionalContext).toContain("[contraction]")
+  })
+
+  test("uses the Stop reply when the transcript lags", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "lagged-session.jsonl")
+    await writeTranscript(transcriptPath, "Close the valve.", "older-reply")
+    const firstStop = stopEvent(
+      cwd,
+      "lagged-session",
+      transcriptPath,
+      "This isn't permitted.",
+    )
+
+    await runReplyHook(firstStop, cwd, xdgStateHome)
+    const firstSubmission = await runReplyHook(
+      userPromptEvent(cwd, "lagged-session"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(decision(firstSubmission.output).additionalContext).toContain("[contraction]")
+
+    await runReplyHook(firstStop, cwd, xdgStateHome)
+    const duplicateSubmission = await runReplyHook(
+      userPromptEvent(cwd, "lagged-session"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(duplicateSubmission.output).toEqual({})
+
+    await runReplyHook(
+      stopEvent(cwd, "lagged-session", transcriptPath, "This can't continue."),
+      cwd,
+      xdgStateHome,
+    )
+    const secondSubmission = await runReplyHook(
+      userPromptEvent(cwd, "lagged-session"),
       cwd,
       xdgStateHome,
     )

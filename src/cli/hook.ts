@@ -52,6 +52,7 @@ interface BashEvent extends CommonEvent {
 
 interface StopEvent extends CommonEvent {
   readonly hookEventName: "Stop"
+  readonly lastAssistantMessage?: string
 }
 
 interface UserPromptSubmitEvent extends CommonEvent {
@@ -108,7 +109,17 @@ function decodeEvent(raw: string): HookEvent {
     transcriptPath: stringField(event, "transcript_path"),
   }
   if (hookEventName === "SessionStart") return { ...common, hookEventName }
-  if (hookEventName === "Stop") return { ...common, hookEventName }
+  if (hookEventName === "Stop") {
+    const lastAssistantMessage = event.last_assistant_message
+    if (lastAssistantMessage !== undefined && typeof lastAssistantMessage !== "string") {
+      throw new Error("last_assistant_message must be a string")
+    }
+    return {
+      ...common,
+      hookEventName,
+      ...(lastAssistantMessage === undefined ? {} : { lastAssistantMessage }),
+    }
+  }
   if (hookEventName === "UserPromptSubmit") return { ...common, hookEventName }
   if (hookEventName !== "PreToolUse") {
     throw new Error("hook_event_name must be SessionStart, PreToolUse, Stop, or UserPromptSubmit")
@@ -400,6 +411,13 @@ async function assistantReplyFromTranscript(path: string): Promise<AssistantRepl
   }
 }
 
+function assistantReplyFromEvent(text: string): AssistantReply {
+  return {
+    identity: `message:${createHash("sha256").update(text).digest("hex")}`,
+    text,
+  }
+}
+
 const readAssistantReply = (path: string) =>
   Effect.tryPromise({
     try: () => assistantReplyFromTranscript(path),
@@ -473,7 +491,10 @@ function recordReplyFeedback(
   tagger: Tagger,
 ): Effect.Effect<Record<string, never>, Error> {
   return Effect.gen(function* () {
-    const reply = yield* readAssistantReply(event.transcriptPath)
+    const reply =
+      event.lastAssistantMessage === undefined
+        ? yield* readAssistantReply(event.transcriptPath)
+        : assistantReplyFromEvent(event.lastAssistantMessage)
     if (yield* replyWasProcessed(event.sessionId, reply.identity)) return {}
     const options = yield* loadLintOptions(event.cwd, tagger)
     const hard = lint("prose-file", reply.text, options).violations.filter(
