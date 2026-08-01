@@ -4,6 +4,17 @@
   "description": "ASD-STE100 Simplified Technical English lint engine, CLI, and host adapters",
   "license": "MIT",
   "type": "module",
+  "author": {
+    "name": "JIA YI"
+  },
+  "homepage": "https://github.com/jyooi/agent-simple-english#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jyooi/agent-simple-english.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jyooi/agent-simple-english/issues"
+  },
   "keywords": ["pi-package", "simplified-technical-english", "linter"],
   "pi": {
     "extensions": ["./src/extension/index.ts"]
@@ -33,6 +44,14 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
