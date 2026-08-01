@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
@@ -15,6 +15,10 @@ interface HookOutput {
   readonly continue?: boolean
   readonly systemMessage?: string
   readonly hookSpecificOutput?: HookSpecificOutput
+}
+
+interface SessionState {
+  readonly pendingFeedback: string
 }
 
 const temporaryDirectories: string[] = []
@@ -56,6 +60,47 @@ function sessionStartEvent(cwd: string): string {
   })
 }
 
+function stopEvent(cwd: string, sessionId: string, transcriptPath: string): string {
+  return JSON.stringify({
+    session_id: sessionId,
+    transcript_path: transcriptPath,
+    cwd,
+    permission_mode: "default",
+    hook_event_name: "Stop",
+    stop_hook_active: false,
+  })
+}
+
+function userPromptEvent(cwd: string, sessionId: string): string {
+  return JSON.stringify({
+    session_id: sessionId,
+    transcript_path: join(cwd, `${sessionId}.jsonl`),
+    cwd,
+    permission_mode: "default",
+    hook_event_name: "UserPromptSubmit",
+    prompt: "Continue.",
+  })
+}
+
+async function writeTranscript(path: string, reply: string): Promise<void> {
+  await writeFile(
+    path,
+    `${JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: reply }] },
+    })}\n`,
+  )
+}
+
+async function stateFiles(xdgStateHome: string): Promise<string[]> {
+  try {
+    return await readdir(join(xdgStateHome, "simple-english", "sessions"))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  }
+}
+
 async function runHook(
   stdin: string,
   cwd?: string,
@@ -63,16 +108,22 @@ async function runHook(
   xdgConfigHome?: string,
   dictionaryPath?: string,
   agentDir?: string,
+  xdgStateHome?: string,
 ) {
   const result = await runCli(["hook"], {
     stdin,
     cwd,
     preload,
     xdgConfigHome,
+    xdgStateHome,
     dictionaryPath,
     agentDir,
   })
   return { ...result, output: JSON.parse(result.stdout) as HookOutput }
+}
+
+function runReplyHook(stdin: string, cwd: string, xdgStateHome: string) {
+  return runHook(stdin, cwd, undefined, undefined, undefined, undefined, xdgStateHome)
 }
 
 function decision(output: HookOutput): HookSpecificOutput {
@@ -81,6 +132,118 @@ function decision(output: HookOutput): HookSpecificOutput {
 }
 
 describe("simple-english CLI hook mode", () => {
+  test("records hard reply feedback, injects it once, and clears the state", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "session-1.jsonl")
+    await writeTranscript(
+      transcriptPath,
+      "It is important to note that we can't carry out the test; close the valve.",
+    )
+
+    const stopped = await runReplyHook(
+      stopEvent(cwd, "session-1", transcriptPath),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(stopped.code).toBe(0)
+    expect(stopped.output).toEqual({})
+    const files = await stateFiles(xdgStateHome)
+    expect(files).toHaveLength(1)
+    const state = JSON.parse(
+      await readFile(join(xdgStateHome, "simple-english", "sessions", files[0] as string), "utf8"),
+    ) as SessionState
+    expect(state.pendingFeedback).toContain("line 1, column 33 [contraction]")
+    expect(state.pendingFeedback).toContain("[phrasal-verb]")
+    expect(state.pendingFeedback).toContain("[semicolon]")
+    expect(state.pendingFeedback).toContain("Suggested fix:")
+    expect(state.pendingFeedback).not.toContain("[hedging]")
+
+    const submitted = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
+
+    expect(submitted.code).toBe(0)
+    const output = decision(submitted.output)
+    expect(output.hookEventName).toBe("UserPromptSubmit")
+    expect(output.additionalContext).toBe(state.pendingFeedback)
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+
+    const submittedAgain = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
+    expect(submittedAgain.output).toEqual({})
+  })
+
+  test("does not record clean or soft-only reply feedback", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const cleanTranscriptPath = join(cwd, "clean-session.jsonl")
+    await writeTranscript(cleanTranscriptPath, "This isn't permitted.")
+    await runReplyHook(stopEvent(cwd, "clean-session", cleanTranscriptPath), cwd, xdgStateHome)
+    expect(await stateFiles(xdgStateHome)).toHaveLength(1)
+
+    for (const [sessionId, reply] of [
+      ["clean-session", "Close the valve."],
+      ["soft-session", "It is important to note that the valve is open."],
+    ] as const) {
+      const transcriptPath = join(cwd, `${sessionId}.jsonl`)
+      await writeTranscript(transcriptPath, reply)
+      const result = await runReplyHook(
+        stopEvent(cwd, sessionId, transcriptPath),
+        cwd,
+        xdgStateHome,
+      )
+      expect(result.code).toBe(0)
+      expect(result.output).toEqual({})
+    }
+
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+  })
+
+  test("scopes pending reply feedback to one session", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "first-session.jsonl")
+    await writeTranscript(transcriptPath, "This isn't permitted.")
+
+    await runReplyHook(stopEvent(cwd, "first-session", transcriptPath), cwd, xdgStateHome)
+
+    const otherSession = await runReplyHook(
+      userPromptEvent(cwd, "second-session"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(otherSession.output).toEqual({})
+    expect(await stateFiles(xdgStateHome)).toHaveLength(1)
+
+    const firstSession = await runReplyHook(
+      userPromptEvent(cwd, "first-session"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(decision(firstSession.output).additionalContext).toContain("[contraction]")
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+  })
+
+  test("allows Stop when the transcript cannot be read", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const result = await runReplyHook(
+      stopEvent(cwd, "session-1", join(cwd, "missing.jsonl")),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(result.code).toBe(0)
+    expect(result.output.continue).toBe(true)
+    expect(result.output.systemMessage).toContain("STE hook error")
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+  })
+
   test("adds the merged active rule summary to SessionStart context", async () => {
     const cwd = await makeProject({
       maxSentenceWords: 8,

@@ -11,22 +11,26 @@ import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { LintOptions, Violation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
+import { consumePendingFeedback, setPendingFeedback } from "./session-state.ts"
 
-interface SessionStartEvent {
+interface CommonEvent {
   readonly cwd: string
+  readonly sessionId: string
+  readonly transcriptPath: string
+}
+
+interface SessionStartEvent extends CommonEvent {
   readonly hookEventName: "SessionStart"
 }
 
-interface WriteEvent {
-  readonly cwd: string
+interface WriteEvent extends CommonEvent {
   readonly hookEventName: "PreToolUse"
   readonly toolName: "Write"
   readonly filePath: string
   readonly content: string
 }
 
-interface EditEvent {
-  readonly cwd: string
+interface EditEvent extends CommonEvent {
   readonly hookEventName: "PreToolUse"
   readonly toolName: "Edit"
   readonly filePath: string
@@ -35,15 +39,22 @@ interface EditEvent {
   readonly replaceAll: boolean
 }
 
-interface BashEvent {
-  readonly cwd: string
+interface BashEvent extends CommonEvent {
   readonly hookEventName: "PreToolUse"
   readonly toolName: "Bash"
   readonly command: string
 }
 
+interface StopEvent extends CommonEvent {
+  readonly hookEventName: "Stop"
+}
+
+interface UserPromptSubmitEvent extends CommonEvent {
+  readonly hookEventName: "UserPromptSubmit"
+}
+
 type PreToolUseEvent = WriteEvent | EditEvent | BashEvent
-type HookEvent = SessionStartEvent | PreToolUseEvent
+type HookEvent = SessionStartEvent | PreToolUseEvent | StopEvent | UserPromptSubmitEvent
 
 interface HookSpecificOutput {
   readonly hookEventName: "PreToolUse"
@@ -56,9 +67,9 @@ interface HookDecision {
   readonly hookSpecificOutput: HookSpecificOutput
 }
 
-interface SessionStartOutput {
+interface ContextOutput {
   readonly hookSpecificOutput: {
-    readonly hookEventName: "SessionStart"
+    readonly hookEventName: "SessionStart" | "UserPromptSubmit"
     readonly additionalContext: string
   }
 }
@@ -68,7 +79,7 @@ interface HookError {
   readonly systemMessage: string
 }
 
-export type HookOutput = HookDecision | SessionStartOutput | HookError
+export type HookOutput = HookDecision | ContextOutput | HookError | Record<string, never>
 
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -86,17 +97,23 @@ function stringField(value: Record<string, unknown>, name: string): string {
 function decodeEvent(raw: string): HookEvent {
   const event = record(JSON.parse(raw) as unknown, "event")
   const hookEventName = stringField(event, "hook_event_name")
-  const cwd = stringField(event, "cwd")
-  if (hookEventName === "SessionStart") return { cwd, hookEventName }
+  const common = {
+    cwd: stringField(event, "cwd"),
+    sessionId: stringField(event, "session_id"),
+    transcriptPath: stringField(event, "transcript_path"),
+  }
+  if (hookEventName === "SessionStart") return { ...common, hookEventName }
+  if (hookEventName === "Stop") return { ...common, hookEventName }
+  if (hookEventName === "UserPromptSubmit") return { ...common, hookEventName }
   if (hookEventName !== "PreToolUse") {
-    throw new Error("hook_event_name must be SessionStart or PreToolUse")
+    throw new Error("hook_event_name must be SessionStart, PreToolUse, Stop, or UserPromptSubmit")
   }
   const toolName = stringField(event, "tool_name")
   const input = record(event.tool_input, "tool_input")
 
   if (toolName === "Write") {
     return {
-      cwd,
+      ...common,
       hookEventName,
       toolName,
       filePath: stringField(input, "file_path"),
@@ -109,7 +126,7 @@ function decodeEvent(raw: string): HookEvent {
       throw new Error("replace_all must be a boolean")
     }
     return {
-      cwd,
+      ...common,
       hookEventName,
       toolName,
       filePath: stringField(input, "file_path"),
@@ -119,7 +136,7 @@ function decodeEvent(raw: string): HookEvent {
     }
   }
   if (toolName === "Bash") {
-    return { cwd, hookEventName, toolName, command: stringField(input, "command") }
+    return { ...common, hookEventName, toolName, command: stringField(input, "command") }
   }
   throw new Error(`unsupported PreToolUse tool: ${toolName}`)
 }
@@ -144,10 +161,13 @@ function deny(reason: string): HookDecision {
   }
 }
 
-function addSessionContext(context: string): SessionStartOutput {
+function addContext(
+  hookEventName: "SessionStart" | "UserPromptSubmit",
+  context: string,
+): ContextOutput {
   return {
     hookSpecificOutput: {
-      hookEventName: "SessionStart",
+      hookEventName,
       additionalContext: context,
     },
   }
@@ -190,6 +210,55 @@ const readEditFile = (path: string) =>
     catch: (cause) => new Error(`cannot read edit file ${path}: ${cause}`),
   })
 
+function assistantReply(raw: string, path: string): string {
+  for (const line of raw.split("\n").reverse()) {
+    if (line.trim() === "") continue
+    let value: unknown
+    try {
+      value = JSON.parse(line) as unknown
+    } catch {
+      continue
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) continue
+    const entry = value as Record<string, unknown>
+    if (entry.type !== "assistant") continue
+    const message = record(entry.message, "assistant transcript message")
+    const content = message.content
+    if (!Array.isArray(content)) {
+      throw new Error(`assistant transcript message in ${path} must contain content blocks`)
+    }
+    return content
+      .filter(
+        (block): block is { type: "text"; text: string } =>
+          typeof block === "object" &&
+          block !== null &&
+          (block as Record<string, unknown>).type === "text" &&
+          typeof (block as Record<string, unknown>).text === "string",
+      )
+      .map((block) => block.text)
+      .join("\n")
+  }
+  throw new Error(`cannot find an assistant reply in ${path}`)
+}
+
+const readAssistantReply = (path: string) =>
+  Effect.tryPromise({
+    try: async () => assistantReply(await readFile(path, "utf8"), path),
+    catch: (cause) => new Error(`cannot read assistant reply from ${path}: ${cause}`),
+  })
+
+const updatePendingFeedback = (sessionId: string, feedback: string | undefined) =>
+  Effect.tryPromise({
+    try: () => setPendingFeedback(sessionId, feedback),
+    catch: (cause) => new Error(`cannot update session state: ${cause}`),
+  })
+
+const takePendingFeedback = (sessionId: string) =>
+  Effect.tryPromise({
+    try: () => consumePendingFeedback(sessionId),
+    catch: (cause) => new Error(`cannot read session state: ${cause}`),
+  })
+
 const loadLintOptions = (cwd: string, tagger: Tagger) => {
   const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
   return Effect.all({
@@ -228,6 +297,25 @@ function textDecision(
     return deny(formatViolations(path, `STE blocked ${operation} for`, hard))
   }
   return allow(soft.length === 0 ? [] : [formatViolations(path, "STE warnings for", soft)])
+}
+
+function recordReplyFeedback(
+  event: StopEvent,
+  tagger: Tagger,
+): Effect.Effect<Record<string, never>, Error> {
+  return Effect.gen(function* () {
+    const options = yield* loadLintOptions(event.cwd, tagger)
+    const reply = yield* readAssistantReply(event.transcriptPath)
+    const hard = lint("prose-file", reply, options).violations.filter(
+      (violation) => violation.severity === "hard",
+    )
+    const feedback =
+      hard.length === 0
+        ? undefined
+        : formatViolations("assistant reply", "STE reply feedback for", hard)
+    yield* updatePendingFeedback(event.sessionId, feedback)
+    return {}
+  })
 }
 
 function evaluateEvent(event: PreToolUseEvent, tagger: Tagger): Effect.Effect<HookDecision, Error> {
@@ -282,8 +370,28 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
           return loadConfig(undefined, event.cwd).pipe(
             Effect.match({
               onFailure: (error) => nonBlockingError(error.message),
-              onSuccess: (config) => addSessionContext(ruleSummary(config)),
+              onSuccess: (config) => addContext("SessionStart", ruleSummary(config)),
             }),
+          )
+        }
+        if (event.hookEventName === "UserPromptSubmit") {
+          return takePendingFeedback(event.sessionId).pipe(
+            Effect.match({
+              onFailure: (error) => nonBlockingError(error.message),
+              onSuccess: (feedback) =>
+                feedback === undefined ? {} : addContext("UserPromptSubmit", feedback),
+            }),
+          )
+        }
+        if (event.hookEventName === "Stop") {
+          return Effect.gen(function* () {
+            const tagger = yield* TaggerService
+            return yield* recordReplyFeedback(event, tagger)
+          }).pipe(
+            Effect.catchAll((error) => Effect.succeed(nonBlockingError(error.message))),
+            Effect.catchAllCause((cause) =>
+              Effect.succeed(nonBlockingError(`internal failure: ${Cause.pretty(cause)}`)),
+            ),
           )
         }
         return Effect.gen(function* () {

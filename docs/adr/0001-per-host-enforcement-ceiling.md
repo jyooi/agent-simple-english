@@ -11,6 +11,7 @@ Claude Code has no reply check or strict mode.
 We accept and document the host differences.
 
 A host ceiling can increase when its extension surface changes.
+[ADR 0002](0002-claude-code-reply-feedback.md) increases the Claude Code ceiling with deferred reply feedback.
 
 Codex support is deferred, not designed around: its hook system is feature-flagged, intercepts only the Bash tool, and cannot gate `apply_patch` file writes, so its ceiling today is too low to justify an adapter.
 Revisit when Codex hooks stabilize; under this decision that is a new adapter, not a redesign.

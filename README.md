@@ -67,6 +67,21 @@ It also blocks a detected commit without a static `-m` or `--message` argument.
 A compliant static message passes.
 Soft violations allow the event and add warning text.
 
+### Reply feedback loop
+
+The `Stop` hook checks each finished assistant reply after Claude Code shows it.
+It records only hard violation details in a state file for that Claude Code session.
+The `Stop` hook does not block or change the reply.
+
+At the next `UserPromptSubmit` event, the Adapter adds the pending feedback to the model context.
+The feedback gives the line, column, rule ID, and suggested fix for each hard violation.
+The Adapter then clears the feedback, so it adds each report only one time.
+Soft violations do not enter this feedback loop.
+
+Each session has a separate state file under `$XDG_STATE_HOME/simple-english/sessions`.
+The default state directory is `~/.local/state/simple-english/sessions`.
+Concurrent sessions in one project do not read or clear feedback from another session.
+
 ## Install the pi Adapter
 
 Install [pi](https://pi.dev) first.
@@ -120,6 +135,8 @@ The `hook` subcommand reads one Claude Code hook event from standard input.
 It writes one hook result as JSON.
 A `SessionStart` event returns the active rule summary as added context.
 A `PreToolUse` event applies the write, edit, and commit gates that the plugin registers.
+A `Stop` event records hard reply feedback without blocking the reply.
+A `UserPromptSubmit` event adds pending feedback to context and clears its session state.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
 The gate allows a valid event when configuration, dictionary, tagger, or file processing fails.
 It adds warning text.
