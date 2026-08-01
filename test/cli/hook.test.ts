@@ -139,6 +139,47 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 1, column 1 [phrasal-verb]")
   })
 
+  test("denies an Edit that moves a local violation within one sentence", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "Carry out and carry\nout.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Carry out and carry\nout.",
+        new_string: "Carry\nout and carry out.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 2, column 9 [phrasal-verb]")
+  })
+
+  test("allows an Edit that shifts unchanged violating prose", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "Replace this sentence.\nCarry out the test.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Replace this sentence.",
+        new_string: "Keep this sentence.\nAdd another sentence.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
+  })
+
   test("allows an Edit beside an untouched local violation", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "notes.md")

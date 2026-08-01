@@ -54,7 +54,8 @@ interface ViolationScope {
 interface ScopedViolation {
   readonly violation: Violation
   readonly scope: ViolationScope
-  readonly occurrenceIdentity?: string
+  readonly sentenceIdentity?: string
+  readonly occurrenceOffset?: number
 }
 
 interface SentenceScopeIndex {
@@ -258,7 +259,13 @@ const lintProse = (
         offsets,
         sourceOffset,
       )
-      return { violation, scope, occurrenceIdentity: scope.identity }
+      return {
+        violation,
+        scope,
+        sentenceIdentity: scope.identity,
+        occurrenceOffset:
+          sourceOffset + (offsets[violation.line - 1] ?? 0) + violation.column - 1,
+      }
     })
 
   return [
@@ -343,7 +350,7 @@ function evaluate(
 }
 
 const findingKey = (finding: ScopedViolation): string =>
-  `${finding.violation.ruleId}\u0000${finding.scope.kind}\u0000${finding.occurrenceIdentity ?? ""}`
+  `${finding.violation.ruleId}\u0000${finding.scope.kind}\u0000${finding.sentenceIdentity ?? ""}`
 
 type RetainedSide = "current" | "previous"
 
@@ -426,6 +433,21 @@ function firstMappedPreviousOffset(
   return undefined
 }
 
+function mappedPreviousOffset(
+  offset: number,
+  retained: readonly RetainedRange[],
+): number | undefined {
+  const range = retained[firstRetainedIndex(retained, offset, "current")]
+  if (
+    range === undefined ||
+    offset < range.currentStart ||
+    offset >= range.currentStart + range.length
+  ) {
+    return undefined
+  }
+  return range.previousStart + offset - range.currentStart
+}
+
 function newFindings(
   previous: readonly ScopedViolation[],
   current: readonly ScopedViolation[],
@@ -445,8 +467,16 @@ function newFindings(
   const findings: ScopedViolation[] = []
   for (const finding of current) {
     const index = previousByKey.get(findingKey(finding))
-    const mappedOffset = firstMappedPreviousOffset(finding.scope, retained)
-    if (index === undefined || mappedOffset === undefined) {
+    const mappedScopeOffset = firstMappedPreviousOffset(finding.scope, retained)
+    const mappedOccurrenceOffset =
+      finding.occurrenceOffset === undefined
+        ? undefined
+        : mappedPreviousOffset(finding.occurrenceOffset, retained)
+    if (
+      index === undefined ||
+      mappedScopeOffset === undefined ||
+      (finding.occurrenceOffset !== undefined && mappedOccurrenceOffset === undefined)
+    ) {
       findings.push(finding)
       continue
     }
@@ -455,16 +485,31 @@ function newFindings(
     while (index.cursor < index.candidates.length) {
       const candidate = index.candidates[index.cursor]
       if (candidate === undefined) break
-      if (candidate.scope.endOffset <= mappedOffset) {
+      if (candidate.scope.endOffset <= mappedScopeOffset) {
         index.cursor++
         continue
       }
-      if (candidate.scope.startOffset > mappedOffset) break
-      index.cursor++
-      if (scopesCorrespond(candidate.scope, finding.scope, retained)) {
+      if (candidate.scope.startOffset > mappedScopeOffset) break
+      if (!scopesCorrespond(candidate.scope, finding.scope, retained)) {
+        index.cursor++
+        continue
+      }
+      if (finding.occurrenceOffset === undefined) {
+        index.cursor++
         matched = true
         break
       }
+      if (
+        candidate.occurrenceOffset !== undefined &&
+        candidate.occurrenceOffset < (mappedOccurrenceOffset ?? 0)
+      ) {
+        index.cursor++
+        continue
+      }
+      if (candidate.occurrenceOffset !== mappedOccurrenceOffset) break
+      index.cursor++
+      matched = true
+      break
     }
     if (!matched) findings.push(finding)
   }
