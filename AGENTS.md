@@ -11,7 +11,8 @@ Parent spec lives in Linear HUF-130.
 
 ## Architecture rules (binding, from the HUF-130 spec)
 
-- Pure functional core: the `lint` engine (`src/engine/lint.ts`) is synchronous, with no Effect runtime. Effect stays at boundaries such as CLI IO, config loading, and schema validation and loading.
+- Pure functional core: `src/engine/` is synchronous, and `src/engine/lint.ts` orchestrates it.
+  Effect stays at boundaries such as CLI IO, config loading, and schema validation and loading.
 - New rules must register their id in `src/engine/rules/registry.ts`; the config schema derives valid rule names from it, so unregistered ids are rejected in user config.
 - Three test seams only: pure engine API (~90% of suite, `test/engine/`), CLI E2E via spawned `bun src/cli/main.ts` (`test/cli/`), extension wiring via stubbed ExtensionAPI double. Never run pi itself in tests.
 - Severity model: violations carry `hard`/`soft`; hard violations drive CLI exit code 1.
