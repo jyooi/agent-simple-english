@@ -1,0 +1,28 @@
+{
+  "description": "Inject active STE rules and gate writes, edits, and git commit messages.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && bun \"src/cli/main.ts\" hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && bun \"src/cli/main.ts\" hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

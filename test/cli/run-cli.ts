@@ -20,6 +20,7 @@ export interface CliOptions {
   xdgConfigHome?: string
   agentDir?: string
   preload?: string
+  dictionaryPath?: string
 }
 
 export const makeTempDir = (): Promise<string> => mkdtemp(join(tmpdir(), "ste-cli-"))
@@ -34,6 +35,9 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     HOME: home,
     XDG_CONFIG_HOME: options.xdgConfigHome ?? join(home, ".config"),
     PI_CODING_AGENT_DIR: options.agentDir,
+    ...(options.dictionaryPath === undefined
+      ? {}
+      : { SIMPLE_ENGLISH_DICTIONARY: options.dictionaryPath }),
   }
   return new Promise((resolve, reject) => {
     const child = execFile(

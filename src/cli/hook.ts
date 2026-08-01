@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { Cause, Effect } from "effect"
 import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-message.ts"
 import { formatViolations } from "../adapter/feedback.ts"
+import { ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import { loadDictionary } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
@@ -11,8 +12,14 @@ import type { Tagger } from "../engine/tagger.ts"
 import type { LintOptions, Violation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
 
+interface SessionStartEvent {
+  readonly cwd: string
+  readonly hookEventName: "SessionStart"
+}
+
 interface WriteEvent {
   readonly cwd: string
+  readonly hookEventName: "PreToolUse"
   readonly toolName: "Write"
   readonly filePath: string
   readonly content: string
@@ -20,6 +27,7 @@ interface WriteEvent {
 
 interface EditEvent {
   readonly cwd: string
+  readonly hookEventName: "PreToolUse"
   readonly toolName: "Edit"
   readonly filePath: string
   readonly oldString: string
@@ -29,11 +37,13 @@ interface EditEvent {
 
 interface BashEvent {
   readonly cwd: string
+  readonly hookEventName: "PreToolUse"
   readonly toolName: "Bash"
   readonly command: string
 }
 
-type HookEvent = WriteEvent | EditEvent | BashEvent
+type PreToolUseEvent = WriteEvent | EditEvent | BashEvent
+type HookEvent = SessionStartEvent | PreToolUseEvent
 
 interface HookSpecificOutput {
   readonly hookEventName: "PreToolUse"
@@ -46,12 +56,19 @@ interface HookDecision {
   readonly hookSpecificOutput: HookSpecificOutput
 }
 
+interface SessionStartOutput {
+  readonly hookSpecificOutput: {
+    readonly hookEventName: "SessionStart"
+    readonly additionalContext: string
+  }
+}
+
 interface HookError {
   readonly continue: true
   readonly systemMessage: string
 }
 
-export type HookOutput = HookDecision | HookError
+export type HookOutput = HookDecision | SessionStartOutput | HookError
 
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -68,16 +85,19 @@ function stringField(value: Record<string, unknown>, name: string): string {
 
 function decodeEvent(raw: string): HookEvent {
   const event = record(JSON.parse(raw) as unknown, "event")
-  if (stringField(event, "hook_event_name") !== "PreToolUse") {
-    throw new Error("hook_event_name must be PreToolUse")
-  }
+  const hookEventName = stringField(event, "hook_event_name")
   const cwd = stringField(event, "cwd")
+  if (hookEventName === "SessionStart") return { cwd, hookEventName }
+  if (hookEventName !== "PreToolUse") {
+    throw new Error("hook_event_name must be SessionStart or PreToolUse")
+  }
   const toolName = stringField(event, "tool_name")
   const input = record(event.tool_input, "tool_input")
 
   if (toolName === "Write") {
     return {
       cwd,
+      hookEventName,
       toolName,
       filePath: stringField(input, "file_path"),
       content: stringField(input, "content"),
@@ -90,6 +110,7 @@ function decodeEvent(raw: string): HookEvent {
     }
     return {
       cwd,
+      hookEventName,
       toolName,
       filePath: stringField(input, "file_path"),
       oldString: stringField(input, "old_string"),
@@ -98,7 +119,7 @@ function decodeEvent(raw: string): HookEvent {
     }
   }
   if (toolName === "Bash") {
-    return { cwd, toolName, command: stringField(input, "command") }
+    return { cwd, hookEventName, toolName, command: stringField(input, "command") }
   }
   throw new Error(`unsupported PreToolUse tool: ${toolName}`)
 }
@@ -119,6 +140,15 @@ function deny(reason: string): HookDecision {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: reason,
+    },
+  }
+}
+
+function addSessionContext(context: string): SessionStartOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: context,
     },
   }
 }
@@ -160,11 +190,15 @@ const readEditFile = (path: string) =>
     catch: (cause) => new Error(`cannot read edit file ${path}: ${cause}`),
   })
 
-const loadLintOptions = (cwd: string, tagger: Tagger) =>
-  Effect.all({
+const loadLintOptions = (cwd: string, tagger: Tagger) => {
+  const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
+  return Effect.all({
     config: loadConfig(undefined, cwd),
-    dictionary: loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+    dictionary: loadDictionary(
+      dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
+    ),
   }).pipe(Effect.map(({ config, dictionary }): LintOptions => ({ ...config, dictionary, tagger })))
+}
 
 function splitViolations(violations: readonly Violation[]): {
   readonly hard: Violation[]
@@ -196,7 +230,7 @@ function textDecision(
   return allow(soft.length === 0 ? [] : [formatViolations(path, "STE warnings for", soft)])
 }
 
-function evaluateEvent(event: HookEvent, tagger: Tagger): Effect.Effect<HookDecision, Error> {
+function evaluateEvent(event: PreToolUseEvent, tagger: Tagger): Effect.Effect<HookDecision, Error> {
   if (event.toolName === "Bash") {
     const invocations = findCommitInvocations(event.command)
     if (invocations.length === 0) return Effect.succeed(allow())
@@ -243,14 +277,23 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
   }).pipe(
     Effect.matchEffect({
       onFailure: (error) => Effect.succeed(nonBlockingError(error.message)),
-      onSuccess: (event) =>
-        Effect.gen(function* () {
+      onSuccess: (event) => {
+        if (event.hookEventName === "SessionStart") {
+          return loadConfig(undefined, event.cwd).pipe(
+            Effect.match({
+              onFailure: (error) => nonBlockingError(error.message),
+              onSuccess: (config) => addSessionContext(ruleSummary(config)),
+            }),
+          )
+        }
+        return Effect.gen(function* () {
           const tagger = yield* TaggerService
           return yield* evaluateEvent(event, tagger)
         }).pipe(
           Effect.catchAll((error) => Effect.succeed(nonBlockingWarning(error.message))),
           Effect.catchAllCause((cause) => Effect.succeed(hookInternalFailure(cause))),
-        ),
+        )
+      },
     }),
   )
 }

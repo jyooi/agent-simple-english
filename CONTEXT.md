@@ -34,5 +34,5 @@ _Avoid_: guard, filter
 A hard violation blocks the gated action; a soft violation only produces a warning.
 
 **Strict mode**:
-The reply-gating mode where the assistant's user-facing prose is checked before the user reads it.
-On pi this uses the `say` tool with redaction; other hosts approximate it up to their ceiling.
+The reply gate mode that checks the assistant's user-facing prose before the user reads it.
+Host support follows the [per-host enforcement ceilings](docs/adr/0001-per-host-enforcement-ceiling.md).

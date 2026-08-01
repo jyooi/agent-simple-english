@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agent-simple-english",
+  "owner": {
+    "name": "JIA YI"
+  },
+  "metadata": {
+    "description": "Local install source for the Simple English Claude Code plugin."
+  },
+  "plugins": [
+    {
+      "name": "simple-english",
+      "description": "Apply Simplified Technical English rules to writes, edits, and git commit messages.",
+      "version": "0.1.0",
+      "author": {
+        "name": "JIA YI"
+      },
+      "source": "./",
+      "category": "development",
+      "homepage": "https://github.com/jyooi/agent-simple-english"
+    }
+  ]
+}

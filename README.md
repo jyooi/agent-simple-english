@@ -1,16 +1,15 @@
 # simple-english
 
 `simple-english` checks ASD-STE100 Simplified Technical English (STE).
-It supplies one Engine, one CLI, and a pi Adapter.
-The CLI also supplies a `PreToolUse` hook for Claude Code.
-The [pi coding agent](https://pi.dev) can use the Adapter to enforce the same rules.
+It supplies one Engine, one CLI, a pi Adapter, and a Claude Code Adapter.
+The Claude Code plugin uses CLI Hook mode to enforce the same rules.
 
 This package reports deterministic writing problems.
 It does not rewrite text because an automatic rewrite can change its meaning.
 
-## What the extension does
+## What the pi Adapter does
 
-The extension adds its active STE rules to the model prompt before each agent turn.
+The pi Adapter adds its active STE rules to the model prompt before each agent turn.
 It then applies the rules at three layers.
 
 1. **Write and edit gate.**
@@ -32,9 +31,41 @@ It then applies the rules at three layers.
    Strict mode makes the model send each reply through the `say` tool.
    A strict reply stays hidden until it has no hard violations.
 
-The extension checks Markdown prose and source comments according to the [content kinds](#content-kinds).
+The pi Adapter checks Markdown prose and source comments according to the [content kinds](#content-kinds).
 It gives the line, column, rule ID, and suggested correction for a blocked tool call.
 A config or dictionary load error makes enabled write, edit, and commit gates fail closed.
+
+## Install the Claude Code Adapter
+
+Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Bun](https://bun.sh) first.
+Then use the standard local plugin flow:
+
+```sh
+claude plugin marketplace add jyooi/agent-simple-english
+claude plugin install simple-english@agent-simple-english
+```
+
+Start a new Claude Code session after installation.
+Bun installs the plugin dependencies when the first hook starts.
+You do not need a global `simple-english` package or manual hook settings.
+The repository supplies the local marketplace manifest.
+Marketplace publication is outside this package release.
+
+At `SessionStart`, the Adapter loads the merged config from the session working directory.
+It adds the active STE rule summary to context.
+The summary honors `hard`, `soft`, and `off` rule settings plus `maxSentenceWords`.
+
+The `PreToolUse` gate checks `Write`, `Edit`, and `Bash` events.
+A hard write or edit violation blocks the tool and returns its location, rule ID, and suggested correction.
+The Adapter checks only new edit violations, so old prose does not block an unrelated edit.
+Correct the text and retry the tool.
+A clean retry succeeds.
+
+For `Bash`, the gate checks static messages in detected `git commit` commands.
+It blocks a hard violation before Git starts.
+It also blocks a detected commit without a static `-m` or `--message` argument.
+A compliant static message passes.
+Soft violations allow the event and add warning text.
 
 ## Install the pi Adapter
 
@@ -51,8 +82,8 @@ Pi packages run with your user permissions, so inspect third-party package code 
 Use the checkout without a persistent installation during development:
 
 ```sh
-git clone https://github.com/jyooi/ste.git
-cd ste
+git clone https://github.com/jyooi/agent-simple-english.git
+cd agent-simple-english
 bun install
 pi -e .
 ```
@@ -83,40 +114,14 @@ Install it from the same npm package:
 bun add --global simple-english
 ```
 
-### Claude Code `PreToolUse` hook
+### Claude Code Hook mode
 
-Add this command hook to the project `.claude/settings.json` file:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "simple-english hook"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The `hook` subcommand reads one Claude Code `PreToolUse` event from standard input.
-It writes one hook decision as JSON.
-A `Write` event checks the proposed content.
-An `Edit` event reconstructs the proposed file and reports only new violations.
-A `Bash` event checks static messages in detected `git commit` commands.
-The hook denies a detected commit that has no static message.
-
-A hard violation denies the event with its line, column, rule ID, and suggested correction.
-A soft violation alone allows the event and adds warning text.
-The hook allows clean events.
+The `hook` subcommand reads one Claude Code hook event from standard input.
+It writes one hook result as JSON.
+A `SessionStart` event returns the active rule summary as added context.
+A `PreToolUse` event applies the write, edit, and commit gates that the plugin registers.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
-The hook allows a valid event when configuration, dictionary, tagger, or file processing fails.
+The gate allows a valid event when configuration, dictionary, tagger, or file processing fails.
 It adds warning text.
 
 ### Lint files and standard input
@@ -210,6 +215,7 @@ The project fallback is `.pi/simple-english.json`.
 The global fallback is `simple-english.json` in the pi agent config directory.
 The default pi agent config directory is `~/.pi/agent`.
 `PI_CODING_AGENT_DIR` can change that directory.
+The loader resolves a relative value from the working directory that requested the config.
 The loader reads a fallback file only when the new file at the same level is absent.
 
 This example contains every config key and every rule:
@@ -362,8 +368,9 @@ This project has no affiliation with or endorsement from ASD.
 
 The package dictionary format and match rules are in [`src/dictionary/README.md`](src/dictionary/README.md).
 Set `SIMPLE_ENGLISH_DICTIONARY` to a replacement dictionary file if necessary.
-The CLI reports a replacement dictionary load error and continues with all other rules.
-The enabled extension fails closed after that error.
+Hook mode resolves a relative replacement path from the session working directory.
+A lint command reports a replacement dictionary load error and continues with all other rules.
+The enabled pi Adapter fails closed after that error.
 
 ## Development
 
