@@ -7,6 +7,7 @@ Strict reply gates remain outside the current ceiling.
 
 The `Stop` hook reads the last assistant message from the Claude Code transcript.
 It checks the reply and records only hard violation feedback.
+Session state retains the processed transcript entry identity and ignores duplicate `Stop` events.
 It does not block or change the completed reply.
 
 The `UserPromptSubmit` hook adds pending feedback to the next model context.
@@ -17,7 +18,8 @@ Session state uses one file for each Claude Code session.
 Files are under `$XDG_STATE_HOME/simple-english/sessions`, with `~/.local/state` as the default state root.
 A SHA-256 key from the session ID gives safe, fixed-length file names.
 State writes use a temporary file and an atomic rename.
-Feedback reads claim the file with an atomic rename before removal.
+Feedback reads claim the file with an atomic rename before they clear pending feedback.
+They retain the processed reply identity in the session state.
 
 This design keeps feedback separate for concurrent sessions in the same project.
 It also gives later Adapter work one state location for session mode data.

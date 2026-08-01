@@ -1,4 +1,13 @@
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import {
+  appendFile,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
@@ -18,7 +27,8 @@ interface HookOutput {
 }
 
 interface SessionState {
-  readonly pendingFeedback: string
+  readonly lastProcessedReply: string
+  readonly pendingFeedback?: string
 }
 
 const temporaryDirectories: string[] = []
@@ -82,14 +92,16 @@ function userPromptEvent(cwd: string, sessionId: string): string {
   })
 }
 
-async function writeTranscript(path: string, reply: string): Promise<void> {
-  await writeFile(
-    path,
-    `${JSON.stringify({
-      type: "assistant",
-      message: { role: "assistant", content: [{ type: "text", text: reply }] },
-    })}\n`,
-  )
+function transcriptEntry(reply: string, uuid: string): string {
+  return `${JSON.stringify({
+    type: "assistant",
+    uuid,
+    message: { role: "assistant", content: [{ type: "text", text: reply }] },
+  })}\n`
+}
+
+async function writeTranscript(path: string, reply: string, uuid = "reply-1"): Promise<void> {
+  await writeFile(path, transcriptEntry(reply, uuid))
 }
 
 async function stateFiles(xdgStateHome: string): Promise<string[]> {
@@ -132,7 +144,7 @@ function decision(output: HookOutput): HookSpecificOutput {
 }
 
 describe("simple-english CLI hook mode", () => {
-  test("records hard reply feedback, injects it once, and clears the state", async () => {
+  test("records hard reply feedback, injects it once, and clears pending feedback", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
@@ -167,10 +179,48 @@ describe("simple-english CLI hook mode", () => {
     const output = decision(submitted.output)
     expect(output.hookEventName).toBe("UserPromptSubmit")
     expect(output.additionalContext).toBe(state.pendingFeedback)
-    expect(await stateFiles(xdgStateHome)).toEqual([])
+    expect(await stateFiles(xdgStateHome)).toEqual(files)
+    const consumedState = JSON.parse(
+      await readFile(join(xdgStateHome, "simple-english", "sessions", files[0] as string), "utf8"),
+    ) as SessionState
+    expect(consumedState.lastProcessedReply).toBe("uuid:reply-1")
+    expect(consumedState.pendingFeedback).toBeUndefined()
 
     const submittedAgain = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
     expect(submittedAgain.output).toEqual({})
+  })
+
+  test("ignores duplicate Stops and records a new reply", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "session-1.jsonl")
+    await writeTranscript(transcriptPath, "This isn't permitted.")
+
+    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
+    const firstSubmission = await runReplyHook(
+      userPromptEvent(cwd, "session-1"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(decision(firstSubmission.output).additionalContext).toContain("[contraction]")
+
+    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
+    const duplicateSubmission = await runReplyHook(
+      userPromptEvent(cwd, "session-1"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(duplicateSubmission.output).toEqual({})
+
+    await appendFile(transcriptPath, transcriptEntry("This can't continue.", "reply-2"))
+    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
+    const secondSubmission = await runReplyHook(
+      userPromptEvent(cwd, "session-1"),
+      cwd,
+      xdgStateHome,
+    )
+    expect(decision(secondSubmission.output).additionalContext).toContain("[contraction]")
   })
 
   test("does not record clean or soft-only reply feedback", async () => {
@@ -188,7 +238,7 @@ describe("simple-english CLI hook mode", () => {
       ["soft-session", "It is important to note that the valve is open."],
     ] as const) {
       const transcriptPath = join(cwd, `${sessionId}.jsonl`)
-      await writeTranscript(transcriptPath, reply)
+      await writeTranscript(transcriptPath, reply, `${sessionId}-clean-reply`)
       const result = await runReplyHook(
         stopEvent(cwd, sessionId, transcriptPath),
         cwd,
@@ -198,7 +248,16 @@ describe("simple-english CLI hook mode", () => {
       expect(result.output).toEqual({})
     }
 
-    expect(await stateFiles(xdgStateHome)).toEqual([])
+    const files = await stateFiles(xdgStateHome)
+    expect(files).toHaveLength(2)
+    const states = await Promise.all(
+      files.map(async (file) =>
+        JSON.parse(
+          await readFile(join(xdgStateHome, "simple-english", "sessions", file), "utf8"),
+        ) as SessionState,
+      ),
+    )
+    expect(states.every((state) => state.pendingFeedback === undefined)).toBe(true)
   })
 
   test("reads a large transcript from the end", async () => {
@@ -243,7 +302,7 @@ describe("simple-english CLI hook mode", () => {
     expect(stopped.code).toBe(0)
     expect(stopped.output).toEqual({})
     expect(decision(submitted.output).additionalContext).toContain("[contraction]")
-    expect(await stateFiles(xdgStateHome)).toEqual([])
+    expect(await stateFiles(xdgStateHome)).toHaveLength(1)
   })
 
   test("scopes pending reply feedback to one session", async () => {
@@ -269,7 +328,7 @@ describe("simple-english CLI hook mode", () => {
       xdgStateHome,
     )
     expect(decision(firstSession.output).additionalContext).toContain("[contraction]")
-    expect(await stateFiles(xdgStateHome)).toEqual([])
+    expect(await stateFiles(xdgStateHome)).toHaveLength(1)
   })
 
   test("allows Stop when the transcript cannot be read", async () => {

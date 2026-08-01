@@ -4,8 +4,9 @@ import { homedir } from "node:os"
 import { isAbsolute, join } from "node:path"
 
 interface SessionState {
-  readonly version: 1
-  readonly pendingFeedback: string
+  readonly version: 2
+  readonly lastProcessedReply: string
+  readonly pendingFeedback?: string
 }
 
 const isMissingFile = (cause: unknown): boolean =>
@@ -24,38 +25,75 @@ const sessionKey = (sessionId: string): string =>
 const sessionPath = (sessionId: string): string =>
   join(sessionsDirectory(), `${sessionKey(sessionId)}.json`)
 
-function decodeState(text: string, path: string): SessionState {
+function decodeState(text: string, path: string): SessionState | { readonly pendingFeedback: string } {
   const value = JSON.parse(text) as unknown
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`invalid session state in ${path}`)
   }
   const state = value as Record<string, unknown>
-  if (state.version !== 1 || typeof state.pendingFeedback !== "string") {
+  if (state.version === 1 && typeof state.pendingFeedback === "string") {
+    return { pendingFeedback: state.pendingFeedback }
+  }
+  if (
+    state.version !== 2 ||
+    typeof state.lastProcessedReply !== "string" ||
+    state.lastProcessedReply.length === 0 ||
+    (state.pendingFeedback !== undefined && typeof state.pendingFeedback !== "string")
+  ) {
     throw new Error(`invalid session state in ${path}`)
   }
-  return { version: 1, pendingFeedback: state.pendingFeedback }
+  return {
+    version: 2,
+    lastProcessedReply: state.lastProcessedReply,
+    ...(state.pendingFeedback === undefined
+      ? {}
+      : { pendingFeedback: state.pendingFeedback as string }),
+  }
 }
 
-export async function setPendingFeedback(
-  sessionId: string,
-  pendingFeedback: string | undefined,
-): Promise<void> {
+async function readState(sessionId: string): Promise<ReturnType<typeof decodeState> | undefined> {
   const path = sessionPath(sessionId)
-  if (pendingFeedback === undefined) {
-    await rm(path, { force: true })
-    return
+  try {
+    return decodeState(await readFile(path, "utf8"), path)
+  } catch (cause) {
+    if (isMissingFile(cause)) return undefined
+    throw cause
   }
+}
 
+async function writeState(sessionId: string, state: SessionState): Promise<void> {
   const directory = sessionsDirectory()
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const temporaryPath = join(directory, `.${sessionKey(sessionId)}.${randomUUID()}.tmp`)
   try {
-    const state: SessionState = { version: 1, pendingFeedback }
     await writeFile(temporaryPath, JSON.stringify(state), { encoding: "utf8", mode: 0o600 })
-    await rename(temporaryPath, path)
+    await rename(temporaryPath, sessionPath(sessionId))
   } finally {
     await rm(temporaryPath, { force: true })
   }
+}
+
+export async function hasProcessedReply(
+  sessionId: string,
+  replyIdentity: string,
+): Promise<boolean> {
+  const state = await readState(sessionId)
+  return state !== undefined && "lastProcessedReply" in state
+    ? state.lastProcessedReply === replyIdentity
+    : false
+}
+
+export async function setReplyFeedback(
+  sessionId: string,
+  replyIdentity: string,
+  pendingFeedback: string | undefined,
+): Promise<void> {
+  if (await hasProcessedReply(sessionId, replyIdentity)) return
+  await writeState(sessionId, {
+    version: 2,
+    lastProcessedReply: replyIdentity,
+    ...(pendingFeedback === undefined ? {} : { pendingFeedback }),
+  })
 }
 
 export async function consumePendingFeedback(sessionId: string): Promise<string | undefined> {
@@ -69,7 +107,13 @@ export async function consumePendingFeedback(sessionId: string): Promise<string 
   }
 
   try {
-    return decodeState(await readFile(claimedPath, "utf8"), claimedPath).pendingFeedback
+    const state = decodeState(await readFile(claimedPath, "utf8"), claimedPath)
+    if (!("lastProcessedReply" in state)) return state.pendingFeedback
+    await writeState(sessionId, {
+      version: 2,
+      lastProcessedReply: state.lastProcessedReply,
+    })
+    return state.pendingFeedback
   } finally {
     await rm(claimedPath, { force: true })
   }

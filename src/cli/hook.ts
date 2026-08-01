@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { open, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { Cause, Effect } from "effect"
@@ -11,7 +12,11 @@ import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { LintOptions, Violation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
-import { consumePendingFeedback, setPendingFeedback } from "./session-state.ts"
+import {
+  consumePendingFeedback,
+  hasProcessedReply,
+  setReplyFeedback,
+} from "./session-state.ts"
 
 interface CommonEvent {
   readonly cwd: string
@@ -210,7 +215,12 @@ const readEditFile = (path: string) =>
     catch: (cause) => new Error(`cannot read edit file ${path}: ${cause}`),
   })
 
-function assistantReply(line: string, path: string): string | undefined {
+interface AssistantReply {
+  readonly identity: string
+  readonly text: string
+}
+
+function assistantReply(line: string, path: string, offset: number): AssistantReply | undefined {
   let value: unknown
   try {
     value = JSON.parse(line) as unknown
@@ -225,7 +235,12 @@ function assistantReply(line: string, path: string): string | undefined {
   if (!Array.isArray(content)) {
     throw new Error(`assistant transcript message in ${path} must contain content blocks`)
   }
-  return content
+  const uuid = entry.uuid
+  const identity =
+    typeof uuid === "string" && uuid.length > 0
+      ? `uuid:${uuid}`
+      : `offset:${offset}:${createHash("sha256").update(line).digest("hex")}`
+  const text = content
     .filter(
       (block): block is { type: "text"; text: string } =>
         typeof block === "object" &&
@@ -235,9 +250,14 @@ function assistantReply(line: string, path: string): string | undefined {
     )
     .map((block) => block.text)
     .join("\n")
+  return { identity, text }
 }
 
-function assistantReplyFromChunks(chunks: readonly Buffer[], path: string): string | undefined {
+function assistantReplyFromChunks(
+  chunks: readonly Buffer[],
+  path: string,
+  offset: number,
+): AssistantReply | undefined {
   const first = chunks[0]
   const line =
     first === undefined
@@ -245,12 +265,12 @@ function assistantReplyFromChunks(chunks: readonly Buffer[], path: string): stri
       : chunks.length === 1
         ? first.toString("utf8")
         : Buffer.concat(chunks).toString("utf8")
-  return assistantReply(line, path)
+  return assistantReply(line, path, offset)
 }
 
 const TRANSCRIPT_CHUNK_SIZE = 64 * 1024
 
-async function assistantReplyFromTranscript(path: string): Promise<string> {
+async function assistantReplyFromTranscript(path: string): Promise<AssistantReply> {
   const file = await open(path, "r")
   try {
     const { size } = await file.stat()
@@ -274,7 +294,7 @@ async function assistantReplyFromTranscript(path: string): Promise<string> {
         if (newline === -1) break
         const lineHead = chunk.subarray(newline + 1, lineEnd)
         const lineChunks = lineHead.length === 0 ? pendingLine : [lineHead, ...pendingLine]
-        const reply = assistantReplyFromChunks(lineChunks, path)
+        const reply = assistantReplyFromChunks(lineChunks, path, position + newline + 1)
         if (reply !== undefined) return reply
         pendingLine = []
         lineEnd = newline
@@ -282,7 +302,7 @@ async function assistantReplyFromTranscript(path: string): Promise<string> {
 
       if (lineEnd > 0) pendingLine = [chunk.subarray(0, lineEnd), ...pendingLine]
       if (position === 0) {
-        const reply = assistantReplyFromChunks(pendingLine, path)
+        const reply = assistantReplyFromChunks(pendingLine, path, 0)
         if (reply !== undefined) return reply
       }
     }
@@ -298,9 +318,19 @@ const readAssistantReply = (path: string) =>
     catch: (cause) => new Error(`cannot read assistant reply from ${path}: ${cause}`),
   })
 
-const updatePendingFeedback = (sessionId: string, feedback: string | undefined) =>
+const replyWasProcessed = (sessionId: string, replyIdentity: string) =>
   Effect.tryPromise({
-    try: () => setPendingFeedback(sessionId, feedback),
+    try: () => hasProcessedReply(sessionId, replyIdentity),
+    catch: (cause) => new Error(`cannot read session state: ${cause}`),
+  })
+
+const updateReplyFeedback = (
+  sessionId: string,
+  replyIdentity: string,
+  feedback: string | undefined,
+) =>
+  Effect.tryPromise({
+    try: () => setReplyFeedback(sessionId, replyIdentity, feedback),
     catch: (cause) => new Error(`cannot update session state: ${cause}`),
   })
 
@@ -355,16 +385,17 @@ function recordReplyFeedback(
   tagger: Tagger,
 ): Effect.Effect<Record<string, never>, Error> {
   return Effect.gen(function* () {
-    const options = yield* loadLintOptions(event.cwd, tagger)
     const reply = yield* readAssistantReply(event.transcriptPath)
-    const hard = lint("prose-file", reply, options).violations.filter(
+    if (yield* replyWasProcessed(event.sessionId, reply.identity)) return {}
+    const options = yield* loadLintOptions(event.cwd, tagger)
+    const hard = lint("prose-file", reply.text, options).violations.filter(
       (violation) => violation.severity === "hard",
     )
     const feedback =
       hard.length === 0
         ? undefined
         : formatViolations("assistant reply", "STE reply feedback for", hard)
-    yield* updatePendingFeedback(event.sessionId, feedback)
+    yield* updateReplyFeedback(event.sessionId, reply.identity, feedback)
     return {}
   })
 }
