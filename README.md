@@ -112,7 +112,7 @@ Install [pi](https://pi.dev) first.
 Then use the pi package mechanism:
 
 ```sh
-pi install npm:simple-english
+pi install npm:agent-simple-english
 ```
 
 Pi records the package in its user settings and loads the extension in each session.
@@ -147,10 +147,11 @@ The list changes to match the text that you type.
 ## Install and use the CLI
 
 The standalone command needs [Bun](https://bun.sh).
-Install it from the same npm package:
+Install it from the same npm package.
+The package is `agent-simple-english` and the command it installs is `simple-english`:
 
 ```sh
-bun add --global simple-english
+bun add --global agent-simple-english
 ```
 
 ### Claude Code Hook mode

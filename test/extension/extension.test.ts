@@ -368,7 +368,7 @@ describe.sequential("pi extension wiring", () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
 
-    expect(manifest.name).toBe("simple-english")
+    expect(manifest.name).toBe("agent-simple-english")
     expect(manifest.pi.extensions).toEqual(["./src/extension/index.ts"])
     expect(manifest.bin).toEqual({ "simple-english": "src/cli/main.ts" })
     expect(manifest.dependencies).toMatchObject({
