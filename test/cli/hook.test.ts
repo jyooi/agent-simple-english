@@ -108,6 +108,14 @@ function transcriptEntry(reply: string, uuid: string): string {
   })}\n`
 }
 
+function promptEntry(prompt: string, uuid: string): string {
+  return `${JSON.stringify({
+    type: "user",
+    uuid,
+    message: { role: "user", content: prompt },
+  })}\n`
+}
+
 async function writeTranscript(path: string, reply: string, uuid = "reply-1"): Promise<void> {
   await writeFile(path, transcriptEntry(reply, uuid))
 }
@@ -231,12 +239,15 @@ describe("simple-english CLI hook mode", () => {
     expect(decision(secondSubmission.output).additionalContext).toContain("[contraction]")
   })
 
-  test("uses the Stop reply when the transcript lags", async () => {
+  test("uses the Stop reply and distinguishes identical replies by prompt", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
     const transcriptPath = join(cwd, "lagged-session.jsonl")
-    await writeTranscript(transcriptPath, "Close the valve.", "older-reply")
+    await writeFile(
+      transcriptPath,
+      `${transcriptEntry("Close the valve.", "older-reply")}${promptEntry("Check it.", "prompt-1")}`,
+    )
     const firstStop = stopEvent(
       cwd,
       "lagged-session",
@@ -260,11 +271,8 @@ describe("simple-english CLI hook mode", () => {
     )
     expect(duplicateSubmission.output).toEqual({})
 
-    await runReplyHook(
-      stopEvent(cwd, "lagged-session", transcriptPath, "This can't continue."),
-      cwd,
-      xdgStateHome,
-    )
+    await appendFile(transcriptPath, promptEntry("Check it again.", "prompt-2"))
+    await runReplyHook(firstStop, cwd, xdgStateHome)
     const secondSubmission = await runReplyHook(
       userPromptEvent(cwd, "lagged-session"),
       cwd,

@@ -7,9 +7,10 @@ Strict reply gates remain outside the current ceiling.
 
 The `Stop` hook reads `last_assistant_message` from the event.
 This event field is authoritative because the transcript can lag behind the completed reply.
+The latest user transcript record gives the reply turn identity.
 The hook reads the latest assistant transcript entry when the event field is absent.
 It checks the reply and records only hard violation feedback.
-Session state retains the processed reply identity and ignores duplicate `Stop` events.
+Session state retains the processed turn identity and ignores duplicate `Stop` events.
 It does not block or change the completed reply.
 
 The `UserPromptSubmit` hook adds pending feedback to the next model context.

@@ -267,7 +267,7 @@ function assistantReply(line: string, path: string, offset: number): AssistantRe
 const TRANSCRIPT_CHUNK_SIZE = 64 * 1024
 const TRANSCRIPT_ENTRY_HEADER_SIZE = 64 * 1024
 
-type TranscriptEntryKind = "assistant" | "other" | "unknown"
+type TranscriptEntryKind = "assistant" | "user" | "other" | "unknown"
 
 interface JsonFrame {
   readonly kind: "array" | "object"
@@ -308,10 +308,12 @@ function transcriptEntryKind(header: string): TranscriptEntryKind {
           continue
         }
         if (stack.length === 1 && frame.key === "type") {
-          return value === "assistant" ? "assistant" : "other"
+          if (value === "assistant" || value === "user") return value
+          return "other"
         }
         if (frame.message && frame.key === "role") {
-          return value === "assistant" ? "assistant" : "other"
+          if (value === "assistant" || value === "user") return value
+          return "other"
         }
         frame.key = undefined
       }
@@ -376,7 +378,39 @@ async function assistantReplyInRange(
   return assistantReply(line, path, start)
 }
 
-async function assistantReplyFromTranscript(path: string): Promise<AssistantReply> {
+async function turnIdentityInRange(
+  file: Awaited<ReturnType<typeof open>>,
+  path: string,
+  start: number,
+  end: number,
+): Promise<string | undefined> {
+  const length = end - start
+  const headerLength = Math.min(length, TRANSCRIPT_ENTRY_HEADER_SIZE)
+  const header = await readTranscriptRange(file, path, start, headerLength)
+  if (transcriptEntryKind(header.toString("utf8")) !== "user") return undefined
+  if (headerLength === length) {
+    try {
+      const value = JSON.parse(header.toString("utf8")) as unknown
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const uuid = (value as Record<string, unknown>).uuid
+        if (typeof uuid === "string" && uuid.length > 0) return `turn-uuid:${uuid}`
+      }
+    } catch {
+      return `turn-offset:${start}:${createHash("sha256").update(header).digest("hex")}`
+    }
+  }
+  return `turn-offset:${start}:${createHash("sha256").update(header).digest("hex")}`
+}
+
+async function latestTranscriptEntry<T>(
+  path: string,
+  readEntry: (
+    file: Awaited<ReturnType<typeof open>>,
+    path: string,
+    start: number,
+    end: number,
+  ) => Promise<T | undefined>,
+): Promise<T | undefined> {
   const file = await open(path, "r")
   try {
     const { size } = await file.stat()
@@ -393,35 +427,42 @@ async function assistantReplyFromTranscript(path: string): Promise<AssistantRepl
         if (newline === -1) break
         const entryStart = position + newline + 1
         if (entryStart < entryEnd) {
-          const reply = await assistantReplyInRange(file, path, entryStart, entryEnd)
-          if (reply !== undefined) return reply
+          const entry = await readEntry(file, path, entryStart, entryEnd)
+          if (entry !== undefined) return entry
         }
         entryEnd = position + newline
         lineEnd = newline
       }
     }
 
-    if (entryEnd > 0) {
-      const reply = await assistantReplyInRange(file, path, 0, entryEnd)
-      if (reply !== undefined) return reply
-    }
-    throw new Error(`cannot find an assistant reply in ${path}`)
+    return entryEnd > 0 ? readEntry(file, path, 0, entryEnd) : undefined
   } finally {
     await file.close()
   }
 }
 
-function assistantReplyFromEvent(text: string): AssistantReply {
-  return {
-    identity: `message:${createHash("sha256").update(text).digest("hex")}`,
-    text,
-  }
+async function assistantReplyFromTranscript(path: string): Promise<AssistantReply> {
+  const reply = await latestTranscriptEntry(path, assistantReplyInRange)
+  if (reply !== undefined) return reply
+  throw new Error(`cannot find an assistant reply in ${path}`)
+}
+
+async function assistantReplyFromEvent(text: string, path: string): Promise<AssistantReply> {
+  const identity = await latestTranscriptEntry(path, turnIdentityInRange)
+  if (identity === undefined) throw new Error(`cannot find a reply turn in ${path}`)
+  return { identity, text }
 }
 
 const readAssistantReply = (path: string) =>
   Effect.tryPromise({
     try: () => assistantReplyFromTranscript(path),
     catch: (cause) => new Error(`cannot read assistant reply from ${path}: ${cause}`),
+  })
+
+const readEventAssistantReply = (text: string, path: string) =>
+  Effect.tryPromise({
+    try: () => assistantReplyFromEvent(text, path),
+    catch: (cause) => new Error(`cannot read assistant reply turn from ${path}: ${cause}`),
   })
 
 const replyWasProcessed = (sessionId: string, replyIdentity: string) =>
@@ -491,10 +532,9 @@ function recordReplyFeedback(
   tagger: Tagger,
 ): Effect.Effect<Record<string, never>, Error> {
   return Effect.gen(function* () {
-    const reply =
-      event.lastAssistantMessage === undefined
-        ? yield* readAssistantReply(event.transcriptPath)
-        : assistantReplyFromEvent(event.lastAssistantMessage)
+    const reply = yield* (event.lastAssistantMessage === undefined
+      ? readAssistantReply(event.transcriptPath)
+      : readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath))
     if (yield* replyWasProcessed(event.sessionId, reply.identity)) return {}
     const options = yield* loadLintOptions(event.cwd, tagger)
     const hard = lint("prose-file", reply.text, options).violations.filter(
