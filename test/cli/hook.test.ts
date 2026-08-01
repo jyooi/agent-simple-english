@@ -62,6 +62,7 @@ async function runHook(
   preload?: string,
   xdgConfigHome?: string,
   dictionaryPath?: string,
+  agentDir?: string,
 ) {
   const result = await runCli(["hook"], {
     stdin,
@@ -69,6 +70,7 @@ async function runHook(
     preload,
     xdgConfigHome,
     dictionaryPath,
+    agentDir,
   })
   return { ...result, output: JSON.parse(result.stdout) as HookOutput }
 }
@@ -146,6 +148,44 @@ describe("simple-english CLI hook mode", () => {
         'Use "advanced", not "state-of-the-art".',
       )
     }
+  })
+
+  test("resolves a relative legacy config directory from the event directory", async () => {
+    const cwd = await makeProject()
+    const agentDir = join(".pi", "agent")
+    await mkdir(join(cwd, agentDir), { recursive: true })
+    await writeFile(
+      join(cwd, agentDir, "simple-english.json"),
+      JSON.stringify({ rules: { "dictionary-not-approved-word": "off", marketing: "hard" } }),
+    )
+
+    const writeResult = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "notes.md"),
+        content: "Use robust parts.",
+      }),
+      repoRoot,
+      undefined,
+      undefined,
+      undefined,
+      agentDir,
+    )
+    const sessionResult = await runHook(
+      sessionStartEvent(cwd),
+      repoRoot,
+      undefined,
+      undefined,
+      undefined,
+      agentDir,
+    )
+
+    expect(writeResult.code).toBe(0)
+    expect(decision(writeResult.output).permissionDecision).toBe("deny")
+    expect(decision(writeResult.output).permissionDecisionReason).toContain("[marketing]")
+    expect(sessionResult.code).toBe(0)
+    expect(decision(sessionResult.output).additionalContext).toContain(
+      "[hard] Use factual language",
+    )
   })
 
   test("denies a Write event and lists every hard violation with a suggested fix", async () => {

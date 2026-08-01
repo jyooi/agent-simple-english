@@ -1,18 +1,20 @@
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { isAbsolute, join } from "node:path"
+import { isAbsolute, join, resolve } from "node:path"
 import { Effect } from "effect"
 import { mergeConfigs } from "./merge.ts"
 import { ConfigError, type SteConfig, decodeConfig } from "./schema.ts"
 
-const legacyAgentConfigDirectory = (): string => {
+const legacyAgentConfigDirectory = (cwd: string): string => {
   const configured = process.env.PI_CODING_AGENT_DIR
   if (!configured) return join(homedir(), ".pi", "agent")
   if (configured === "~") return homedir()
-  return configured.startsWith("~/") ||
+  const expanded =
+    configured.startsWith("~/") ||
     (process.platform === "win32" && configured.startsWith("~\\"))
-    ? join(homedir(), configured.slice(2))
-    : configured
+      ? join(homedir(), configured.slice(2))
+      : configured
+  return isAbsolute(expanded) ? expanded : resolve(cwd, expanded)
 }
 
 const xdgConfigDirectory = (): string => {
@@ -25,8 +27,8 @@ export const globalConfigPath = (): string =>
 
 export const projectConfigPath = (cwd: string): string => join(cwd, ".simple-english.json")
 
-export const legacyGlobalConfigPath = (): string =>
-  join(legacyAgentConfigDirectory(), "simple-english.json")
+export const legacyGlobalConfigPath = (cwd = process.cwd()): string =>
+  join(legacyAgentConfigDirectory(cwd), "simple-english.json")
 
 export const legacyProjectConfigPath = (cwd: string): string =>
   join(cwd, ".pi", "simple-english.json")
@@ -75,7 +77,7 @@ export const loadConfig = (
   if (explicitPath !== undefined) {
     return readConfigFile(explicitPath, false).pipe(Effect.map((config) => config ?? {}))
   }
-  const globalConfig = readConfigWithFallback(globalConfigPath(), legacyGlobalConfigPath())
+  const globalConfig = readConfigWithFallback(globalConfigPath(), legacyGlobalConfigPath(cwd))
   if (!includeProjectConfig) return globalConfig
   const projectConfig = readConfigWithFallback(projectConfigPath(cwd), legacyProjectConfigPath(cwd))
   return Effect.all([globalConfig, projectConfig]).pipe(
