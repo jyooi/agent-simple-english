@@ -1,7 +1,8 @@
 // A token is exempt as an identifier when it has an interior signal prose
 // words lack: a camelCase hump, an underscore, a dotted or :: path, or a
 // call suffix. Mixed-case prose words (brand names) are an accepted loss.
-const IDENTIFIER_CANDIDATE = /[A-Za-z_$][\w$]*(?:(?:\.|::)[A-Za-z_$][\w$]*)*(?:\(\))?/g
+const IDENTIFIER_CANDIDATE =
+  /[A-Za-z_$][\w$]*(?:(?:\.|::)(?:[A-Za-z$][\w$]*|_+[A-Za-z0-9$][\w$]*))*(?:\(\))?/g
 
 const isIdentifier = (token: string): boolean =>
   token.endsWith("()") ||
