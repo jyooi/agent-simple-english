@@ -12,11 +12,7 @@ import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { LintOptions, Violation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
-import {
-  consumePendingFeedback,
-  hasProcessedReply,
-  setReplyFeedback,
-} from "./session-state.ts"
+import { consumePendingFeedback, hasProcessedReply, setReplyFeedback } from "./session-state.ts"
 
 interface CommonEvent {
   readonly cwd: string
@@ -532,9 +528,9 @@ function recordReplyFeedback(
   tagger: Tagger,
 ): Effect.Effect<Record<string, never>, Error> {
   return Effect.gen(function* () {
-    const reply = yield* (event.lastAssistantMessage === undefined
+    const reply = yield* event.lastAssistantMessage === undefined
       ? readAssistantReply(event.transcriptPath)
-      : readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath))
+      : readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath)
     if (yield* replyWasProcessed(event.sessionId, reply.identity)) return {}
     const options = yield* loadLintOptions(event.cwd, tagger)
     const hard = lint("prose-file", reply.text, options).violations.filter(

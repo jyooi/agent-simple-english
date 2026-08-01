@@ -25,7 +25,10 @@ const sessionKey = (sessionId: string): string =>
 const sessionPath = (sessionId: string): string =>
   join(sessionsDirectory(), `${sessionKey(sessionId)}.json`)
 
-function decodeState(text: string, path: string): SessionState | { readonly pendingFeedback: string } {
+function decodeState(
+  text: string,
+  path: string,
+): SessionState | { readonly pendingFeedback: string } {
   const value = JSON.parse(text) as unknown
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`invalid session state in ${path}`)

@@ -83,9 +83,7 @@ function stopEvent(
     permission_mode: "default",
     hook_event_name: "Stop",
     stop_hook_active: false,
-    ...(lastAssistantMessage === undefined
-      ? {}
-      : { last_assistant_message: lastAssistantMessage }),
+    ...(lastAssistantMessage === undefined ? {} : { last_assistant_message: lastAssistantMessage }),
   })
 }
 
@@ -214,11 +212,7 @@ describe("simple-english CLI hook mode", () => {
     await writeTranscript(transcriptPath, "This isn't permitted.")
 
     await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
-    const firstSubmission = await runReplyHook(
-      userPromptEvent(cwd, "session-1"),
-      cwd,
-      xdgStateHome,
-    )
+    const firstSubmission = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
     expect(decision(firstSubmission.output).additionalContext).toContain("[contraction]")
 
     await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
@@ -248,12 +242,7 @@ describe("simple-english CLI hook mode", () => {
       transcriptPath,
       `${transcriptEntry("Close the valve.", "older-reply")}${promptEntry("Check it.", "prompt-1")}`,
     )
-    const firstStop = stopEvent(
-      cwd,
-      "lagged-session",
-      transcriptPath,
-      "This isn't permitted.",
-    )
+    const firstStop = stopEvent(cwd, "lagged-session", transcriptPath, "This isn't permitted.")
 
     await runReplyHook(firstStop, cwd, xdgStateHome)
     const firstSubmission = await runReplyHook(
@@ -309,10 +298,11 @@ describe("simple-english CLI hook mode", () => {
     const files = await stateFiles(xdgStateHome)
     expect(files).toHaveLength(2)
     const states = await Promise.all(
-      files.map(async (file) =>
-        JSON.parse(
-          await readFile(join(xdgStateHome, "simple-english", "sessions", file), "utf8"),
-        ) as SessionState,
+      files.map(
+        async (file) =>
+          JSON.parse(
+            await readFile(join(xdgStateHome, "simple-english", "sessions", file), "utf8"),
+          ) as SessionState,
       ),
     )
     expect(states.every((state) => state.pendingFeedback === undefined)).toBe(true)
@@ -351,11 +341,7 @@ describe("simple-english CLI hook mode", () => {
       undefined,
       xdgStateHome,
     )
-    const submitted = await runReplyHook(
-      userPromptEvent(cwd, "large-session"),
-      cwd,
-      xdgStateHome,
-    )
+    const submitted = await runReplyHook(userPromptEvent(cwd, "large-session"), cwd, xdgStateHome)
 
     expect(stopped.code).toBe(0)
     expect(stopped.output).toEqual({})

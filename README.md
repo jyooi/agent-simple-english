@@ -76,8 +76,8 @@ The `Stop` hook does not block or change the reply.
 At the next `UserPromptSubmit` event, the Adapter adds the pending feedback to the model context.
 The feedback gives the line, column, rule ID, and suggested fix for each hard violation.
 The Adapter then clears the pending feedback, so it adds each report only one time.
-The session state retains the processed reply identity and ignores duplicate `Stop` events.
-Soft violations do not enter this feedback loop.
+The session state retains the processed reply turn identity and ignores duplicate `Stop` events.
+Clean and soft-only replies leave no pending feedback.
 
 Each session has a separate state file under `$XDG_STATE_HOME/simple-english/sessions`.
 The default state directory is `~/.local/state/simple-english/sessions`.
@@ -139,7 +139,7 @@ A `PreToolUse` event applies the write, edit, and commit gates that the plugin r
 A `Stop` event records hard reply feedback without blocking the reply.
 A `UserPromptSubmit` event adds pending feedback to context and clears that feedback.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
-The gate allows a valid event when configuration, dictionary, tagger, or file processing fails.
+The hook also allows the event when configuration, dictionary, tagger, transcript, state, or file processing fails.
 It adds warning text.
 
 ### Lint files and standard input
