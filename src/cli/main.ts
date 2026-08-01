@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises"
 import { Effect, Either } from "effect"
+import packageManifest from "../../package.json" with { type: "json" }
 import { loadConfig } from "../config/load.ts"
 import { loadDictionary } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
@@ -12,11 +13,22 @@ import { runSessionCommand } from "./session-command.ts"
 
 const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
 
+const USAGE = `Usage: simple-english [options] [paths...]
+
+Options:
+  --json           Write a JSON report.
+  --config <path>  Use one config file.
+  --kind <kind>    Use one content kind.
+  --help           Print this help.
+  --version        Print the package version.`
+
 interface CliArgs {
   readonly json: boolean
   readonly configPath: string | undefined
   readonly kind: string | undefined
   readonly kindMissingValue: boolean
+  readonly help: boolean
+  readonly version: boolean
   readonly paths: readonly string[]
 }
 
@@ -26,16 +38,20 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
     let configPath: string | undefined
     let kind: string | undefined
     let kindMissingValue = false
+    let help = false
+    let version = false
     const paths: string[] = []
     for (let i = 0; i < args.length; i++) {
       const arg = args[i] as string
       if (arg === "--json") {
         json = true
       } else if (arg === "--config") {
-        configPath = args[++i]
-        if (configPath === undefined) {
+        const value = args[i + 1]
+        if (value === undefined || value.startsWith("--")) {
           yield* Effect.fail(new Error("--config requires a file path"))
         }
+        configPath = value
+        i++
       } else if (arg === "--kind") {
         const value = args[i + 1]
         if (value === undefined || value.startsWith("--")) {
@@ -46,11 +62,17 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
         }
       } else if (arg.startsWith("--kind=")) {
         kind = arg.slice("--kind=".length)
+      } else if (arg === "--help") {
+        help = true
+      } else if (arg === "--version") {
+        version = true
+      } else if (arg.startsWith("--")) {
+        yield* Effect.fail(new Error(`unknown flag "${arg}"`))
       } else {
         paths.push(arg)
       }
     }
-    return { json, configPath, kind, kindMissingValue, paths }
+    return { json, configPath, kind, kindMissingValue, help, version, paths }
   })
 
 const isLintKind = (value: string): value is LintKind =>
@@ -132,7 +154,15 @@ const sessionProgram = Effect.gen(function* () {
 
 const lintProgram = Effect.gen(function* () {
   const tagger = yield* TaggerService
-  const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(args)
+  const { json, configPath, kind, kindMissingValue, help, version, paths } = yield* parseArgs(args)
+  if (help) {
+    console.log(USAGE)
+    return 0
+  }
+  if (version) {
+    console.log(packageManifest.version)
+    return 0
+  }
   if (kindMissingValue) {
     return yield* Effect.fail(
       new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`),

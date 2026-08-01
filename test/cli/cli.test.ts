@@ -1,6 +1,8 @@
+import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
-import { type CliOptions, runCli as runCliBase } from "./run-cli.ts"
+import { type CliOptions, repoRoot, runCli as runCliBase } from "./run-cli.ts"
 
 const fixturesPath = fileURLToPath(new URL("../fixtures", import.meta.url))
 
@@ -88,6 +90,34 @@ describe("simple-english CLI", () => {
       violations: [],
       summary: { total: 0, hard: 0 },
     })
+  })
+
+  test("rejects an unknown flag with exit code 2", async () => {
+    const result = await runCli(["--unknown"])
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain('unknown flag "--unknown"')
+    expect(result.stderr).not.toContain("cannot read --unknown")
+  })
+
+  test("--help prints usage and exits 0", async () => {
+    const result = await runCli(["--help"])
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Usage: simple-english")
+    expect(result.stdout).toContain("--config <path>")
+    expect(result.stderr).toBe("")
+  })
+
+  test("--version prints the package version and exits 0", async () => {
+    const packageManifest = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
+      version: string
+    }
+    const result = await runCli(["--version"])
+
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe(packageManifest.version)
+    expect(result.stderr).toBe("")
   })
 
   test("exits 1 on progressive tense, a hard violation", async () => {

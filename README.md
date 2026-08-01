@@ -221,6 +221,10 @@ Soft violations can appear with exit code 0.
   Valid values are `prose-file`, `slash-source`, `hash-source`, and `commit-message`.
   The form `--kind=<kind>` also works.
 
+- `--help` writes the command usage.
+
+- `--version` writes the package version.
+
 - A path of `-` reads standard input.
   With no paths, the command also reads standard input.
 
