@@ -289,6 +289,24 @@ describe("simple-english CLI hook mode", () => {
     expect(failedDictionary.stdout).toContain("missing-dictionary.json")
   })
 
+  test("reports unavailable status details when config loading fails", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    await writeFile(join(cwd, ".simple-english.json"), "{")
+    await runSessionCommand("session-1", cwd, "off", xdgStateHome)
+
+    const status = await runSessionCommand("session-1", cwd, "status", xdgStateHome)
+
+    expect(status.code).toBe(0)
+    expect(status.stdout).toContain("Mode: disabled")
+    expect(status.stdout).toContain("Config: failed (invalid JSON in")
+    expect(status.stdout).toContain(join(cwd, ".simple-english.json"))
+    expect(status.stdout).toContain("Rules: unavailable")
+    expect(status.stdout).toContain("Dictionary: unavailable")
+    expect(status.stdout).not.toMatch(/Rules: \d+ hard/)
+  })
+
   test("blocks one strict Stop, then allows the clean rewrite Stop", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))

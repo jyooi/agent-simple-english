@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 import { Effect, Either } from "effect"
-import { formatStatusSummary } from "../adapter/rule-summary.ts"
+import { formatFailedStatusSummary, formatStatusSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import { loadDictionary } from "../dictionary/load.ts"
 import {
@@ -42,7 +42,7 @@ function status(sessionId: string, cwd: string): Effect.Effect<string, Error> {
     const control = yield* readControl(sessionId)
     const configResult = yield* Effect.either(loadConfig(undefined, cwd))
     if (Either.isLeft(configResult)) {
-      return formatStatusSummary({}, modeName(control), "not loaded")
+      return formatFailedStatusSummary(modeName(control), configResult.left.message)
     }
     const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
     const dictionaryResult = yield* Effect.either(

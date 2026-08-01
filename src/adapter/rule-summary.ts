@@ -35,6 +35,18 @@ export function resolvedRuleSetting(config: SteConfig, ruleId: RuleId): RuleSett
   return config.rules?.[ruleId] ?? DEFAULT_RULE_SETTINGS[ruleId]
 }
 
+export function formatFailedStatusSummary(
+  mode: "disabled" | "enabled" | "strict",
+  configError: string,
+): string {
+  return [
+    `Mode: ${mode}`,
+    `Config: failed (${configError})`,
+    "Rules: unavailable",
+    "Dictionary: unavailable",
+  ].join("\n")
+}
+
 export function formatStatusSummary(
   config: SteConfig,
   mode: "disabled" | "enabled" | "strict",
