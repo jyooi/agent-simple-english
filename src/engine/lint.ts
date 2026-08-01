@@ -24,11 +24,22 @@ type SentenceSelector = (
   sourceOffset: number,
 ) => readonly Sentence[]
 
+interface DeletionBoundary {
+  readonly before?: number
+  readonly after?: number
+}
+
+interface DiffSelection {
+  readonly selectSentences: SentenceSelector
+  readonly paragraphBoundaries: readonly DeletionBoundary[]
+}
+
 interface ResolvedOptions {
   readonly maxSentenceWords: number
   readonly dictionary?: Dictionary
   readonly tagger?: Tagger
   readonly selectSentences: SentenceSelector
+  readonly paragraphBoundaries: readonly DeletionBoundary[]
   readonly diffOnly: boolean
 }
 
@@ -114,8 +125,19 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
 function selectChangedParagraphs(
   paragraphs: readonly Paragraph[],
   sentences: readonly Sentence[],
+  lines: readonly string[],
+  sourceOffset: number,
+  boundaries: readonly DeletionBoundary[],
 ): Paragraph[] {
+  const lineOffsets: number[] = []
+  let nextLineOffset = sourceOffset
+  for (const line of lines) {
+    lineOffsets.push(nextLineOffset)
+    nextLineOffset += line.length + 1
+  }
+
   let sentenceIndex = 0
+  let boundaryIndex = 0
 
   return paragraphs.filter((paragraph) => {
     const paragraphEndLine = paragraph.line + paragraph.lines.length - 1
@@ -126,11 +148,37 @@ function selectChangedParagraphs(
       sentenceIndex++
     }
     const sentence = sentences[sentenceIndex]
-    return (
+    if (
       sentence !== undefined &&
       sentence.line <= paragraphEndLine &&
       sentence.endLine >= paragraph.line
-    )
+    ) {
+      return true
+    }
+
+    const paragraphStart = lineOffsets[paragraph.line - 1] ?? sourceOffset
+    const paragraphEnd =
+      (lineOffsets[paragraphEndLine - 1] ?? paragraphStart) +
+      (lines[paragraphEndLine - 1]?.length ?? 0)
+    while (
+      boundaryIndex < boundaries.length &&
+      deletionBoundaryEnd(boundaries[boundaryIndex] ?? {}) < paragraphStart
+    ) {
+      boundaryIndex++
+    }
+    for (let index = boundaryIndex; index < boundaries.length; index++) {
+      const boundary = boundaries[index]
+      if (!boundary || deletionBoundaryStart(boundary) >= paragraphEnd) break
+      if (
+        boundary.before !== undefined &&
+        boundary.after !== undefined &&
+        deletionBoundaryStart(boundary) >= paragraphStart &&
+        deletionBoundaryEnd(boundary) < paragraphEnd
+      ) {
+        return true
+      }
+    }
+    return false
   })
 }
 
@@ -141,7 +189,14 @@ const lintProse = (
   contentStarts: readonly number[],
   structuralBlanks: readonly boolean[],
   sourceOffset: number,
-  { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
+  {
+    maxSentenceWords,
+    dictionary,
+    tagger,
+    selectSentences,
+    paragraphBoundaries,
+    diffOnly,
+  }: ResolvedOptions,
 ) => {
   const allSentences = segmentSentences(lines, lines.join("\n"), structuralBlanks)
   const sentences = selectSentences(allSentences, sourceOffset)
@@ -161,6 +216,9 @@ const lintProse = (
           contentStarts.map((contentStart) => contentStart + 1),
         ),
         sentences,
+        structuralLines,
+        sourceOffset,
+        paragraphBoundaries,
       ),
     ),
     ...contraction(selectedProse),
@@ -206,26 +264,68 @@ const absoluteSentence = (sentence: Sentence, sourceOffset: number): Sentence =>
   })),
 })
 
+interface ParagraphRange {
+  readonly startOffset: number
+  readonly endOffset: number
+}
+
 interface AnalyzedText {
   readonly prose: string
   readonly sentences: readonly Sentence[]
+  readonly paragraphs: readonly ParagraphRange[]
+}
+
+function preparedParagraphs(run: ProseRun, prepared: PreparedProse): Paragraph[] {
+  return segmentParagraphs(
+    prepared.structuralLines.map((line, index) => line.slice(run.contentStarts[index] ?? 0)),
+    run.contentStarts.map((contentStart) => contentStart + 1),
+  )
+}
+
+function paragraphRanges(
+  run: ProseRun,
+  prepared: PreparedProse,
+  paragraphs: readonly Paragraph[],
+): ParagraphRange[] {
+  const lineOffsets: number[] = []
+  let nextLineOffset = run.sourceOffset
+  for (const line of prepared.structuralLines) {
+    lineOffsets.push(nextLineOffset)
+    nextLineOffset += line.length + 1
+  }
+  return paragraphs.map((paragraph) => {
+    const endLine = paragraph.line + paragraph.lines.length - 1
+    const startOffset = lineOffsets[paragraph.line - 1] ?? run.sourceOffset
+    return {
+      startOffset,
+      endOffset:
+        (lineOffsets[endLine - 1] ?? startOffset) +
+        (prepared.structuralLines[endLine - 1]?.length ?? 0),
+    }
+  })
 }
 
 const analyzeText = (kind: LintKind, text: string, options: LintOptions): AnalyzedText => {
   const prose = text
     .split("")
     .map((character) => (character === "\n" || character === "\r" ? character : " "))
-  const sentences = splitProseRuns(extract(kind, text, options)).flatMap((run) => {
+  const sentences: Sentence[] = []
+  const paragraphs: ParagraphRange[] = []
+  for (const run of splitProseRuns(extract(kind, text, options))) {
     const prepared = prepareProse(run)
     const runText = prepared.lines.join("\n")
     for (let offset = 0; offset < runText.length; offset++) {
       prose[run.sourceOffset + offset] = runText[offset] ?? " "
     }
-    return segmentSentences(prepared.lines, runText, prepared.structuralBlanks).map((sentence) =>
-      absoluteSentence(sentence, run.sourceOffset),
+    sentences.push(
+      ...segmentSentences(prepared.lines, runText, prepared.structuralBlanks).map((sentence) =>
+        absoluteSentence(sentence, run.sourceOffset),
+      ),
     )
-  })
-  return { prose: prose.join(""), sentences }
+    const segmentedParagraphs = preparedParagraphs(run, prepared)
+    paragraphs.push(...paragraphRanges(run, prepared, segmentedParagraphs))
+  }
+  return { prose: prose.join(""), sentences, paragraphs }
 }
 
 const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): Violation[] => {
@@ -377,6 +477,38 @@ function contains(sentence: Sentence, offset: number): boolean {
   return sentence.startOffset <= offset && offset < sentence.endOffset
 }
 
+function containingParagraphIndexes(
+  paragraphs: readonly ParagraphRange[],
+  offsets: readonly (number | undefined)[],
+): number[] {
+  const ordered: Array<{ offset: number; index: number }> = []
+  for (let index = 0; index < offsets.length; index++) {
+    const offset = offsets[index]
+    if (offset !== undefined) ordered.push({ offset, index })
+  }
+  ordered.sort((left, right) => left.offset - right.offset)
+
+  const result = new Array<number>(offsets.length).fill(-1)
+  let paragraphIndex = 0
+  for (const query of ordered) {
+    while (
+      paragraphIndex < paragraphs.length &&
+      (paragraphs[paragraphIndex]?.endOffset ?? 0) <= query.offset
+    ) {
+      paragraphIndex++
+    }
+    const paragraph = paragraphs[paragraphIndex]
+    if (
+      paragraph &&
+      paragraph.startOffset <= query.offset &&
+      query.offset < paragraph.endOffset
+    ) {
+      result[query.index] = paragraphIndex
+    }
+  }
+  return result
+}
+
 function newlyVisibleRanges(
   previousProse: string,
   currentProse: string,
@@ -430,11 +562,6 @@ function containingSentenceIndexes(
     if (sentence && contains(sentence, query.offset)) result[query.index] = sentenceIndex
   }
   return result
-}
-
-interface DeletionBoundary {
-  readonly before?: number
-  readonly after?: number
 }
 
 function deletionBoundaryStart(boundary: DeletionBoundary): number {
@@ -510,6 +637,54 @@ function deletionBoundaries(
       deletedFirstSentences[index] === beforeSentence
     ) {
       boundaries.push({ before })
+    }
+  }
+
+  return boundaries.sort(
+    (left, right) =>
+      deletionBoundaryStart(left) - deletionBoundaryStart(right) ||
+      deletionBoundaryEnd(left) - deletionBoundaryEnd(right),
+  )
+}
+
+function changedParagraphBoundaries(
+  previous: AnalyzedText,
+  current: AnalyzedText,
+  changes: TextChanges,
+): DeletionBoundary[] {
+  const previousStarts = changes.deletions.map((deletion) => deletion.previousStart)
+  const previousEnds = changes.deletions.map((deletion) => deletion.previousEnd)
+  const currentOffsets = changes.deletions.map((deletion) => deletion.currentOffset)
+  const previousBefore = nearestNonWhitespaceBefore(previous.prose, previousStarts)
+  const previousAfter = nearestNonWhitespaceAfter(previous.prose, previousEnds)
+  const currentBefore = nearestNonWhitespaceBefore(current.prose, currentOffsets)
+  const currentAfter = nearestNonWhitespaceAfter(current.prose, currentOffsets)
+  const previousBeforeParagraphs = containingParagraphIndexes(
+    previous.paragraphs,
+    previousBefore,
+  )
+  const previousAfterParagraphs = containingParagraphIndexes(previous.paragraphs, previousAfter)
+  const currentBeforeParagraphs = containingParagraphIndexes(current.paragraphs, currentBefore)
+  const currentAfterParagraphs = containingParagraphIndexes(current.paragraphs, currentAfter)
+  const boundaries: DeletionBoundary[] = []
+
+  for (let index = 0; index < changes.deletions.length; index++) {
+    const before = currentBefore[index]
+    const after = currentAfter[index]
+    const previousBeforeParagraph = previousBeforeParagraphs[index] ?? -1
+    const previousAfterParagraph = previousAfterParagraphs[index] ?? -1
+    const currentBeforeParagraph = currentBeforeParagraphs[index] ?? -1
+    const currentAfterParagraph = currentAfterParagraphs[index] ?? -1
+    if (
+      before !== undefined &&
+      after !== undefined &&
+      previousBeforeParagraph !== -1 &&
+      previousAfterParagraph !== -1 &&
+      previousBeforeParagraph !== previousAfterParagraph &&
+      currentBeforeParagraph !== -1 &&
+      currentBeforeParagraph === currentAfterParagraph
+    ) {
+      boundaries.push({ before, after })
     }
   }
 
@@ -723,9 +898,11 @@ function selectChangedSentences(
   return selected
 }
 
-function sentenceSelector(kind: LintKind, text: string, options: LintOptions): SentenceSelector {
+function diffSelection(kind: LintKind, text: string, options: LintOptions): DiffSelection {
   const previousText = options.previousText
-  if (previousText === undefined) return (sentences) => sentences
+  if (previousText === undefined) {
+    return { selectSentences: (sentences) => sentences, paragraphBoundaries: [] }
+  }
 
   const changes = changedText(previousText, text)
   const previous = analyzeText(kind, previousText, options)
@@ -756,20 +933,25 @@ function sentenceSelector(kind: LintKind, text: string, options: LintOptions): S
     ).map((sentence) => `${sentence.startOffset}:${sentence.endOffset}`),
   )
 
-  return (sentences, sourceOffset) =>
-    sentences.filter((sentence) => {
-      const absolute = absoluteSentence(sentence, sourceOffset)
-      return selected.has(`${absolute.startOffset}:${absolute.endOffset}`)
-    })
+  return {
+    selectSentences: (sentences, sourceOffset) =>
+      sentences.filter((sentence) => {
+        const absolute = absoluteSentence(sentence, sourceOffset)
+        return selected.has(`${absolute.startOffset}:${absolute.endOffset}`)
+      }),
+    paragraphBoundaries: changedParagraphBoundaries(previous, current, changes),
+  }
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
   const extracted = extract(kind, text, options)
+  const selection = diffSelection(kind, text, options)
   const resolved = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
-    selectSentences: sentenceSelector(kind, text, options),
+    selectSentences: selection.selectSentences,
+    paragraphBoundaries: selection.paragraphBoundaries,
     diffOnly: options.previousText !== undefined,
   }
   const raw = splitProseRuns(extracted).flatMap((run) =>
