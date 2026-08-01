@@ -1,7 +1,7 @@
 import { scanLines } from "../scan.ts"
 import type { Violation } from "../types.ts"
 
-const CONTRACTION = /\w+['’](?:t|re|ve|ll|d|m)\b/gi
+const CONTRACTION = /\b\w+['’](?:t|re|ve|ll|d|m)\b/gi
 
 // `'s` is the only ambiguous case: "repo's" is a possessive, not a
 // contraction, so only this fixed set of stems forms a real `'s` contraction.

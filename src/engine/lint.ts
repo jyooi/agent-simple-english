@@ -1,9 +1,9 @@
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
-import { type ChangedRange, type RetainedRange, type TextChanges, changedText } from "./diff.ts"
+import { type RetainedRange, changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure, maskMarkdownCode, proseVisibility } from "./markdown.ts"
-import { segmentParagraphs } from "./paragraphs.ts"
+import { blankMarkdownCodeWithStructure } from "./markdown.ts"
+import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
 import { hedging } from "./rules/hedging.ts"
@@ -19,29 +19,10 @@ import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 
 export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
-type SentenceSelector = (sentences: readonly Sentence[]) => readonly Sentence[]
-
 interface ResolvedOptions {
   readonly maxSentenceWords: number
   readonly dictionary?: Dictionary
   readonly tagger?: Tagger
-  readonly selectSentences: SentenceSelector
-  readonly diffOnly: boolean
-}
-
-function selectedProseLines(text: string, sentences: readonly Sentence[]): string[] {
-  const selected: string[] = Array.from({ length: text.length }, (_, offset) => {
-    const character = text[offset]
-    return character === "\n" || character === "\r" ? character : " "
-  })
-  for (const sentence of sentences) {
-    for (const range of sentence.contentRanges) {
-      for (let offset = range.start; offset < range.end; offset++) {
-        selected[offset] = text[offset] ?? " "
-      }
-    }
-  }
-  return selected.join("").split("\n")
 }
 
 interface ExtractedProse {
@@ -53,6 +34,38 @@ interface ExtractedProse {
 interface ProseRun extends ExtractedProse {
   readonly lineOffset: number
   readonly firstColumnOffset: number
+  readonly sourceOffset: number
+}
+
+interface PreparedProse {
+  readonly lines: readonly string[]
+  readonly structuralLines: readonly string[]
+  readonly mechanicalLines: readonly string[]
+  readonly structuralBlanks: readonly boolean[]
+}
+
+interface ViolationScope {
+  readonly kind: "sentence" | "paragraph"
+  readonly identity: string
+  readonly startOffset: number
+  readonly endOffset: number
+}
+
+interface ScopedViolation {
+  readonly violation: Violation
+  readonly scope: ViolationScope
+  readonly sentenceIdentity?: string
+  readonly occurrenceOffset?: number
+}
+
+interface SentenceScopeIndex {
+  readonly scopes: readonly ViolationScope[]
+  readonly firstScopeByLine: Int32Array
+}
+
+interface FindingSearchIndex {
+  readonly candidates: ScopedViolation[]
+  cursor: number
 }
 
 const wholeText = (text: string): ExtractedProse => {
@@ -66,6 +79,13 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
     ...extracted.proseBreaks,
     undefined,
   ]
+  const lineOffsets: number[] = []
+  let nextLineOffset = 0
+  for (const line of extracted.lines) {
+    lineOffsets.push(nextLineOffset)
+    nextLineOffset += line.length + 1
+  }
+
   return boundaries.slice(0, -1).map((start, runIndex) => {
     const end = boundaries[runIndex + 1]
     const firstLine = start?.line ?? 0
@@ -90,6 +110,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
       proseBreaks: [],
       lineOffset: firstLine,
       firstColumnOffset,
+      sourceOffset: (lineOffsets[firstLine] ?? 0) + firstColumnOffset,
     }
   })
 }
@@ -100,600 +121,405 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
   return wholeText(text)
 }
 
-const lintProse = (
-  lines: readonly string[],
-  structuralLines: readonly string[],
-  mechanicalLines: readonly string[],
-  contentStarts: readonly number[],
-  structuralBlanks: readonly boolean[],
-  { maxSentenceWords, dictionary, tagger, selectSentences, diffOnly }: ResolvedOptions,
-) => {
-  const sentences = selectSentences(segmentSentences(lines, lines.join("\n"), structuralBlanks))
-  const selectedProse = diffOnly ? selectedProseLines(lines.join("\n"), sentences) : lines
-  const selectedStructural = diffOnly
-    ? selectedProseLines(structuralLines.join("\n"), sentences)
-    : structuralLines
-  const selectedMechanical = diffOnly
-    ? selectedProseLines(mechanicalLines.join("\n"), sentences)
-    : mechanicalLines
-  return [
-    ...sentenceLength(sentences, maxSentenceWords),
-    ...paragraphLength(
-      segmentParagraphs(
-        selectedStructural.map((line, index) => line.slice(contentStarts[index] ?? 0)),
-        contentStarts.map((contentStart) => contentStart + 1),
+const prepareProse = (extracted: ProseRun): PreparedProse => {
+  const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
+  return {
+    lines: blankIdentifiers(markdown.lines),
+    structuralLines: blankIdentifiers(markdown.structuralLines),
+    mechanicalLines: blankIdentifiers(
+      extracted.lines.map((line, index) =>
+        markdown.structuralBlanks[index] ? " ".repeat(line.length) : line,
       ),
     ),
-    ...contraction(selectedProse),
-    ...semicolon(selectedMechanical),
-    ...phrasalVerb(selectedProse),
-    ...hedging(selectedProse),
-    ...marketing(selectedProse),
-    ...(dictionary === undefined
+    structuralBlanks: markdown.structuralBlanks,
+  }
+}
+
+const normalizeIdentity = (text: string): string => text.replace(/\s+/gu, " ").trim()
+
+const lineOffsets = (lines: readonly string[]): readonly number[] => {
+  const offsets: number[] = []
+  let nextOffset = 0
+  for (const line of lines) {
+    offsets.push(nextOffset)
+    nextOffset += line.length + 1
+  }
+  return offsets
+}
+
+const sentenceScope = (sentence: Sentence, sourceOffset: number): ViolationScope => ({
+  kind: "sentence",
+  identity: normalizeIdentity(sentence.text),
+  startOffset: sourceOffset + sentence.startOffset,
+  endOffset: sourceOffset + sentence.endOffset,
+})
+
+function paragraphScope(
+  paragraph: Paragraph,
+  lines: readonly string[],
+  offsets: readonly number[],
+  sourceOffset: number,
+): ViolationScope {
+  const endLine = paragraph.line + paragraph.lines.length - 1
+  const startOffset = offsets[paragraph.line - 1] ?? 0
+  return {
+    kind: "paragraph",
+    identity: normalizeIdentity(paragraph.lines.join("\n")),
+    startOffset: sourceOffset + startOffset,
+    endOffset:
+      sourceOffset + (offsets[endLine - 1] ?? startOffset) + (lines[endLine - 1]?.length ?? 0),
+  }
+}
+
+function indexSentenceScopes(
+  sentences: readonly Sentence[],
+  lineCount: number,
+  sourceOffset: number,
+): SentenceScopeIndex {
+  const scopes = sentences.map((sentence) => sentenceScope(sentence, sourceOffset))
+  const firstScopeByLine = new Int32Array(lineCount).fill(-1)
+
+  for (let scopeIndex = 0; scopeIndex < sentences.length; scopeIndex++) {
+    const sentence = sentences[scopeIndex]
+    if (sentence === undefined) continue
+    for (let line = sentence.line - 1; line < sentence.endLine; line++) {
+      if (firstScopeByLine[line] === -1) firstScopeByLine[line] = scopeIndex
+    }
+  }
+
+  return { scopes, firstScopeByLine }
+}
+
+function scopeForViolation(
+  violation: Violation,
+  sentenceIndex: SentenceScopeIndex,
+  lines: readonly string[],
+  offsets: readonly number[],
+  sourceOffset: number,
+): ViolationScope {
+  const localOffset = (offsets[violation.line - 1] ?? 0) + violation.column - 1
+  const offset = sourceOffset + localOffset
+  let low = 0
+  let high = sentenceIndex.scopes.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const scope = sentenceIndex.scopes[middle]
+    if (scope !== undefined && scope.startOffset <= offset) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+
+  const containingScope = sentenceIndex.scopes[low - 1]
+  if (
+    containingScope !== undefined &&
+    containingScope.startOffset <= offset &&
+    offset < containingScope.endOffset
+  ) {
+    return containingScope
+  }
+
+  const lineScopeIndex = sentenceIndex.firstScopeByLine[violation.line - 1] ?? -1
+  const lineScope = sentenceIndex.scopes[lineScopeIndex]
+  if (lineScope !== undefined) return lineScope
+
+  const line = lines[violation.line - 1] ?? ""
+  const startOffset = offsets[violation.line - 1] ?? 0
+  return {
+    kind: "sentence",
+    identity: normalizeIdentity(line),
+    startOffset: sourceOffset + startOffset,
+    endOffset: sourceOffset + startOffset + line.length,
+  }
+}
+
+const lintProse = (
+  prepared: PreparedProse,
+  contentStarts: readonly number[],
+  sourceOffset: number,
+  options: ResolvedOptions,
+): ScopedViolation[] => {
+  const sourceText = prepared.lines.join("\n")
+  const sentences = segmentSentences(prepared.lines, sourceText, prepared.structuralBlanks)
+  const paragraphs = segmentParagraphs(
+    prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
+    contentStarts.map((contentStart) => contentStart + 1),
+  )
+  const offsets = lineOffsets(prepared.structuralLines)
+  const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
+  const sentenceFindings = (violations: readonly Violation[]): ScopedViolation[] =>
+    violations.map((violation) => {
+      const scope = scopeForViolation(
+        violation,
+        sentenceIndex,
+        prepared.structuralLines,
+        offsets,
+        sourceOffset,
+      )
+      return {
+        violation,
+        scope,
+        sentenceIdentity: scope.identity,
+        occurrenceOffset: sourceOffset + (offsets[violation.line - 1] ?? 0) + violation.column - 1,
+      }
+    })
+
+  return [
+    ...sentences.flatMap((sentence) =>
+      sentenceLength([sentence], options.maxSentenceWords).map((violation) => ({
+        violation,
+        scope: sentenceScope(sentence, sourceOffset),
+      })),
+    ),
+    ...paragraphs.flatMap((paragraph) =>
+      paragraphLength([paragraph]).map((violation) => ({
+        violation,
+        scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
+      })),
+    ),
+    ...sentenceFindings(contraction(prepared.lines)),
+    ...sentenceFindings(semicolon(prepared.mechanicalLines)),
+    ...sentenceFindings(phrasalVerb(prepared.lines)),
+    ...sentenceFindings(hedging(prepared.lines)),
+    ...sentenceFindings(marketing(prepared.lines)),
+    ...(options.dictionary === undefined
       ? []
-      : dictionaryRule(selectedStructural, dictionary, tagger, contentStarts)),
-    ...(tagger === undefined ? [] : verbForm(selectedProse, tagger)),
+      : sentenceFindings(
+          dictionaryRule(
+            prepared.structuralLines,
+            options.dictionary,
+            options.tagger,
+            contentStarts,
+          ),
+        )),
+    ...(options.tagger === undefined
+      ? []
+      : sentenceFindings(verbForm(prepared.lines, options.tagger))),
   ]
 }
 
-const lintExtracted = (extracted: ExtractedProse, options: ResolvedOptions): Violation[] => {
-  const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
-  const prose = blankIdentifiers(markdown.lines)
-  const structuralProse = blankIdentifiers(markdown.structuralLines)
-  const mechanical = blankIdentifiers(
-    extracted.lines.map((line, index) =>
-      markdown.structuralBlanks[index] ? " ".repeat(line.length) : line,
-    ),
-  )
-  return lintProse(
-    prose,
-    structuralProse,
-    mechanical,
-    extracted.contentStarts,
-    markdown.structuralBlanks,
-    options,
-  )
+const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): ScopedViolation[] =>
+  lintProse(prepareProse(extracted), extracted.contentStarts, extracted.sourceOffset, options)
+
+function configuredFinding(
+  finding: ScopedViolation,
+  options: LintOptions,
+): ScopedViolation | undefined {
+  const setting = options.rules?.[finding.violation.ruleId]
+  if (setting === "off") return undefined
+  if (setting === undefined) return finding
+  return { ...finding, violation: { ...finding.violation, severity: setting } }
 }
 
-function nearestNonWhitespaceBefore(
-  text: string,
-  offsets: readonly number[],
-): Array<number | undefined> {
-  const ordered = offsets
-    .map((offset, index) => ({ offset, index }))
-    .sort((left, right) => left.offset - right.offset)
-  const result: Array<number | undefined> = new Array(offsets.length)
-  let cursor = 0
-  let nearest: number | undefined
-
-  for (const query of ordered) {
-    while (cursor < query.offset && cursor < text.length) {
-      if (!/\s/u.test(text[cursor] ?? "")) nearest = cursor
-      cursor++
-    }
-    result[query.index] = nearest
-  }
-
-  return result
-}
-
-function nearestNonWhitespaceAfter(
-  text: string,
-  offsets: readonly number[],
-): Array<number | undefined> {
-  const ordered = offsets
-    .map((offset, index) => ({ offset, index }))
-    .sort((left, right) => right.offset - left.offset)
-  const result: Array<number | undefined> = new Array(offsets.length)
-  let cursor = text.length - 1
-  let nearest: number | undefined
-
-  for (const query of ordered) {
-    while (cursor >= query.offset) {
-      if (!/\s/u.test(text[cursor] ?? "")) nearest = cursor
-      cursor--
-    }
-    result[query.index] = nearest
-  }
-
-  return result
-}
-
-interface CorrespondingOffset {
-  readonly current: number
-  readonly previous: number
-}
-
-function nearestRetainedProseBefore(
-  text: string,
-  retained: readonly RetainedRange[],
-  offsets: readonly number[],
-): Array<CorrespondingOffset | undefined> {
-  const ordered = offsets
-    .map((offset, index) => ({ offset, index }))
-    .sort((left, right) => left.offset - right.offset)
-  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
-  let cursor = 0
-  let retainedIndex = 0
-  let nearest: CorrespondingOffset | undefined
-
-  for (const query of ordered) {
-    while (cursor < query.offset && cursor < text.length) {
-      while (
-        retainedIndex < retained.length &&
-        (retained[retainedIndex]?.currentStart ?? 0) + (retained[retainedIndex]?.length ?? 0) <=
-          cursor
-      ) {
-        retainedIndex++
-      }
-      const range = retained[retainedIndex]
-      if (
-        range &&
-        range.currentStart <= cursor &&
-        cursor < range.currentStart + range.length &&
-        !/\s/u.test(text[cursor] ?? "")
-      ) {
-        nearest = {
-          current: cursor,
-          previous: range.previousStart + cursor - range.currentStart,
-        }
-      }
-      cursor++
-    }
-    result[query.index] = nearest
-  }
-
-  return result
-}
-
-function nearestRetainedProseAfter(
-  text: string,
-  retained: readonly RetainedRange[],
-  offsets: readonly number[],
-): Array<CorrespondingOffset | undefined> {
-  const ordered = offsets
-    .map((offset, index) => ({ offset, index }))
-    .sort((left, right) => right.offset - left.offset)
-  const result: Array<CorrespondingOffset | undefined> = new Array(offsets.length)
-  let cursor = text.length - 1
-  let retainedIndex = retained.length - 1
-  let nearest: CorrespondingOffset | undefined
-
-  for (const query of ordered) {
-    while (cursor >= query.offset) {
-      while (
-        retainedIndex >= 0 &&
-        cursor < (retained[retainedIndex]?.currentStart ?? Number.POSITIVE_INFINITY)
-      ) {
-        retainedIndex--
-      }
-      const range = retained[retainedIndex]
-      if (
-        range &&
-        range.currentStart <= cursor &&
-        cursor < range.currentStart + range.length &&
-        !/\s/u.test(text[cursor] ?? "")
-      ) {
-        nearest = {
-          current: cursor,
-          previous: range.previousStart + cursor - range.currentStart,
-        }
-      }
-      cursor--
-    }
-    result[query.index] = nearest
-  }
-
-  return result
-}
-
-function contains(sentence: Sentence, offset: number): boolean {
-  return sentence.startOffset <= offset && offset < sentence.endOffset
-}
-
-function newlyVisibleRanges(
-  previousText: string,
-  text: string,
-  changes: TextChanges,
-): ChangedRange[] {
-  const previousVisibility = proseVisibility(previousText)
-  const currentVisibility = proseVisibility(text)
-  const ranges: ChangedRange[] = []
-
-  for (const retained of changes.retained) {
-    let rangeStart: number | undefined
-    for (let index = 0; index < retained.length; index++) {
-      const previousOffset = retained.previousStart + index
-      const currentOffset = retained.currentStart + index
-      const newlyVisible =
-        previousVisibility[previousOffset] === 0 && currentVisibility[currentOffset] === 1
-      if (newlyVisible && rangeStart === undefined) rangeStart = currentOffset
-      if (!newlyVisible && rangeStart !== undefined) {
-        ranges.push({ start: rangeStart, end: currentOffset })
-        rangeStart = undefined
-      }
-    }
-    if (rangeStart !== undefined) {
-      ranges.push({ start: rangeStart, end: retained.currentStart + retained.length })
-    }
-  }
-
-  return ranges
-}
-
-function containingSentenceIndexes(
-  sentences: readonly Sentence[],
-  offsets: readonly (number | undefined)[],
-): number[] {
-  const ordered: Array<{ offset: number; index: number }> = []
-  for (let index = 0; index < offsets.length; index++) {
-    const offset = offsets[index]
-    if (offset !== undefined) ordered.push({ offset, index })
-  }
-  ordered.sort((left, right) => left.offset - right.offset)
-
-  const result = new Array<number>(offsets.length).fill(-1)
-  let sentenceIndex = 0
-  for (const query of ordered) {
-    while (
-      sentenceIndex < sentences.length &&
-      (sentences[sentenceIndex]?.endOffset ?? 0) <= query.offset
-    ) {
-      sentenceIndex++
-    }
-    const sentence = sentences[sentenceIndex]
-    if (sentence && contains(sentence, query.offset)) result[query.index] = sentenceIndex
-  }
-  return result
-}
-
-interface DeletionBoundary {
-  readonly before?: number
-  readonly after?: number
-}
-
-function deletionBoundaryStart(boundary: DeletionBoundary): number {
-  return boundary.before ?? boundary.after ?? Number.POSITIVE_INFINITY
-}
-
-function deletionBoundaryEnd(boundary: DeletionBoundary): number {
-  return boundary.after ?? boundary.before ?? Number.NEGATIVE_INFINITY
-}
-
-function deletionBoundaries(
-  previousProse: string,
-  currentProse: string,
-  previousSentences: readonly Sentence[],
-  changes: TextChanges,
-): DeletionBoundary[] {
-  const previousStarts = changes.deletions.map((deletion) => deletion.previousStart)
-  const previousEnds = changes.deletions.map((deletion) => deletion.previousEnd)
-  const currentOffsets = changes.deletions.map((deletion) => deletion.currentOffset)
-  const oldBefore = nearestNonWhitespaceBefore(previousProse, previousStarts)
-  const oldAfter = nearestNonWhitespaceAfter(previousProse, previousEnds)
-  const newBefore = nearestNonWhitespaceBefore(currentProse, currentOffsets)
-  const newAfter = nearestNonWhitespaceAfter(currentProse, currentOffsets)
-  const deletedFirst = nearestNonWhitespaceAfter(previousProse, previousStarts).map(
-    (offset, index) =>
-      offset !== undefined && offset < (changes.deletions[index]?.previousEnd ?? 0)
-        ? offset
-        : undefined,
-  )
-  const deletedLast = nearestNonWhitespaceBefore(previousProse, previousEnds).map(
-    (offset, index) =>
-      offset !== undefined && offset >= (changes.deletions[index]?.previousStart ?? 0)
-        ? offset
-        : undefined,
-  )
-  const oldBeforeSentences = containingSentenceIndexes(previousSentences, oldBefore)
-  const oldAfterSentences = containingSentenceIndexes(previousSentences, oldAfter)
-  const deletedFirstSentences = containingSentenceIndexes(previousSentences, deletedFirst)
-  const deletedLastSentences = containingSentenceIndexes(previousSentences, deletedLast)
-  const boundaries: DeletionBoundary[] = []
-
-  for (let index = 0; index < changes.deletions.length; index++) {
-    const deletion = changes.deletions[index]
-    const before = newBefore[index]
-    const after = newAfter[index]
-    if (deletion === undefined || (before === undefined && after === undefined)) continue
-
-    const beforeSentence = oldBeforeSentences[index] ?? -1
-    const afterSentence = oldAfterSentences[index] ?? -1
-    const deletedProse = previousProse.slice(deletion.previousStart, deletion.previousEnd)
-
-    if (before !== undefined && after !== undefined) {
-      if (beforeSentence === -1 || afterSentence === -1) continue
-      const previousTogether = beforeSentence === afterSentence
-      if (previousTogether && !/\S/u.test(deletedProse) && before + 1 < after) continue
-      boundaries.push({ before, after })
-      continue
-    }
-
-    if (!/\S/u.test(deletedProse)) continue
-    if (
-      before === undefined &&
-      after !== undefined &&
-      afterSentence !== -1 &&
-      deletedLastSentences[index] === afterSentence
-    ) {
-      boundaries.push({ after })
-    }
-    if (
-      after === undefined &&
-      before !== undefined &&
-      beforeSentence !== -1 &&
-      deletedFirstSentences[index] === beforeSentence
-    ) {
-      boundaries.push({ before })
-    }
-  }
-
-  return boundaries.sort(
-    (left, right) =>
-      deletionBoundaryStart(left) - deletionBoundaryStart(right) ||
-      deletionBoundaryEnd(left) - deletionBoundaryEnd(right),
-  )
-}
-
-function normalizeRanges(ranges: readonly ChangedRange[]): ChangedRange[] {
-  const ordered = ranges
-    .filter((range) => range.start < range.end)
-    .sort((left, right) => left.start - right.start || left.end - right.end)
-  const normalized: ChangedRange[] = []
-
-  for (const range of ordered) {
-    const last = normalized.at(-1)
-    if (last && range.start <= last.end) {
-      normalized[normalized.length - 1] = {
-        start: last.start,
-        end: Math.max(last.end, range.end),
-      }
-    } else {
-      normalized.push(range)
-    }
-  }
-
-  return normalized
-}
-
-function changedSentenceIdentityIndexes(
-  previousSentences: readonly Sentence[],
-  currentSentences: readonly Sentence[],
-  previousProse: string,
-  currentProse: string,
-  changes: TextChanges,
-): ReadonlySet<number> {
-  const insertedRanges = normalizeRanges(changes.ranges)
-  const before = nearestRetainedProseBefore(
-    currentProse,
-    changes.retained,
-    insertedRanges.map((range) => range.start),
-  )
-  const after = nearestRetainedProseAfter(
-    currentProse,
-    changes.retained,
-    insertedRanges.map((range) => range.end),
-  )
-  const retainedOffsets = [...before, ...after]
-  const currentIndexes = containingSentenceIndexes(
-    currentSentences,
-    retainedOffsets.map((offset) => offset?.current),
-  )
-  const previousIndexes = containingSentenceIndexes(
-    previousSentences,
-    retainedOffsets.map((offset) => offset?.previous),
-  )
-  const deletionBeforeOffsets = nearestNonWhitespaceBefore(
-    previousProse,
-    changes.deletions.map((deletion) => deletion.previousEnd),
-  ).map((offset, index) =>
-    offset !== undefined && offset >= (changes.deletions[index]?.previousStart ?? 0)
-      ? offset
-      : undefined,
-  )
-  const deletionAfterOffsets = nearestNonWhitespaceAfter(
-    previousProse,
-    changes.deletions.map((deletion) => deletion.previousStart),
-  ).map((offset, index) =>
-    offset !== undefined && offset < (changes.deletions[index]?.previousEnd ?? 0)
-      ? offset
-      : undefined,
-  )
-  const deletionBeforeIndexes = containingSentenceIndexes(previousSentences, deletionBeforeOffsets)
-  const deletionAfterIndexes = containingSentenceIndexes(previousSentences, deletionAfterOffsets)
-  const deletionEdges = changes.deletions
-    .map((deletion, index) => ({
-      currentOffset: deletion.currentOffset,
-      beforeSentence: deletionBeforeIndexes[index] ?? -1,
-      afterSentence: deletionAfterIndexes[index] ?? -1,
-    }))
-    .sort((left, right) => left.currentOffset - right.currentOffset)
-  const changed = new Set<number>()
-  let deletionIndex = 0
-
-  for (let rangeIndex = 0; rangeIndex < insertedRanges.length; rangeIndex++) {
-    const range = insertedRanges[rangeIndex]
-    if (!range) continue
-    const beforeOffset = before[rangeIndex]
-    const afterOffset = after[rangeIndex]
-    const beforeCurrent = currentIndexes[rangeIndex] ?? -1
-    const afterCurrent = currentIndexes[insertedRanges.length + rangeIndex] ?? -1
-    const beforePrevious = previousIndexes[rangeIndex] ?? -1
-    const afterPrevious = previousIndexes[insertedRanges.length + rangeIndex] ?? -1
-    const hasBefore = beforeOffset !== undefined && beforeCurrent !== -1 && beforePrevious !== -1
-    const hasAfter = afterOffset !== undefined && afterCurrent !== -1 && afterPrevious !== -1
-
-    if (hasBefore && hasAfter) {
-      const previousTogether = beforePrevious === afterPrevious
-      const currentTogether = beforeCurrent === afterCurrent
-      if (previousTogether !== currentTogether) {
-        changed.add(beforeCurrent)
-        changed.add(afterCurrent)
-      } else if (
-        previousTogether &&
-        currentTogether &&
-        beforeOffset.previous + 1 === afterOffset.previous &&
-        beforeOffset.current + 1 < afterOffset.current
-      ) {
-        let separatorOnly = true
-        for (let offset = range.start; offset < range.end; offset++) {
-          if (!/\s/u.test(currentProse[offset] ?? "")) {
-            separatorOnly = false
-            break
-          }
-        }
-        if (separatorOnly) changed.add(beforeCurrent)
-      }
-    }
-
-    while (
-      deletionIndex < deletionEdges.length &&
-      (deletionEdges[deletionIndex]?.currentOffset ?? 0) < range.start
-    ) {
-      deletionIndex++
-    }
-    for (
-      let localDeletion = deletionIndex;
-      localDeletion < deletionEdges.length &&
-      (deletionEdges[localDeletion]?.currentOffset ?? Number.POSITIVE_INFINITY) <= range.end;
-      localDeletion++
-    ) {
-      const deletion = deletionEdges[localDeletion]
-      if (!deletion) continue
-      if (!hasBefore && hasAfter && deletion.beforeSentence === afterPrevious) {
-        changed.add(afterCurrent)
-      }
-      if (hasBefore && !hasAfter && deletion.afterSentence === beforePrevious) {
-        changed.add(beforeCurrent)
-      }
-    }
-  }
-
-  return changed
-}
-
-function selectChangedSentences(
-  sentences: readonly Sentence[],
-  changedRanges: readonly ChangedRange[],
-  deletionBoundaries: readonly DeletionBoundary[],
-  changedSentenceIndexes: ReadonlySet<number>,
-): Sentence[] {
-  const selected: Sentence[] = []
-  let rangeIndex = 0
-  let boundaryIndex = 0
-
-  for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
-    const sentence = sentences[sentenceIndex]
-    if (!sentence) continue
-    while (
-      rangeIndex < changedRanges.length &&
-      (changedRanges[rangeIndex]?.end ?? 0) <= sentence.startOffset
-    ) {
-      rangeIndex++
-    }
-    let intersectsRange = false
-    for (const contentRange of sentence.contentRanges) {
-      while (
-        rangeIndex < changedRanges.length &&
-        (changedRanges[rangeIndex]?.end ?? 0) <= contentRange.start
-      ) {
-        rangeIndex++
-      }
-      const range = changedRanges[rangeIndex]
-      if (range && range.start < contentRange.end && range.end > contentRange.start) {
-        intersectsRange = true
-        break
-      }
-    }
-
-    while (
-      boundaryIndex < deletionBoundaries.length &&
-      deletionBoundaryEnd(deletionBoundaries[boundaryIndex] ?? {}) < sentence.startOffset
-    ) {
-      boundaryIndex++
-    }
-    let nextBoundary = boundaryIndex
-    let containsBoundary = false
-    while (
-      nextBoundary < deletionBoundaries.length &&
-      deletionBoundaryStart(deletionBoundaries[nextBoundary] ?? {}) < sentence.endOffset
-    ) {
-      const boundary = deletionBoundaries[nextBoundary]
-      if (
-        boundary &&
-        (boundary.before === undefined || contains(sentence, boundary.before)) &&
-        (boundary.after === undefined || contains(sentence, boundary.after))
-      ) {
-        containsBoundary = true
-      }
-      nextBoundary++
-    }
-    boundaryIndex = nextBoundary
-
-    if (intersectsRange || containsBoundary || changedSentenceIndexes.has(sentenceIndex)) {
-      selected.push(sentence)
-    }
-  }
-
-  return selected
-}
-
-function sentenceSelector(text: string, previousText: string | undefined): SentenceSelector {
-  if (previousText === undefined) return (sentences) => sentences
-
-  const changes = changedText(previousText, text)
-  const previousProse = maskMarkdownCode(previousText)
-  const currentProse = maskMarkdownCode(text)
-  const changedRanges = normalizeRanges([
-    ...changes.ranges,
-    ...newlyVisibleRanges(previousText, text, changes),
-  ])
-  const previousSentences = segmentSentences(previousProse.split("\n"), previousText)
-  const changedDeletionBoundaries = deletionBoundaries(
-    previousProse,
-    currentProse,
-    previousSentences,
-    changes,
-  )
-
-  return (sentences) =>
-    selectChangedSentences(
-      sentences,
-      changedRanges,
-      changedDeletionBoundaries,
-      changedSentenceIdentityIndexes(
-        previousSentences,
-        sentences,
-        previousProse,
-        currentProse,
-        changes,
-      ),
-    )
-}
-
-export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const extracted = extract(kind, text, options)
-  const resolved = {
+function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedViolation[] {
+  const resolved: ResolvedOptions = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
     tagger: options.tagger,
-    selectSentences: sentenceSelector(text, options.previousText),
-    diffOnly: options.previousText !== undefined,
   }
-  const raw = splitProseRuns(extracted).flatMap((run) =>
-    lintExtracted(run, resolved).map((violation) => ({
-      ...violation,
-      line: violation.line + run.lineOffset,
-      column: violation.column + (violation.line === 1 ? run.firstColumnOffset : 0),
-    })),
-  )
-  const violations: Violation[] = raw
-    .flatMap((violation) => {
-      const setting = options.rules?.[violation.ruleId]
-      if (setting === undefined) return [violation]
-      return setting === "off" ? [] : [{ ...violation, severity: setting }]
+  return splitProseRuns(extract(kind, text, options))
+    .flatMap((run) =>
+      lintExtracted(run, resolved).map((finding) => ({
+        ...finding,
+        violation: {
+          ...finding.violation,
+          line: finding.violation.line + run.lineOffset,
+          column:
+            finding.violation.column + (finding.violation.line === 1 ? run.firstColumnOffset : 0),
+        },
+      })),
+    )
+    .flatMap((finding) => {
+      const configured = configuredFinding(finding, options)
+      return configured === undefined ? [] : [configured]
     })
-    .sort((left, right) => left.line - right.line || left.column - right.column)
+    .sort(
+      (left, right) =>
+        left.violation.line - right.violation.line ||
+        left.violation.column - right.violation.column,
+    )
+}
+
+const findingKey = (finding: ScopedViolation): string =>
+  `${finding.violation.ruleId}\u0000${finding.scope.kind}\u0000${finding.sentenceIdentity ?? ""}`
+
+type RetainedSide = "current" | "previous"
+
+function firstRetainedIndex(
+  retained: readonly RetainedRange[],
+  offset: number,
+  side: RetainedSide,
+): number {
+  let low = 0
+  let high = retained.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const range = retained[middle]
+    const start = side === "current" ? range?.currentStart : range?.previousStart
+    if (range !== undefined && (start ?? 0) + range.length <= offset) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  return low
+}
+
+function retainedScopeMapsInto(
+  source: ViolationScope,
+  target: ViolationScope,
+  retained: readonly RetainedRange[],
+  sourceSide: RetainedSide,
+): boolean {
+  let mapped = false
+  for (
+    let index = firstRetainedIndex(retained, source.startOffset, sourceSide);
+    index < retained.length;
+    index++
+  ) {
+    const range = retained[index]
+    if (range === undefined) break
+    const sourceStart = sourceSide === "current" ? range.currentStart : range.previousStart
+    const targetStart = sourceSide === "current" ? range.previousStart : range.currentStart
+    if (sourceStart >= source.endOffset) break
+    const overlapStart = Math.max(source.startOffset, sourceStart)
+    const overlapEnd = Math.min(source.endOffset, sourceStart + range.length)
+    if (overlapStart >= overlapEnd) continue
+    mapped = true
+    const mappedStart = targetStart + overlapStart - sourceStart
+    const mappedEnd = targetStart + overlapEnd - sourceStart
+    if (mappedStart < target.startOffset || mappedEnd > target.endOffset) return false
+  }
+  return mapped
+}
+
+function scopesCorrespond(
+  previous: ViolationScope,
+  current: ViolationScope,
+  retained: readonly RetainedRange[],
+): boolean {
+  return (
+    retainedScopeMapsInto(current, previous, retained, "current") &&
+    retainedScopeMapsInto(previous, current, retained, "previous")
+  )
+}
+
+function firstMappedPreviousOffset(
+  scope: ViolationScope,
+  retained: readonly RetainedRange[],
+): number | undefined {
+  for (
+    let index = firstRetainedIndex(retained, scope.startOffset, "current");
+    index < retained.length;
+    index++
+  ) {
+    const range = retained[index]
+    if (range === undefined || range.currentStart >= scope.endOffset) break
+    const overlapStart = Math.max(scope.startOffset, range.currentStart)
+    const overlapEnd = Math.min(scope.endOffset, range.currentStart + range.length)
+    if (overlapStart < overlapEnd) {
+      return range.previousStart + overlapStart - range.currentStart
+    }
+  }
+  return undefined
+}
+
+function mappedPreviousOffset(
+  offset: number,
+  retained: readonly RetainedRange[],
+): number | undefined {
+  const range = retained[firstRetainedIndex(retained, offset, "current")]
+  if (
+    range === undefined ||
+    offset < range.currentStart ||
+    offset >= range.currentStart + range.length
+  ) {
+    return undefined
+  }
+  return range.previousStart + offset - range.currentStart
+}
+
+function newFindings(
+  previous: readonly ScopedViolation[],
+  current: readonly ScopedViolation[],
+  retained: readonly RetainedRange[],
+): ScopedViolation[] {
+  const previousByKey = new Map<string, FindingSearchIndex>()
+  for (const finding of previous) {
+    const key = findingKey(finding)
+    const index = previousByKey.get(key)
+    if (index === undefined) {
+      previousByKey.set(key, { candidates: [finding], cursor: 0 })
+    } else {
+      index.candidates.push(finding)
+    }
+  }
+
+  const findings: ScopedViolation[] = []
+  for (const finding of current) {
+    const index = previousByKey.get(findingKey(finding))
+    const mappedScopeOffset = firstMappedPreviousOffset(finding.scope, retained)
+    const mappedOccurrenceOffset =
+      finding.occurrenceOffset === undefined
+        ? undefined
+        : mappedPreviousOffset(finding.occurrenceOffset, retained)
+    if (
+      index === undefined ||
+      mappedScopeOffset === undefined ||
+      (finding.occurrenceOffset !== undefined && mappedOccurrenceOffset === undefined)
+    ) {
+      findings.push(finding)
+      continue
+    }
+
+    let matched = false
+    while (index.cursor < index.candidates.length) {
+      const candidate = index.candidates[index.cursor]
+      if (candidate === undefined) break
+      if (candidate.scope.endOffset <= mappedScopeOffset) {
+        index.cursor++
+        continue
+      }
+      if (candidate.scope.startOffset > mappedScopeOffset) break
+      if (!scopesCorrespond(candidate.scope, finding.scope, retained)) {
+        index.cursor++
+        continue
+      }
+      if (finding.occurrenceOffset === undefined) {
+        index.cursor++
+        matched = true
+        break
+      }
+      if (
+        candidate.occurrenceOffset !== undefined &&
+        candidate.occurrenceOffset < (mappedOccurrenceOffset ?? 0)
+      ) {
+        index.cursor++
+        continue
+      }
+      if (candidate.occurrenceOffset !== mappedOccurrenceOffset) break
+      index.cursor++
+      matched = true
+      break
+    }
+    if (!matched) findings.push(finding)
+  }
+
+  return findings
+}
+
+export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
+  const current = evaluate(kind, text, options)
+  const findings =
+    options.previousText === undefined
+      ? current
+      : newFindings(
+          evaluate(kind, options.previousText, options),
+          current,
+          changedText(options.previousText, text).retained,
+        )
+  const violations = findings.map((finding) => finding.violation)
   return {
     violations,
     summary: {

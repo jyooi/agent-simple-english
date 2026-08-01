@@ -19,6 +19,7 @@ export interface CliOptions {
   home?: string
   xdgConfigHome?: string
   agentDir?: string
+  preload?: string
 }
 
 export const makeTempDir = (): Promise<string> => mkdtemp(join(tmpdir(), "ste-cli-"))
@@ -37,7 +38,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
   return new Promise((resolve, reject) => {
     const child = execFile(
       "bun",
-      [cliPath, ...args],
+      [...(options.preload === undefined ? [] : ["--preload", options.preload]), cliPath, ...args],
       { cwd: options.cwd ?? repoRoot, env },
       (error, stdout, stderr) => {
         const code = error && typeof error.code === "number" ? error.code : 0
