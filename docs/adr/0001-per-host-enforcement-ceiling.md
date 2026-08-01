@@ -7,10 +7,11 @@ We do not reduce all hosts to one common enforcement level or limit new hosts to
 The host ceilings differ.
 Pi gets prompt rules, write and edit gates, commit gates, reply feedback, and strict reply gates.
 Claude Code gets prompt rules through SessionStart and write, edit, and commit gates through PreToolUse.
-Claude Code has no reply check or strict mode.
+It gets deferred reply feedback through Stop and UserPromptSubmit, but it has no strict reply gate.
 We accept and document the host differences.
 
 A host ceiling can increase when its extension surface changes.
+[ADR 0002](0002-claude-code-reply-feedback.md) defines the Claude Code reply feedback design.
 
 Codex support is deferred, not designed around: its hook system is feature-flagged, intercepts only the Bash tool, and cannot gate `apply_patch` file writes, so its ceiling today is too low to justify an adapter.
 Revisit when Codex hooks stabilize; under this decision that is a new adapter, not a redesign.

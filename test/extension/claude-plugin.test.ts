@@ -55,10 +55,15 @@ describe("Claude Code plugin wiring", () => {
     ])
   })
 
-  test("registers only the SessionStart and gated PreToolUse hooks", async () => {
+  test("registers the session, tool gate, and reply feedback hooks", async () => {
     const hookFile = (await readJson(hooksPath)) as HooksFile
 
-    expect(Object.keys(hookFile.hooks).sort()).toEqual(["PreToolUse", "SessionStart"])
+    expect(Object.keys(hookFile.hooks).sort()).toEqual([
+      "PreToolUse",
+      "SessionStart",
+      "Stop",
+      "UserPromptSubmit",
+    ])
     expect(hookFile.hooks.SessionStart).toEqual([
       {
         hooks: [
@@ -80,6 +85,18 @@ describe("Claude Code plugin wiring", () => {
         ],
       },
     ])
+    for (const hookName of ["Stop", "UserPromptSubmit"] as const) {
+      expect(hookFile.hooks[hookName]).toEqual([
+        {
+          hooks: [
+            expect.objectContaining({
+              type: "command",
+              command: expect.stringContaining('src/cli/main.ts" hook'),
+            }),
+          ],
+        },
+      ])
+    }
   })
 
   test("references CLI entry points that exist in the plugin", async () => {
@@ -88,7 +105,7 @@ describe("Claude Code plugin wiring", () => {
       registrations.flatMap((registration) => registration.hooks.map((hook) => hook.command)),
     )
 
-    expect(commands).toHaveLength(2)
+    expect(commands).toHaveLength(4)
     for (const command of commands) {
       const match = command.match(/^cd "\$\{CLAUDE_PLUGIN_ROOT\}" && bun "([^"]+)" hook$/u)
       expect(match).not.toBeNull()

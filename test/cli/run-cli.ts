@@ -18,6 +18,7 @@ export interface CliOptions {
   cwd?: string
   home?: string
   xdgConfigHome?: string
+  xdgStateHome?: string
   agentDir?: string
   preload?: string
   dictionaryPath?: string
@@ -34,6 +35,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     ...process.env,
     HOME: home,
     XDG_CONFIG_HOME: options.xdgConfigHome ?? join(home, ".config"),
+    XDG_STATE_HOME: options.xdgStateHome ?? join(home, ".local", "state"),
     PI_CODING_AGENT_DIR: options.agentDir,
     ...(options.dictionaryPath === undefined
       ? {}
