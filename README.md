@@ -1,6 +1,6 @@
-# simple-english
+# agent-simple-english
 
-`simple-english` checks ASD-STE100 Simplified Technical English (STE).
+`agent-simple-english` checks ASD-STE100 Simplified Technical English (STE).
 It supplies one Engine, one CLI, a pi Adapter, and a Claude Code Adapter.
 The Claude Code plugin uses CLI Hook mode to enforce the same rules.
 

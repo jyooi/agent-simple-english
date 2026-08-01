@@ -1,4 +1,4 @@
-# Simple English (STE) Toolkit
+# agent-simple-english
 
 A lint engine for ASD-STE100 Simplified Technical English, enforced inside coding agents.
 One agent-agnostic engine; one adapter per host.
