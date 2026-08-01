@@ -170,6 +170,14 @@ describe("simple-english CLI config", () => {
     expect(result.stderr).toContain("--config")
   })
 
+  test("rejects an option token as a --config path", async () => {
+    const result = await runCli(["--config", "--json", "/tmp/t"])
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("--config requires a file path")
+    expect(result.stderr).not.toContain("config file --json")
+  })
+
   test("defaults apply when no config files exist", async () => {
     const cwd = await makeProject()
     const result = await runCli([], { cwd, stdin: tenWords })
