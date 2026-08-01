@@ -78,13 +78,11 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
-  test("editing content within a multi-line sentence reports it", () => {
+  test("editing content within a violating sentence does not report it again", () => {
     const previous = `${words(15)}\n${words(15)}.`
     const current = `${words(15)}\n${words(14)} changed.`
-    const report = lint("prose-file", current, { previousText: previous })
 
-    expect(report.violations).toHaveLength(1)
-    expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
   test("appending whitespace does not report an unchanged unterminated sentence", () => {
@@ -272,6 +270,13 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
   })
 
+  test("editing a pre-existing overlong paragraph does not report it again", () => {
+    const previous = "One. Two. Three. Four. Five. Six. Seven."
+    const current = "One. Two. Three. Four. Five. Six. Changed."
+
+    expect(lint("prose-file", current, { previousText: previous }).violations).toHaveLength(0)
+  })
+
   test("replacing a short line does not report an unchanged neighboring sentence", () => {
     const longSentence = `${words(30)}.`
     const previous = `${longSentence}\nOld short middle.\nA short closing sentence.`
@@ -335,7 +340,7 @@ describe("lint prose-file: diff-only linting via previousText", () => {
   })
 
   test("the aggregate diff budget bounds many large changed chunks", () => {
-    const oldLine = `${"old ".repeat(248)}old.`
+    const oldLine = `\`${"old ".repeat(248)}old.\``
     const newLine = `${"new ".repeat(248)}new.`
     const previous = Array.from({ length: 1000 }, (_, index) =>
       index % 2 === 0 ? `Anchor ${index}.` : oldLine,
@@ -343,7 +348,10 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     const current = Array.from({ length: 1000 }, (_, index) =>
       index % 2 === 0 ? `Anchor ${index}.` : newLine,
     ).join("\n")
-    const report = lint("prose-file", current, { previousText: previous })
+    const report = lint("prose-file", current, {
+      previousText: previous,
+      rules: { "paragraph-length": "off" },
+    })
 
     expect(report.violations).toHaveLength(500)
     expect(report.violations.at(0)).toMatchObject({ line: 2, column: 1 })

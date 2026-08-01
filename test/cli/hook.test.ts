@@ -159,6 +159,26 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 1, column 1 [paragraph-length]")
   })
 
+  test("denies an Edit that merges paragraphs by deleting a heading marker", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "One. Two. Three. Four.\n# Heading.\nFive. Six. Seven.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "# Heading.",
+        new_string: "Heading.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 1, column 1 [paragraph-length]")
+  })
+
   test("does not report an untouched paragraph with seven sentences", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "notes.md")
