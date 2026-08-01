@@ -6,7 +6,7 @@ import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-me
 import { formatViolations } from "../adapter/feedback.ts"
 import { ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
-import { loadDictionary } from "../dictionary/load.ts"
+import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
@@ -513,12 +513,25 @@ const readSessionControl = (sessionId: string) =>
 
 const loadLintOptions = (cwd: string, tagger: Tagger) => {
   const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
-  return Effect.all({
-    config: loadConfig(undefined, cwd),
-    dictionary: loadDictionary(
-      dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
+  return loadConfig(undefined, cwd).pipe(
+    Effect.flatMap((config) =>
+      Effect.all({
+        dictionary: loadDictionary(
+          dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
+        ),
+        ruleData: loadRuleData(config.ruleDataExtensions, cwd),
+      }).pipe(
+        Effect.map(
+          ({ dictionary, ruleData }): LintOptions => ({
+            ...config,
+            dictionary,
+            ruleData,
+            tagger,
+          }),
+        ),
+      ),
     ),
-  }).pipe(Effect.map(({ config, dictionary }): LintOptions => ({ ...config, dictionary, tagger })))
+  )
 }
 
 function splitViolations(violations: readonly Violation[]): {

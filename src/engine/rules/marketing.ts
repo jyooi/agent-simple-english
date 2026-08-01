@@ -1,59 +1,37 @@
+import type { Dictionary } from "../../dictionary/schema.ts"
 import { TOKEN_RUN_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
-
-const MARKETING_WORDS = [
-  "seamless",
-  "seamlessly",
-  "robust",
-  "powerful",
-  "cutting-edge",
-  "effortless",
-  "effortlessly",
-  "world-class",
-  "next-generation",
-  "revolutionary",
-  "blazing",
-  "lightning-fast",
-  "elegant",
-  "delightful",
-  "turnkey",
-  "best-in-class",
-  "state-of-the-art",
-  "game-changing",
-  "battle-tested",
-  "enterprise-grade",
-  "supercharge",
-  "unleash",
-  "empower",
-  "empowers",
-]
-
-const MARKETING_SET = new Set(MARKETING_WORDS)
 
 interface MarketingMatch {
   readonly found: string
   readonly offset: number
 }
 
-function findMarketingLanguage(token: string): MarketingMatch | undefined {
+function findMarketingLanguage(
+  token: string,
+  marketingWords: ReadonlySet<string>,
+): MarketingMatch | undefined {
   const normalized = token.toLowerCase()
-  if (MARKETING_SET.has(normalized)) {
+  if (marketingWords.has(normalized)) {
     return { found: normalized, offset: 0 }
   }
 
   let offset = 0
   for (const part of normalized.split("-")) {
-    if (MARKETING_SET.has(part)) {
+    if (marketingWords.has(part)) {
       return { found: part, offset }
     }
     offset += part.length + 1
   }
 }
 
-export function marketing(lines: readonly string[]): Violation[] {
+export function marketing(lines: readonly string[], dictionary: Dictionary): Violation[] {
+  const marketingWords = new Set(
+    dictionary.entries.flatMap((entry) => entry.unapproved.map((word) => word.toLowerCase())),
+  )
   return lines.flatMap((line, lineIndex) =>
     Array.from(line.matchAll(TOKEN_RUN_PATTERN)).flatMap((tokenMatch) => {
-      const match = findMarketingLanguage(tokenMatch[0])
+      const match = findMarketingLanguage(tokenMatch[0], marketingWords)
       if (!match) {
         return []
       }

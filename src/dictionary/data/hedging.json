@@ -1,0 +1,22 @@
+{
+  "formatVersion": 1,
+  "source": {
+    "name": "agent-simple-english hedging list",
+    "repository": "https://github.com/jyooi/agent-simple-english",
+    "commit": "20a8ea5f3881c37620f9ab7808e2c930320ef0ef",
+    "path": "src/engine/rules/hedging.ts"
+  },
+  "entries": [
+    {
+      "unapproved": [
+        "it is important to note",
+        "it should be noted",
+        "it is worth noting",
+        "please note that",
+        "as mentioned",
+        "as noted above"
+      ],
+      "suggestions": ["delete"]
+    }
+  ]
+}

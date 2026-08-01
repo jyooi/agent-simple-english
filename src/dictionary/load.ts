@@ -1,9 +1,17 @@
 import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, ParseResult, Schema } from "effect"
+import type { RuleData, RuleDataExtensions, RuleDataId } from "./rule-data.ts"
 import { type Dictionary, DictionarySchema } from "./schema.ts"
 
 export const BUNDLED_DICTIONARY_PATH = fileURLToPath(new URL("./data/pi-ste.json", import.meta.url))
+
+export const BUNDLED_RULE_DATA_PATHS: Readonly<Record<RuleDataId, string>> = {
+  "phrasal-verb": fileURLToPath(new URL("./data/phrasal-verbs.json", import.meta.url)),
+  hedging: fileURLToPath(new URL("./data/hedging.json", import.meta.url)),
+  marketing: fileURLToPath(new URL("./data/marketing.json", import.meta.url)),
+}
 
 export class DictionaryLoadError extends Error {
   constructor(
@@ -52,3 +60,28 @@ export const loadDictionary = (
         : new DictionaryLoadError(path, formatParseError(cause)),
     ),
   )
+
+const loadExtendedRuleData = (
+  id: RuleDataId,
+  extensionPaths: readonly string[],
+  cwd: string,
+): Effect.Effect<Dictionary, DictionaryLoadError> =>
+  Effect.all([
+    loadDictionary(BUNDLED_RULE_DATA_PATHS[id]),
+    ...extensionPaths.map((path) => loadDictionary(resolve(cwd, path))),
+  ]).pipe(
+    Effect.map(([bundled, ...extensions]) => ({
+      ...bundled,
+      entries: [bundled, ...extensions].flatMap((dictionary) => dictionary.entries),
+    })),
+  )
+
+export const loadRuleData = (
+  extensions: RuleDataExtensions = {},
+  cwd = process.cwd(),
+): Effect.Effect<RuleData, DictionaryLoadError> =>
+  Effect.all({
+    "phrasal-verb": loadExtendedRuleData("phrasal-verb", extensions["phrasal-verb"] ?? [], cwd),
+    hedging: loadExtendedRuleData("hedging", extensions.hedging ?? [], cwd),
+    marketing: loadExtendedRuleData("marketing", extensions.marketing ?? [], cwd),
+  })

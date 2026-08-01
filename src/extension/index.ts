@@ -20,7 +20,8 @@ import { formatViolations, violationDetails } from "../adapter/feedback.ts"
 import { formatStatusSummary, ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import type { SteConfig } from "../config/schema.ts"
-import { loadDictionary } from "../dictionary/load.ts"
+import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
+import type { RuleData } from "../dictionary/rule-data.ts"
 import type { Dictionary } from "../dictionary/schema.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
@@ -38,6 +39,7 @@ const STE_COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
 interface SessionState {
   config: SteConfig
   dictionary?: Dictionary
+  ruleData?: RuleData
   tagger?: Tagger
   enabled: boolean
   error?: string
@@ -82,6 +84,7 @@ function lintReply(state: SessionState, text: string): LintReport {
   return lint("prose-file", text, {
     ...state.config,
     dictionary: state.dictionary,
+    ruleData: state.ruleData,
     tagger: state.tagger,
   })
 }
@@ -352,6 +355,7 @@ function lintProposedText(
   const report = lint(classification.kind, text, {
     ...state.config,
     dictionary: state.dictionary,
+    ruleData: state.ruleData,
     tagger: state.tagger,
     sourceDialect: classification.sourceDialect,
     previousText,
@@ -399,6 +403,7 @@ function lintCommitCommand(
     const report = lint("commit-message", blankCommitMetadata(invocation.message), {
       ...state.config,
       dictionary: state.dictionary,
+      ruleData: state.ruleData,
       tagger: state.tagger,
     })
     const hard = report.violations.filter((violation) => violation.severity === "hard")
@@ -615,6 +620,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     setSayActive(state.enabled && state.strict)
     state.config = {}
     state.dictionary = undefined
+    state.ruleData = undefined
     state.tagger = undefined
     state.ready = false
     state.error = undefined
@@ -638,9 +644,14 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
 
     try {
-      state.dictionary = await Effect.runPromise(
-        loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+      const loadedData = await Effect.runPromise(
+        Effect.all({
+          dictionary: loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+          ruleData: loadRuleData(state.config.ruleDataExtensions, ctx.cwd),
+        }),
       )
+      state.dictionary = loadedData.dictionary
+      state.ruleData = loadedData.ruleData
     } catch (error) {
       state.dictionaryError = error instanceof Error ? error.message : String(error)
       state.error = state.dictionaryError

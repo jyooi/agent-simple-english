@@ -1,6 +1,6 @@
 # agent-simple-english
 
-`agent-simple-english` checks ASD-STE100 Simplified Technical English (STE).
+`agent-simple-english` checks rules derived from ASD-STE100 Simplified Technical English (STE) and two enabled house-style rules.
 It supplies one Engine, one CLI, a pi Adapter, and a Claude Code Adapter.
 The Claude Code plugin uses CLI Hook mode to enforce the same rules.
 
@@ -269,6 +269,11 @@ This example contains every config key and every rule:
 ```json
 {
   "maxSentenceWords": 25,
+  "ruleDataExtensions": {
+    "phrasal-verb": ["config/phrasal-verbs.json"],
+    "hedging": ["config/hedging.json"],
+    "marketing": ["config/marketing.json"]
+  },
   "rules": {
     "contraction": "hard",
     "dictionary-not-approved-word": "hard",
@@ -293,65 +298,35 @@ The `off` value disables that rule.
 `maxSentenceWords` must be a positive integer and has a default value of 25.
 Unknown keys, unknown rule IDs, and invalid values cause a config error.
 
+`ruleDataExtensions` maps each list-backed rule to more JSON data files.
+The loader adds entries from these files after the bundled entries.
+The loader resolves relative paths from the current working directory.
+Each file must use the [package dictionary data format](src/dictionary/README.md).
+
 ## Rule reference
 
-### `contraction`
+### Rules derived from ASD-STE100
+
+#### `contraction`
 
 Default: hard.
 Reports apostrophe contractions such as forms that end in `n't`, `'re`, `'ve`, `'ll`, `'d`, or `'m`.
 It also reports unambiguous forms that end in `'s`.
 
-### `dictionary-not-approved-word`
+#### `dictionary-not-approved-word`
 
 Default: hard.
 Reports an unapproved word or phrase from the bundled dictionary and supplies approved alternatives.
 Part-of-speech data limits applicable entries when that data exists.
 Matching does not depend on letter case.
 
-### `hedging`
-
-Default: soft.
-Reports these phrases: `it is important to note`, `it should be noted`, `it is worth noting`, `please note that`, `as mentioned`, `as noted above`.
-A phrase match stays on one source line.
-
-### `marketing`
-
-Default: soft.
-Reports the first listed term in each token.
-Matching does not depend on letter case, and it also examines components of hyphenated tokens.
-
-- `seamless`.
-- `seamlessly`.
-- `robust`.
-- `powerful`.
-- `cutting-edge`.
-- `effortless`.
-- `effortlessly`.
-- `world-class`.
-- `next-generation`.
-- `revolutionary`.
-- `blazing`.
-- `lightning-fast`.
-- `elegant`.
-- `delightful`.
-- `turnkey`.
-- `best-in-class`.
-- `state-of-the-art`.
-- `game-changing`.
-- `battle-tested`.
-- `enterprise-grade`.
-- `supercharge`.
-- `unleash`.
-- `empower`.
-- `empowers`.
-
-### `paragraph-length`
+#### `paragraph-length`
 
 Default: hard.
 Reports a prose paragraph that has more than six sentences.
 Markdown block boundaries and list items start separate paragraphs.
 
-### `phrasal-verb`
+#### `phrasal-verb`
 
 Default: hard.
 Reports these forms and supplies the listed suggestion:
@@ -373,34 +348,52 @@ Reports these forms and supplies the listed suggestion:
 Matching does not depend on letter case.
 A phrase match stays on one source line.
 
-### `semicolon`
+#### `semicolon`
 
 Default: hard.
 Reports each semicolon and asks for two sentences.
 This rule also checks semicolons inside inline Markdown code.
 
-### `sentence-length`
+#### `sentence-length`
 
 Default: hard.
 Reports a sentence above `maxSentenceWords`.
 The default maximum is 25 words.
 
-### `verb-progressive`
+#### `verb-progressive`
 
 Default: hard.
 Reports a form of `be` followed by an `-ing` verb, with optional adverbs or `not` between them.
 
-### `verb-passive`
+#### `verb-passive`
 
 Default: soft.
 Reports a form of `be` followed by a past participle, with optional adverbs or `not` between them.
 
-### `verb-perfect`
+#### `verb-perfect`
 
 Default: hard.
 Reports auxiliary `have` followed by a past participle, with optional adverbs or `not` between them.
 
 The three verb rules and applicable dictionary entries use the bundled English part-of-speech tagger.
+
+### House-style rules
+
+These rules define package house style.
+They do not come from ASD-STE100.
+The default config enables both rules.
+
+#### `hedging`
+
+Default: soft.
+Reports these phrases: `it is important to note`, `it should be noted`, `it is worth noting`, `please note that`, `as mentioned`, `as noted above`.
+A phrase match stays on one source line.
+
+#### `marketing`
+
+Default: soft.
+Reports the first listed term in each token from [`src/dictionary/data/marketing.json`](src/dictionary/data/marketing.json).
+Matching does not depend on letter case, and it also examines components of hyphenated tokens.
 
 ## Dictionary and attribution
 

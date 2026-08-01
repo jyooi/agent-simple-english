@@ -1,3 +1,4 @@
+import type { RuleData } from "../dictionary/rule-data.ts"
 import type { Dictionary } from "../dictionary/schema.ts"
 import type { RuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
@@ -24,11 +25,12 @@ export interface LintOptions {
   readonly rules?: Partial<Record<RuleId, RuleSetting>>
   readonly maxSentenceWords?: number
   readonly dictionary?: Dictionary
+  readonly ruleData?: RuleData
   // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger
   readonly sourceDialect?: SourceDialect
   /**
-   * The prior document text used to report only new violations.
+   * The previous document text used to report only new violations.
    * The engine compares sentence-scoped and paragraph-scoped violations structurally.
    * Omit this value to lint the current document in full.
    * Violation positions refer to the current text.

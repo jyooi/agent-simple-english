@@ -1,10 +1,12 @@
 import { Effect, ParseResult, Schema } from "effect"
+import type { RuleDataExtensions } from "../dictionary/rule-data.ts"
 import { type RuleId, ruleIds } from "../engine/rules/registry.ts"
 import type { RuleSetting } from "../engine/types.ts"
 
 export interface SteConfig {
   readonly rules?: Partial<Readonly<Record<RuleId, RuleSetting>>>
   readonly maxSentenceWords?: number
+  readonly ruleDataExtensions?: RuleDataExtensions
 }
 
 const RuleSettingSchema = Schema.Literal("hard", "soft", "off").annotations({
@@ -25,9 +27,18 @@ const MaxSentenceWordsSchema = Schema.Int.pipe(Schema.positive()).annotations({
   }),
 })
 
+const RuleDataExtensionsSchema = Schema.partial(
+  Schema.Struct({
+    "phrasal-verb": Schema.Array(Schema.NonEmptyTrimmedString),
+    hedging: Schema.Array(Schema.NonEmptyTrimmedString),
+    marketing: Schema.Array(Schema.NonEmptyTrimmedString),
+  }),
+)
+
 const SteConfigSchema = Schema.Struct({
   rules: Schema.optional(RulesSchema),
   maxSentenceWords: Schema.optional(MaxSentenceWordsSchema),
+  ruleDataExtensions: Schema.optional(RuleDataExtensionsSchema),
 })
 
 const decodeUnknown = Schema.decodeUnknown(SteConfigSchema, {

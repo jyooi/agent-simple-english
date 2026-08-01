@@ -1,0 +1,55 @@
+{
+  "formatVersion": 1,
+  "source": {
+    "name": "agent-simple-english phrasal verb list",
+    "repository": "https://github.com/jyooi/agent-simple-english",
+    "commit": "20a8ea5f3881c37620f9ab7808e2c930320ef0ef",
+    "path": "src/engine/rules/phrasal-verb.ts"
+  },
+  "entries": [
+    {
+      "unapproved": ["carry out", "carries out", "carried out", "carrying out"],
+      "suggestions": ["do"]
+    },
+    {
+      "unapproved": ["spin up", "spins up", "spun up", "spinning up"],
+      "suggestions": ["start"]
+    },
+    {
+      "unapproved": ["spin down", "spins down", "spun down", "spinning down"],
+      "suggestions": ["stop"]
+    },
+    {
+      "unapproved": ["tear down", "tears down", "tore down", "torn down", "tearing down"],
+      "suggestions": ["remove"]
+    },
+    {
+      "unapproved": ["reach out", "reaches out", "reached out", "reaching out"],
+      "suggestions": ["ask"]
+    },
+    {
+      "unapproved": ["dive into", "dives into", "dived into", "dove into", "diving into"],
+      "suggestions": ["examine"]
+    },
+    {
+      "unapproved": ["kick off", "kicks off", "kicked off", "kicking off"],
+      "suggestions": ["start"]
+    },
+    {
+      "unapproved": ["roll out", "rolls out", "rolled out", "rolling out"],
+      "suggestions": ["release"]
+    },
+    {
+      "unapproved": ["ramp up", "ramps up", "ramped up", "ramping up"],
+      "suggestions": ["increase"]
+    },
+    {
+      "unapproved": ["circle back", "circles back", "circled back", "circling back"],
+      "suggestions": ["return"]
+    },
+    {
+      "unapproved": ["drill down", "drills down", "drilled down", "drilling down"],
+      "suggestions": ["examine"]
+    }
+  ]
+}

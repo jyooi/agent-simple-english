@@ -1,23 +1,19 @@
+import type { Dictionary } from "../../dictionary/schema.ts"
 import { scanLines } from "../scan.ts"
 import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
 
-const HEDGES = [
-  "it is important to note",
-  "it should be noted",
-  "it is worth noting",
-  "please note that",
-  "as mentioned",
-  "as noted above",
-]
+const compilePattern = (dictionary: Dictionary): RegExp =>
+  new RegExp(
+    `(?<!${TOKEN_CHARACTER_PATTERN})(?:${dictionary.entries
+      .flatMap((entry) => entry.unapproved)
+      .map((phrase) => phrase.replace(/[\t ]+/g, "\\s+"))
+      .join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
+    "gi",
+  )
 
-const HEDGE_PATTERN = new RegExp(
-  `(?<!${TOKEN_CHARACTER_PATTERN})(?:${HEDGES.map((phrase) => phrase.replace(/ /g, "\\s+")).join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-  "gi",
-)
-
-export function hedging(lines: readonly string[]): Violation[] {
-  return scanLines(lines, HEDGE_PATTERN).map((match) => ({
+export function hedging(lines: readonly string[], dictionary: Dictionary): Violation[] {
+  return scanLines(lines, compilePattern(dictionary)).map((match) => ({
     ruleId: "hedging",
     severity: "soft" as const,
     message: `Do not hedge. Delete "${match.found.toLowerCase()}".`,
