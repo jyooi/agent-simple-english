@@ -201,6 +201,51 @@ describe("simple-english CLI hook mode", () => {
     expect(await stateFiles(xdgStateHome)).toEqual([])
   })
 
+  test("reads a large transcript from the end", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "large-session.jsonl")
+    const toolEntry = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", content: "x".repeat(2 * 1024 * 1024) }],
+      },
+    })
+    const assistantEntry = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "x".repeat(128 * 1024) },
+          { type: "text", text: "This isn't permitted." },
+        ],
+      },
+    })
+    await writeFile(transcriptPath, `${toolEntry}\n${assistantEntry}\n`)
+
+    const stopped = await runHook(
+      stopEvent(cwd, "large-session", transcriptPath),
+      cwd,
+      join(repoRoot, "test", "fixtures", "failing-large-transcript-read-preload.js"),
+      undefined,
+      undefined,
+      undefined,
+      xdgStateHome,
+    )
+    const submitted = await runReplyHook(
+      userPromptEvent(cwd, "large-session"),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(stopped.code).toBe(0)
+    expect(stopped.output).toEqual({})
+    expect(decision(submitted.output).additionalContext).toContain("[contraction]")
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+  })
+
   test("scopes pending reply feedback to one session", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { open, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { Cause, Effect } from "effect"
 import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-message.ts"
@@ -210,40 +210,91 @@ const readEditFile = (path: string) =>
     catch: (cause) => new Error(`cannot read edit file ${path}: ${cause}`),
   })
 
-function assistantReply(raw: string, path: string): string {
-  for (const line of raw.split("\n").reverse()) {
-    if (line.trim() === "") continue
-    let value: unknown
-    try {
-      value = JSON.parse(line) as unknown
-    } catch {
-      continue
-    }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) continue
-    const entry = value as Record<string, unknown>
-    if (entry.type !== "assistant") continue
-    const message = record(entry.message, "assistant transcript message")
-    const content = message.content
-    if (!Array.isArray(content)) {
-      throw new Error(`assistant transcript message in ${path} must contain content blocks`)
-    }
-    return content
-      .filter(
-        (block): block is { type: "text"; text: string } =>
-          typeof block === "object" &&
-          block !== null &&
-          (block as Record<string, unknown>).type === "text" &&
-          typeof (block as Record<string, unknown>).text === "string",
-      )
-      .map((block) => block.text)
-      .join("\n")
+function assistantReply(line: string, path: string): string | undefined {
+  let value: unknown
+  try {
+    value = JSON.parse(line) as unknown
+  } catch {
+    return undefined
   }
-  throw new Error(`cannot find an assistant reply in ${path}`)
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+  const entry = value as Record<string, unknown>
+  if (entry.type !== "assistant") return undefined
+  const message = record(entry.message, "assistant transcript message")
+  const content = message.content
+  if (!Array.isArray(content)) {
+    throw new Error(`assistant transcript message in ${path} must contain content blocks`)
+  }
+  return content
+    .filter(
+      (block): block is { type: "text"; text: string } =>
+        typeof block === "object" &&
+        block !== null &&
+        (block as Record<string, unknown>).type === "text" &&
+        typeof (block as Record<string, unknown>).text === "string",
+    )
+    .map((block) => block.text)
+    .join("\n")
+}
+
+function assistantReplyFromChunks(chunks: readonly Buffer[], path: string): string | undefined {
+  const first = chunks[0]
+  const line =
+    first === undefined
+      ? ""
+      : chunks.length === 1
+        ? first.toString("utf8")
+        : Buffer.concat(chunks).toString("utf8")
+  return assistantReply(line, path)
+}
+
+const TRANSCRIPT_CHUNK_SIZE = 64 * 1024
+
+async function assistantReplyFromTranscript(path: string): Promise<string> {
+  const file = await open(path, "r")
+  try {
+    const { size } = await file.stat()
+    let position = size
+    let pendingLine: Buffer[] = []
+
+    while (position > 0) {
+      const length = Math.min(TRANSCRIPT_CHUNK_SIZE, position)
+      position -= length
+      const chunk = Buffer.allocUnsafe(length)
+      let offset = 0
+      while (offset < length) {
+        const { bytesRead } = await file.read(chunk, offset, length - offset, position + offset)
+        if (bytesRead === 0) throw new Error(`transcript changed while reading ${path}`)
+        offset += bytesRead
+      }
+
+      let lineEnd = chunk.length
+      for (;;) {
+        const newline = chunk.lastIndexOf(10, lineEnd - 1)
+        if (newline === -1) break
+        const lineHead = chunk.subarray(newline + 1, lineEnd)
+        const lineChunks = lineHead.length === 0 ? pendingLine : [lineHead, ...pendingLine]
+        const reply = assistantReplyFromChunks(lineChunks, path)
+        if (reply !== undefined) return reply
+        pendingLine = []
+        lineEnd = newline
+      }
+
+      if (lineEnd > 0) pendingLine = [chunk.subarray(0, lineEnd), ...pendingLine]
+      if (position === 0) {
+        const reply = assistantReplyFromChunks(pendingLine, path)
+        if (reply !== undefined) return reply
+      }
+    }
+    throw new Error(`cannot find an assistant reply in ${path}`)
+  } finally {
+    await file.close()
+  }
 }
 
 const readAssistantReply = (path: string) =>
   Effect.tryPromise({
-    try: async () => assistantReply(await readFile(path, "utf8"), path),
+    try: () => assistantReplyFromTranscript(path),
     catch: (cause) => new Error(`cannot read assistant reply from ${path}: ${cause}`),
   })
 
