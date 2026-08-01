@@ -253,58 +253,146 @@ function assistantReply(line: string, path: string, offset: number): AssistantRe
   return { identity, text }
 }
 
-function assistantReplyFromChunks(
-  chunks: readonly Buffer[],
-  path: string,
-  offset: number,
-): AssistantReply | undefined {
-  const first = chunks[0]
-  const line =
-    first === undefined
-      ? ""
-      : chunks.length === 1
-        ? first.toString("utf8")
-        : Buffer.concat(chunks).toString("utf8")
-  return assistantReply(line, path, offset)
+const TRANSCRIPT_CHUNK_SIZE = 64 * 1024
+const TRANSCRIPT_ENTRY_HEADER_SIZE = 64 * 1024
+
+type TranscriptEntryKind = "assistant" | "other" | "unknown"
+
+interface JsonFrame {
+  readonly kind: "array" | "object"
+  readonly message: boolean
+  key?: string
 }
 
-const TRANSCRIPT_CHUNK_SIZE = 64 * 1024
+function jsonStringEnd(text: string, start: number): number | undefined {
+  let escaped = false
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index]
+    if (escaped) {
+      escaped = false
+    } else if (character === "\\") {
+      escaped = true
+    } else if (character === '"') {
+      return index
+    }
+  }
+  return undefined
+}
+
+function transcriptEntryKind(header: string): TranscriptEntryKind {
+  const stack: JsonFrame[] = []
+  for (let index = 0; index < header.length; index += 1) {
+    const character = header[index]
+    if (character === '"') {
+      const end = jsonStringEnd(header, index)
+      if (end === undefined) return "unknown"
+      const frame = stack.at(-1)
+      if (frame?.kind === "object") {
+        const value = JSON.parse(header.slice(index, end + 1)) as string
+        let next = end + 1
+        while (/\s/.test(header[next] ?? "")) next += 1
+        if (header[next] === ":") {
+          frame.key = value
+          index = next
+          continue
+        }
+        if (stack.length === 1 && frame.key === "type") {
+          return value === "assistant" ? "assistant" : "other"
+        }
+        if (frame.message && frame.key === "role") {
+          return value === "assistant" ? "assistant" : "other"
+        }
+        frame.key = undefined
+      }
+      index = end
+      continue
+    }
+    if (character === "{") {
+      const parent = stack.at(-1)
+      const message = parent?.kind === "object" && stack.length === 1 && parent.key === "message"
+      if (parent?.kind === "object") parent.key = undefined
+      stack.push({ kind: "object", message })
+      continue
+    }
+    if (character === "[") {
+      const parent = stack.at(-1)
+      if (parent?.kind === "object") parent.key = undefined
+      stack.push({ kind: "array", message: false })
+      continue
+    }
+    if (character === "}" || character === "]") {
+      stack.pop()
+      continue
+    }
+    if (character === ",") {
+      const frame = stack.at(-1)
+      if (frame?.kind === "object") frame.key = undefined
+    }
+  }
+  return "unknown"
+}
+
+async function readTranscriptRange(
+  file: Awaited<ReturnType<typeof open>>,
+  path: string,
+  position: number,
+  length: number,
+): Promise<Buffer> {
+  const buffer = Buffer.allocUnsafe(length)
+  let offset = 0
+  while (offset < length) {
+    const { bytesRead } = await file.read(buffer, offset, length - offset, position + offset)
+    if (bytesRead === 0) throw new Error(`transcript changed while reading ${path}`)
+    offset += bytesRead
+  }
+  return buffer
+}
+
+async function assistantReplyInRange(
+  file: Awaited<ReturnType<typeof open>>,
+  path: string,
+  start: number,
+  end: number,
+): Promise<AssistantReply | undefined> {
+  const length = end - start
+  const headerLength = Math.min(length, TRANSCRIPT_ENTRY_HEADER_SIZE)
+  const header = await readTranscriptRange(file, path, start, headerLength)
+  if (transcriptEntryKind(header.toString("utf8")) !== "assistant") return undefined
+  const line =
+    headerLength === length
+      ? header.toString("utf8")
+      : (await readTranscriptRange(file, path, start, length)).toString("utf8")
+  return assistantReply(line, path, start)
+}
 
 async function assistantReplyFromTranscript(path: string): Promise<AssistantReply> {
   const file = await open(path, "r")
   try {
     const { size } = await file.stat()
     let position = size
-    let pendingLine: Buffer[] = []
+    let entryEnd = size
 
     while (position > 0) {
       const length = Math.min(TRANSCRIPT_CHUNK_SIZE, position)
       position -= length
-      const chunk = Buffer.allocUnsafe(length)
-      let offset = 0
-      while (offset < length) {
-        const { bytesRead } = await file.read(chunk, offset, length - offset, position + offset)
-        if (bytesRead === 0) throw new Error(`transcript changed while reading ${path}`)
-        offset += bytesRead
-      }
-
+      const chunk = await readTranscriptRange(file, path, position, length)
       let lineEnd = chunk.length
       for (;;) {
         const newline = chunk.lastIndexOf(10, lineEnd - 1)
         if (newline === -1) break
-        const lineHead = chunk.subarray(newline + 1, lineEnd)
-        const lineChunks = lineHead.length === 0 ? pendingLine : [lineHead, ...pendingLine]
-        const reply = assistantReplyFromChunks(lineChunks, path, position + newline + 1)
-        if (reply !== undefined) return reply
-        pendingLine = []
+        const entryStart = position + newline + 1
+        if (entryStart < entryEnd) {
+          const reply = await assistantReplyInRange(file, path, entryStart, entryEnd)
+          if (reply !== undefined) return reply
+        }
+        entryEnd = position + newline
         lineEnd = newline
       }
+    }
 
-      if (lineEnd > 0) pendingLine = [chunk.subarray(0, lineEnd), ...pendingLine]
-      if (position === 0) {
-        const reply = assistantReplyFromChunks(pendingLine, path, 0)
-        if (reply !== undefined) return reply
-      }
+    if (entryEnd > 0) {
+      const reply = await assistantReplyInRange(file, path, 0, entryEnd)
+      if (reply !== undefined) return reply
     }
     throw new Error(`cannot find an assistant reply in ${path}`)
   } finally {

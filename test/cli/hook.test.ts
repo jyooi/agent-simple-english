@@ -305,6 +305,41 @@ describe("simple-english CLI hook mode", () => {
     expect(await stateFiles(xdgStateHome)).toHaveLength(1)
   })
 
+  test("skips a large trailing non-assistant transcript entry", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "trailing-tool-session.jsonl")
+    const assistantEntry = transcriptEntry("This isn't permitted.", "reply-before-tool")
+    const toolEntry = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", content: "x".repeat(2 * 1024 * 1024) }],
+      },
+    })
+    await writeFile(transcriptPath, `${assistantEntry}${toolEntry}\n`)
+
+    const stopped = await runHook(
+      stopEvent(cwd, "trailing-tool-session", transcriptPath),
+      cwd,
+      join(repoRoot, "test", "fixtures", "failing-large-transcript-read-preload.js"),
+      undefined,
+      undefined,
+      undefined,
+      xdgStateHome,
+    )
+    const submitted = await runReplyHook(
+      userPromptEvent(cwd, "trailing-tool-session"),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(stopped.code).toBe(0)
+    expect(stopped.output).toEqual({})
+    expect(decision(submitted.output).additionalContext).toContain("[contraction]")
+  })
+
   test("scopes pending reply feedback to one session", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
