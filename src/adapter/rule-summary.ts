@@ -35,6 +35,34 @@ export function resolvedRuleSetting(config: SteConfig, ruleId: RuleId): RuleSett
   return config.rules?.[ruleId] ?? DEFAULT_RULE_SETTINGS[ruleId]
 }
 
+export function formatFailedStatusSummary(
+  mode: "disabled" | "enabled" | "strict",
+  configError: string,
+): string {
+  return [
+    `Mode: ${mode}`,
+    `Config: failed (${configError})`,
+    "Rules: unavailable",
+    "Dictionary: unavailable",
+  ].join("\n")
+}
+
+export function formatStatusSummary(
+  config: SteConfig,
+  mode: "disabled" | "enabled" | "strict",
+  dictionary: string,
+): string {
+  const counts: Record<RuleSetting, number> = { hard: 0, soft: 0, off: 0 }
+  for (const ruleId of Object.keys(RULE_SUMMARIES) as RuleId[]) {
+    counts[resolvedRuleSetting(config, ruleId)] += 1
+  }
+  return [
+    `Mode: ${mode}`,
+    `Rules: ${counts.hard} hard, ${counts.soft} soft, ${counts.off} off`,
+    `Dictionary: ${dictionary}`,
+  ].join("\n")
+}
+
 export function ruleSummary(config: SteConfig): string {
   const maxSentenceWords = config.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS
   const rules = (Object.keys(RULE_SUMMARIES) as RuleId[])

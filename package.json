@@ -8,7 +8,15 @@
   "pi": {
     "extensions": ["./src/extension/index.ts"]
   },
-  "files": [".claude-plugin", "hooks", "src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "files": [
+    ".claude-plugin",
+    "commands",
+    "hooks",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "bin": {
     "simple-english": "src/cli/main.ts"
   },

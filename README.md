@@ -51,8 +51,8 @@ You do not need a global `simple-english` package or manual hook settings.
 The repository supplies the local marketplace manifest.
 Marketplace publication is outside this package release.
 
-At `SessionStart`, the Adapter loads the merged config from the session working directory.
-It adds the active STE rule summary to context.
+At `SessionStart`, the Adapter loads the merged config for an enabled session.
+It reads the config from the session working directory and adds the active STE rule summary to context.
 The summary honors `hard`, `soft`, and `off` rule settings plus `maxSentenceWords`.
 
 The `PreToolUse` gate checks `Write`, `Edit`, and `Bash` events.
@@ -67,21 +67,44 @@ It also blocks a detected commit without a static `-m` or `--message` argument.
 A compliant static message passes.
 Soft violations allow the event and add warning text.
 
+### Session controls
+
+The `/ste` command controls the current Claude Code session.
+New sessions start in enabled mode without a strict reply gate.
+A change in one session does not change a parallel session.
+
+| Command | Result |
+| --- | --- |
+| `/ste on` | Enable write, edit, commit, and reply checks. |
+| `/ste off` | Disable all checks and leave strict mode. |
+| `/ste status` | Show the mode, rule counts, and dictionary state. |
+| `/ste strict` | Enable the strict reply gate and all other checks. |
+| `/ste strict off` | Disable the strict reply gate and use reply feedback. |
+
+Strict mode blocks a `Stop` event when the reply has a hard violation.
+Claude Code then uses the violation details to write the reply again.
+The `stop_hook_active` check stops a second block in the same rewrite loop.
+
+Claude Code shows streamed reply text before the `Stop` hook runs.
+Thus, strict mode can reject the completed reply, but it cannot redact text that Claude Code already showed.
+The pi Adapter does not have this gap because its `say` tool hides strict reply text before approval.
+
 ### Reply feedback loop
 
-The `Stop` hook checks each finished assistant reply after Claude Code shows it.
+In enabled non-strict mode, the `Stop` hook checks each finished assistant reply after Claude Code shows it.
 It records only hard violation details in a state file for that Claude Code session.
-The `Stop` hook does not block or change the reply.
+The `Stop` hook does not block or change the reply in this mode.
 
 At the next `UserPromptSubmit` event, the Adapter adds the pending feedback to the model context.
 The feedback gives the line, column, rule ID, and suggested fix for each hard violation.
 The Adapter then clears the pending feedback, so it adds each report only one time.
-The session state retains the processed reply turn identity and ignores duplicate `Stop` events.
+The session state retains the processed reply identity and ignores duplicate `Stop` events.
 Clean and soft-only replies leave no pending feedback.
 
 Each session has a separate state file under `$XDG_STATE_HOME/simple-english/sessions`.
 The default state directory is `~/.local/state/simple-english/sessions`.
-Concurrent sessions in one project do not read or clear feedback from another session.
+The file stores the session mode, reply identity, and pending feedback.
+Concurrent sessions in one project do not read or clear state from another session.
 
 ## Install the pi Adapter
 
@@ -136,8 +159,10 @@ The `hook` subcommand reads one Claude Code hook event from standard input.
 It writes one hook result as JSON.
 A `SessionStart` event returns the active rule summary as added context.
 A `PreToolUse` event applies the write, edit, and commit gates that the plugin registers.
-A `Stop` event records hard reply feedback without blocking the reply.
+A `Stop` event records hard reply feedback in enabled non-strict mode.
+In strict mode, it blocks a reply that has hard violations.
 A `UserPromptSubmit` event adds pending feedback to context and clears that feedback.
+Every hook reads the current session mode before it applies a gate.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
 The hook also allows the event when configuration, dictionary, tagger, transcript, state, or file processing fails.
 It adds warning text.

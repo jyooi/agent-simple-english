@@ -8,6 +8,7 @@ import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
 import { hookInternalFailure, runHookMode } from "./hook.ts"
+import { runSessionCommand } from "./session-command.ts"
 
 const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
 
@@ -124,6 +125,11 @@ const hookProgram = Effect.gen(function* () {
   ),
 )
 
+const sessionProgram = Effect.gen(function* () {
+  console.log(yield* runSessionCommand(args.slice(1)))
+  return 0
+})
+
 const lintProgram = Effect.gen(function* () {
   const tagger = yield* TaggerService
   const { json, configPath, kind, kindMissingValue, paths } = yield* parseArgs(args)
@@ -173,7 +179,11 @@ const lintProgram = Effect.gen(function* () {
 })
 
 const program: Effect.Effect<number, Error> =
-  args[0] === "hook" ? hookProgram : lintProgram.pipe(Effect.provide(WinkTaggerLive))
+  args[0] === "hook"
+    ? hookProgram
+    : args[0] === "session"
+      ? sessionProgram
+      : lintProgram.pipe(Effect.provide(WinkTaggerLive))
 
 const handled = program.pipe(
   Effect.catchAll((error) =>

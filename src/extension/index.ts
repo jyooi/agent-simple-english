@@ -17,16 +17,15 @@ import { Effect } from "effect"
 import { Type } from "typebox"
 import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-message.ts"
 import { formatViolations, violationDetails } from "../adapter/feedback.ts"
-import { RULE_SUMMARIES, resolvedRuleSetting, ruleSummary } from "../adapter/rule-summary.ts"
+import { formatStatusSummary, ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import type { SteConfig } from "../config/schema.ts"
 import { loadDictionary } from "../dictionary/load.ts"
 import type { Dictionary } from "../dictionary/schema.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
-import type { RuleId } from "../engine/rules/registry.ts"
 import type { Tagger } from "../engine/tagger.ts"
-import type { LintReport, RuleSetting, Violation } from "../engine/types.ts"
+import type { LintReport, Violation } from "../engine/types.ts"
 import { makeWinkTagger } from "../tagger/wink.ts"
 
 const STE_COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
@@ -65,10 +64,6 @@ const STRICT_MODE_NOTE = [
 let sharedTagger: Tagger | undefined
 
 function statusSummary(state: SessionState): string {
-  const counts: Record<RuleSetting, number> = { hard: 0, soft: 0, off: 0 }
-  for (const ruleId of Object.keys(RULE_SUMMARIES) as RuleId[]) {
-    counts[resolvedRuleSetting(state.config, ruleId)]++
-  }
   const mode = !state.enabled ? "disabled" : state.strict ? "strict" : "enabled"
   const dictionary =
     state.dictionary !== undefined
@@ -76,11 +71,7 @@ function statusSummary(state: SessionState): string {
       : state.dictionaryError !== undefined
         ? `failed (${state.dictionaryError})`
         : "not loaded"
-  return [
-    `Mode: ${mode}`,
-    `Rules: ${counts.hard} hard, ${counts.soft} soft, ${counts.off} off`,
-    `Dictionary: ${dictionary}`,
-  ].join("\n")
+  return formatStatusSummary(state.config, mode, dictionary)
 }
 
 function formatReplyFeedback(violations: readonly Violation[]): string {
