@@ -356,7 +356,7 @@ describe("simple-english CLI hook mode", () => {
     expect(result.output).toEqual({})
   })
 
-  test("returns strict mode to deferred feedback behavior", async () => {
+  test("records deferred feedback from an active Stop after strict mode is off", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
@@ -366,7 +366,7 @@ describe("simple-english CLI hook mode", () => {
 
     const disabled = await runSessionCommand("strict-off-session", cwd, "strict off", xdgStateHome)
     const stopped = await runReplyHook(
-      stopEvent(cwd, "strict-off-session", transcriptPath, "This isn't permitted."),
+      stopEvent(cwd, "strict-off-session", transcriptPath, "This isn't permitted.", true),
       cwd,
       xdgStateHome,
     )

@@ -567,7 +567,12 @@ function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutp
         ? undefined
         : formatViolations("assistant reply", "STE reply feedback for", hard)
     const currentControl = yield* updateReplyFeedback(event.sessionId, reply.identity, feedback)
-    if (currentControl === undefined || !currentControl.strict || hard.length === 0) {
+    if (
+      currentControl === undefined ||
+      !currentControl.strict ||
+      event.stopHookActive ||
+      hard.length === 0
+    ) {
       return {} as Record<string, never>
     }
     return {
@@ -645,7 +650,6 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
               )
             }
             if (event.hookEventName === "Stop") {
-              if (event.stopHookActive) return Effect.succeed({})
               return Effect.gen(function* () {
                 const tagger = yield* TaggerService
                 return yield* evaluateReply(event, tagger)
