@@ -119,6 +119,47 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 2, column 6 [contraction]")
   })
 
+  test("denies an Edit that changes one local violation into another", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "Carry out the test.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Carry out the test.",
+        new_string: "Spin up the test.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("deny")
+    expect(output.permissionDecisionReason).toContain("line 1, column 1 [phrasal-verb]")
+  })
+
+  test("allows an Edit beside an untouched local violation", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "Carry out the test.\nReplace this sentence.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Replace this sentence.",
+        new_string: "Keep this sentence.",
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
+  })
+
   test("denies an Edit that adds a seventh sentence to a paragraph", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "notes.md")

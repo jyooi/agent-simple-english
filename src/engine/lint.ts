@@ -54,6 +54,7 @@ interface ViolationScope {
 interface ScopedViolation {
   readonly violation: Violation
   readonly scope: ViolationScope
+  readonly occurrenceIdentity?: string
 }
 
 interface SentenceScopeIndex {
@@ -248,19 +249,17 @@ const lintProse = (
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
-  const sentenceFindings = (
-    violations: readonly Violation[],
-  ): ScopedViolation[] =>
-    violations.map((violation) => ({
-      violation,
-      scope: scopeForViolation(
+  const sentenceFindings = (violations: readonly Violation[]): ScopedViolation[] =>
+    violations.map((violation) => {
+      const scope = scopeForViolation(
         violation,
         sentenceIndex,
         prepared.structuralLines,
         offsets,
         sourceOffset,
-      ),
-    }))
+      )
+      return { violation, scope, occurrenceIdentity: scope.identity }
+    })
 
   return [
     ...sentences.flatMap((sentence) =>
@@ -344,7 +343,7 @@ function evaluate(
 }
 
 const findingKey = (finding: ScopedViolation): string =>
-  `${finding.violation.ruleId}\u0000${finding.scope.kind}`
+  `${finding.violation.ruleId}\u0000${finding.scope.kind}\u0000${finding.occurrenceIdentity ?? ""}`
 
 type RetainedSide = "current" | "previous"
 
