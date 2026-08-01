@@ -75,6 +75,13 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
     return { json, configPath, kind, kindMissingValue, help, version, paths }
   })
 
+const rejectUnknownFlags = (args: readonly string[]): Effect.Effect<void, Error> => {
+  const flag = args.find((arg) => arg.startsWith("--"))
+  return flag === undefined
+    ? Effect.void
+    : Effect.fail(new Error(`unknown flag "${flag}"`))
+}
+
 const isLintKind = (value: string): value is LintKind =>
   (KINDS as readonly string[]).includes(value)
 
@@ -210,9 +217,9 @@ const lintProgram = Effect.gen(function* () {
 
 const program: Effect.Effect<number, Error> =
   args[0] === "hook"
-    ? hookProgram
+    ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(hookProgram))
     : args[0] === "session"
-      ? sessionProgram
+      ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(sessionProgram))
       : lintProgram.pipe(Effect.provide(WinkTaggerLive))
 
 const handled = program.pipe(

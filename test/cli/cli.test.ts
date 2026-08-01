@@ -100,6 +100,22 @@ describe("simple-english CLI", () => {
     expect(result.stderr).not.toContain("cannot read --unknown")
   })
 
+  test("rejects an unknown flag in hook mode", async () => {
+    const result = await runCli(["hook", "--unknown"])
+
+    expect(result.code).toBe(2)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toContain('unknown flag "--unknown"')
+  })
+
+  test("rejects an unknown flag in session mode", async () => {
+    const result = await runCli(["session", "--unknown", repoRoot, "status"])
+
+    expect(result.code).toBe(2)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toContain('unknown flag "--unknown"')
+  })
+
   test("--help prints usage and exits 0", async () => {
     const result = await runCli(["--help"])
 
