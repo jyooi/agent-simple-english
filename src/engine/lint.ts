@@ -56,6 +56,16 @@ interface ScopedViolation {
   readonly scope: ViolationScope
 }
 
+interface SentenceScopeIndex {
+  readonly scopes: readonly ViolationScope[]
+  readonly firstScopeByLine: Int32Array
+}
+
+interface FindingSearchIndex {
+  readonly candidates: ScopedViolation[]
+  cursor: number
+}
+
 const wholeText = (text: string): ExtractedProse => {
   const lines = text.split("\n")
   return { lines, contentStarts: lines.map(() => 0), proseBreaks: [] }
@@ -161,22 +171,58 @@ function paragraphScope(
   }
 }
 
+function indexSentenceScopes(
+  sentences: readonly Sentence[],
+  lineCount: number,
+  sourceOffset: number,
+): SentenceScopeIndex {
+  const scopes = sentences.map((sentence) => sentenceScope(sentence, sourceOffset))
+  const firstScopeByLine = new Int32Array(lineCount).fill(-1)
+
+  for (let scopeIndex = 0; scopeIndex < sentences.length; scopeIndex++) {
+    const sentence = sentences[scopeIndex]
+    if (sentence === undefined) continue
+    for (let line = sentence.line - 1; line < sentence.endLine; line++) {
+      if (firstScopeByLine[line] === -1) firstScopeByLine[line] = scopeIndex
+    }
+  }
+
+  return { scopes, firstScopeByLine }
+}
+
 function scopeForViolation(
   violation: Violation,
-  sentences: readonly Sentence[],
+  sentenceIndex: SentenceScopeIndex,
   lines: readonly string[],
   offsets: readonly number[],
   sourceOffset: number,
 ): ViolationScope {
-  const offset = (offsets[violation.line - 1] ?? 0) + violation.column - 1
-  const sentence =
-    sentences.find(
-      (candidate) => candidate.startOffset <= offset && offset < candidate.endOffset,
-    ) ??
-    sentences.find(
-      (candidate) => candidate.line <= violation.line && candidate.endLine >= violation.line,
-    )
-  if (sentence !== undefined) return sentenceScope(sentence, sourceOffset)
+  const localOffset = (offsets[violation.line - 1] ?? 0) + violation.column - 1
+  const offset = sourceOffset + localOffset
+  let low = 0
+  let high = sentenceIndex.scopes.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const scope = sentenceIndex.scopes[middle]
+    if (scope !== undefined && scope.startOffset <= offset) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+
+  const containingScope = sentenceIndex.scopes[low - 1]
+  if (
+    containingScope !== undefined &&
+    containingScope.startOffset <= offset &&
+    offset < containingScope.endOffset
+  ) {
+    return containingScope
+  }
+
+  const lineScopeIndex = sentenceIndex.firstScopeByLine[violation.line - 1] ?? -1
+  const lineScope = sentenceIndex.scopes[lineScopeIndex]
+  if (lineScope !== undefined) return lineScope
 
   const line = lines[violation.line - 1] ?? ""
   const startOffset = offsets[violation.line - 1] ?? 0
@@ -201,6 +247,7 @@ const lintProse = (
     contentStarts.map((contentStart) => contentStart + 1),
   )
   const offsets = lineOffsets(prepared.structuralLines)
+  const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
   const sentenceFindings = (
     violations: readonly Violation[],
   ): ScopedViolation[] =>
@@ -208,7 +255,7 @@ const lintProse = (
       violation,
       scope: scopeForViolation(
         violation,
-        sentences,
+        sentenceIndex,
         prepared.structuralLines,
         offsets,
         sourceOffset,
@@ -360,41 +407,70 @@ function scopesCorrespond(
   )
 }
 
+function firstMappedPreviousOffset(
+  scope: ViolationScope,
+  retained: readonly RetainedRange[],
+): number | undefined {
+  for (
+    let index = firstRetainedIndex(retained, scope.startOffset, "current");
+    index < retained.length;
+    index++
+  ) {
+    const range = retained[index]
+    if (range === undefined || range.currentStart >= scope.endOffset) break
+    const overlapStart = Math.max(scope.startOffset, range.currentStart)
+    const overlapEnd = Math.min(scope.endOffset, range.currentStart + range.length)
+    if (overlapStart < overlapEnd) {
+      return range.previousStart + overlapStart - range.currentStart
+    }
+  }
+  return undefined
+}
+
 function newFindings(
   previous: readonly ScopedViolation[],
   current: readonly ScopedViolation[],
   retained: readonly RetainedRange[],
 ): ScopedViolation[] {
-  const previousByKey = new Map<string, number[]>()
-  const matchedPrevious = new Set<number>()
-  const matchedCurrent = new Set<number>()
-
-  for (let index = 0; index < previous.length; index++) {
-    const finding = previous[index]
-    if (finding === undefined) continue
+  const previousByKey = new Map<string, FindingSearchIndex>()
+  for (const finding of previous) {
     const key = findingKey(finding)
-    const indexes = previousByKey.get(key) ?? []
-    indexes.push(index)
-    previousByKey.set(key, indexes)
-  }
-
-  for (let currentIndex = 0; currentIndex < current.length; currentIndex++) {
-    const finding = current[currentIndex]
-    if (finding === undefined) continue
-    const previousIndex = (previousByKey.get(findingKey(finding)) ?? []).find(
-      (candidateIndex) => {
-        if (matchedPrevious.has(candidateIndex)) return false
-        const candidate = previous[candidateIndex]
-        return candidate !== undefined && scopesCorrespond(candidate.scope, finding.scope, retained)
-      },
-    )
-    if (previousIndex !== undefined) {
-      matchedPrevious.add(previousIndex)
-      matchedCurrent.add(currentIndex)
+    const index = previousByKey.get(key)
+    if (index === undefined) {
+      previousByKey.set(key, { candidates: [finding], cursor: 0 })
+    } else {
+      index.candidates.push(finding)
     }
   }
 
-  return current.filter((_, index) => !matchedCurrent.has(index))
+  const findings: ScopedViolation[] = []
+  for (const finding of current) {
+    const index = previousByKey.get(findingKey(finding))
+    const mappedOffset = firstMappedPreviousOffset(finding.scope, retained)
+    if (index === undefined || mappedOffset === undefined) {
+      findings.push(finding)
+      continue
+    }
+
+    let matched = false
+    while (index.cursor < index.candidates.length) {
+      const candidate = index.candidates[index.cursor]
+      if (candidate === undefined) break
+      if (candidate.scope.endOffset <= mappedOffset) {
+        index.cursor++
+        continue
+      }
+      if (candidate.scope.startOffset > mappedOffset) break
+      index.cursor++
+      if (scopesCorrespond(candidate.scope, finding.scope, retained)) {
+        matched = true
+        break
+      }
+    }
+    if (!matched) findings.push(finding)
+  }
+
+  return findings
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {

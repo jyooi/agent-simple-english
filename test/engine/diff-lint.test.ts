@@ -36,6 +36,18 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(lint("prose-file", text, { previousText: text }).violations).toHaveLength(0)
   })
 
+  test("indexes repeated violations within the hook budget", () => {
+    const text = Array.from(
+      { length: 8_000 },
+      (_, index) => `Sentence ${index} isn't valid.`,
+    ).join("\n")
+    const start = performance.now()
+    const report = lint("prose-file", text, { previousText: text })
+
+    expect(report.violations).toHaveLength(0)
+    expect(performance.now() - start).toBeLessThan(300)
+  })
+
   test("an empty previousText means every line is new, so the full text is linted", () => {
     const report = lint("prose-file", `${words(30)}.`, { previousText: "" })
 
