@@ -381,6 +381,36 @@ describe("simple-english CLI hook mode", () => {
     expect(decision(submitted.output).additionalContext).toContain("[contraction]")
   })
 
+  test("records rewritten feedback after a clean Stop and strict off", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "strict-off-rewrite-session.jsonl")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    await runSessionCommand("strict-off-rewrite-session", cwd, "strict", xdgStateHome)
+
+    const cleanStop = await runReplyHook(
+      stopEvent(cwd, "strict-off-rewrite-session", transcriptPath, "Close the valve."),
+      cwd,
+      xdgStateHome,
+    )
+    await runSessionCommand("strict-off-rewrite-session", cwd, "strict off", xdgStateHome)
+    const rewrittenStop = await runReplyHook(
+      stopEvent(cwd, "strict-off-rewrite-session", transcriptPath, "This isn't permitted.", true),
+      cwd,
+      xdgStateHome,
+    )
+    const submitted = await runReplyHook(
+      userPromptEvent(cwd, "strict-off-rewrite-session"),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(cleanStop.output).toEqual({})
+    expect(rewrittenStop.output).toEqual({})
+    expect(decision(submitted.output).additionalContext).toContain("[contraction]")
+  })
+
   test("rejects an invalid session command without changing state", async () => {
     const cwd = await makeProject()
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))

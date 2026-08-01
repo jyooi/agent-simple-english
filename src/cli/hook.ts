@@ -465,9 +465,10 @@ async function assistantReplyFromTranscript(path: string): Promise<AssistantRepl
 }
 
 async function assistantReplyFromEvent(text: string, path: string): Promise<AssistantReply> {
-  const identity = await latestTranscriptEntry(path, turnIdentityInRange)
-  if (identity === undefined) throw new Error(`cannot find a reply turn in ${path}`)
-  return { identity, text }
+  const turnIdentity = await latestTranscriptEntry(path, turnIdentityInRange)
+  if (turnIdentity === undefined) throw new Error(`cannot find a reply turn in ${path}`)
+  const textHash = createHash("sha256").update(text).digest("hex")
+  return { identity: `${turnIdentity}:reply:${textHash}`, text }
 }
 
 const readAssistantReply = (path: string) =>
