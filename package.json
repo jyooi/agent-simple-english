@@ -1,5 +1,5 @@
 {
-  "name": "simple-english",
+  "name": "agent-simple-english",
   "version": "0.1.0",
   "description": "ASD-STE100 Simplified Technical English lint engine, CLI, and host adapters",
   "license": "MIT",
