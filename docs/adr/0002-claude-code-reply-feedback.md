@@ -3,7 +3,8 @@
 ADR 0001 defines the per-host enforcement ceiling policy.
 The `Stop` and `UserPromptSubmit` hooks increase the Claude Code enforcement ceiling.
 This decision adds deferred reply feedback to that ceiling.
-Strict reply gates remain outside the current ceiling.
+The later session-controls slice adds a strict Stop gate.
+ADR 0001 records its redaction limit.
 
 The `Stop` hook reads `last_assistant_message` from the event.
 This event field is authoritative because the transcript can lag behind the completed reply.
@@ -11,7 +12,7 @@ When the field is present, the latest user transcript record gives the reply tur
 When the field is absent, the latest assistant transcript entry gives the reply and its identity.
 It checks the reply and records only hard violation feedback.
 Session state retains the processed reply turn identity and ignores duplicate `Stop` events.
-It does not block or change the completed reply.
+In non-strict mode, it does not block or change the completed reply.
 
 The `UserPromptSubmit` hook adds pending feedback to the next model context.
 It removes the feedback before it returns, so concurrent calls cannot add the same feedback two times.

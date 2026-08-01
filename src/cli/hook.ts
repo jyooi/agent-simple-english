@@ -12,7 +12,12 @@ import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { LintOptions, Violation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
-import { consumePendingFeedback, hasProcessedReply, setReplyFeedback } from "./session-state.ts"
+import {
+  consumePendingFeedback,
+  getSessionControl,
+  hasProcessedReply,
+  setReplyFeedback,
+} from "./session-state.ts"
 
 interface CommonEvent {
   readonly cwd: string
@@ -49,6 +54,7 @@ interface BashEvent extends CommonEvent {
 interface StopEvent extends CommonEvent {
   readonly hookEventName: "Stop"
   readonly lastAssistantMessage?: string
+  readonly stopHookActive: boolean
 }
 
 interface UserPromptSubmitEvent extends CommonEvent {
@@ -81,7 +87,17 @@ interface HookError {
   readonly systemMessage: string
 }
 
-export type HookOutput = HookDecision | ContextOutput | HookError | Record<string, never>
+interface StopDecision {
+  readonly decision: "block"
+  readonly reason: string
+}
+
+export type HookOutput =
+  | HookDecision
+  | ContextOutput
+  | HookError
+  | StopDecision
+  | Record<string, never>
 
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -110,9 +126,14 @@ function decodeEvent(raw: string): HookEvent {
     if (lastAssistantMessage !== undefined && typeof lastAssistantMessage !== "string") {
       throw new Error("last_assistant_message must be a string")
     }
+    const stopHookActive = event.stop_hook_active
+    if (typeof stopHookActive !== "boolean") {
+      throw new Error("stop_hook_active must be a boolean")
+    }
     return {
       ...common,
       hookEventName,
+      stopHookActive,
       ...(lastAssistantMessage === undefined ? {} : { lastAssistantMessage }),
     }
   }
@@ -483,6 +504,12 @@ const takePendingFeedback = (sessionId: string) =>
     catch: (cause) => new Error(`cannot read session state: ${cause}`),
   })
 
+const readSessionControl = (sessionId: string) =>
+  Effect.tryPromise({
+    try: () => getSessionControl(sessionId),
+    catch: (cause) => new Error(`cannot read session state: ${cause}`),
+  })
+
 const loadLintOptions = (cwd: string, tagger: Tagger) => {
   const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
   return Effect.all({
@@ -523,15 +550,14 @@ function textDecision(
   return allow(soft.length === 0 ? [] : [formatViolations(path, "STE warnings for", soft)])
 }
 
-function recordReplyFeedback(
-  event: StopEvent,
-  tagger: Tagger,
-): Effect.Effect<Record<string, never>, Error> {
+function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutput, Error> {
   return Effect.gen(function* () {
     const reply = yield* event.lastAssistantMessage === undefined
       ? readAssistantReply(event.transcriptPath)
       : readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath)
-    if (yield* replyWasProcessed(event.sessionId, reply.identity)) return {}
+    if (yield* replyWasProcessed(event.sessionId, reply.identity)) {
+      return {} as Record<string, never>
+    }
     const options = yield* loadLintOptions(event.cwd, tagger)
     const hard = lint("prose-file", reply.text, options).violations.filter(
       (violation) => violation.severity === "hard",
@@ -540,8 +566,14 @@ function recordReplyFeedback(
       hard.length === 0
         ? undefined
         : formatViolations("assistant reply", "STE reply feedback for", hard)
-    yield* updateReplyFeedback(event.sessionId, reply.identity, feedback)
-    return {}
+    const currentControl = yield* updateReplyFeedback(event.sessionId, reply.identity, feedback)
+    if (currentControl === undefined || !currentControl.strict || hard.length === 0) {
+      return {} as Record<string, never>
+    }
+    return {
+      decision: "block",
+      reason: formatViolations("assistant reply", "STE blocked reply for", hard),
+    }
   })
 }
 
@@ -592,43 +624,53 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
   }).pipe(
     Effect.matchEffect({
       onFailure: (error) => Effect.succeed(nonBlockingError(error.message)),
-      onSuccess: (event) => {
-        if (event.hookEventName === "SessionStart") {
-          return loadConfig(undefined, event.cwd).pipe(
-            Effect.match({
-              onFailure: (error) => nonBlockingError(error.message),
-              onSuccess: (config) => addContext("SessionStart", ruleSummary(config)),
-            }),
-          )
-        }
-        if (event.hookEventName === "UserPromptSubmit") {
-          return takePendingFeedback(event.sessionId).pipe(
-            Effect.match({
-              onFailure: (error) => nonBlockingError(error.message),
-              onSuccess: (feedback) =>
-                feedback === undefined ? {} : addContext("UserPromptSubmit", feedback),
-            }),
-          )
-        }
-        if (event.hookEventName === "Stop") {
-          return Effect.gen(function* () {
-            const tagger = yield* TaggerService
-            return yield* recordReplyFeedback(event, tagger)
-          }).pipe(
-            Effect.catchAll((error) => Effect.succeed(nonBlockingError(error.message))),
-            Effect.catchAllCause((cause) =>
-              Effect.succeed(nonBlockingError(`internal failure: ${Cause.pretty(cause)}`)),
+      onSuccess: (event) =>
+        readSessionControl(event.sessionId).pipe(
+          Effect.flatMap((control): Effect.Effect<HookOutput, Error, TaggerService> => {
+            if (!control.enabled) {
+              return Effect.succeed(
+                event.hookEventName === "PreToolUse" ? allow() : ({} as Record<string, never>),
+              )
+            }
+            if (event.hookEventName === "SessionStart") {
+              return loadConfig(undefined, event.cwd).pipe(
+                Effect.map((config) => addContext("SessionStart", ruleSummary(config))),
+              )
+            }
+            if (event.hookEventName === "UserPromptSubmit") {
+              return takePendingFeedback(event.sessionId).pipe(
+                Effect.map((feedback) =>
+                  feedback === undefined ? {} : addContext("UserPromptSubmit", feedback),
+                ),
+              )
+            }
+            if (event.hookEventName === "Stop") {
+              if (event.stopHookActive) return Effect.succeed({})
+              return Effect.gen(function* () {
+                const tagger = yield* TaggerService
+                return yield* evaluateReply(event, tagger)
+              })
+            }
+            return Effect.gen(function* () {
+              const tagger = yield* TaggerService
+              return yield* evaluateEvent(event, tagger)
+            })
+          }),
+          Effect.catchAll((error) =>
+            Effect.succeed(
+              event.hookEventName === "PreToolUse"
+                ? nonBlockingWarning(error.message)
+                : nonBlockingError(error.message),
             ),
-          )
-        }
-        return Effect.gen(function* () {
-          const tagger = yield* TaggerService
-          return yield* evaluateEvent(event, tagger)
-        }).pipe(
-          Effect.catchAll((error) => Effect.succeed(nonBlockingWarning(error.message))),
-          Effect.catchAllCause((cause) => Effect.succeed(hookInternalFailure(cause))),
-        )
-      },
+          ),
+          Effect.catchAllCause((cause) =>
+            Effect.succeed(
+              event.hookEventName === "PreToolUse"
+                ? hookInternalFailure(cause)
+                : nonBlockingError(`internal failure: ${Cause.pretty(cause)}`),
+            ),
+          ),
+        ),
     }),
   )
 }

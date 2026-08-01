@@ -22,12 +22,17 @@ interface HookSpecificOutput {
 
 interface HookOutput {
   readonly continue?: boolean
+  readonly decision?: "block"
+  readonly reason?: string
   readonly systemMessage?: string
   readonly hookSpecificOutput?: HookSpecificOutput
 }
 
 interface SessionState {
-  readonly lastProcessedReply: string
+  readonly version: number
+  readonly enabled: boolean
+  readonly strict: boolean
+  readonly lastProcessedReply?: string
   readonly pendingFeedback?: string
 }
 
@@ -46,9 +51,14 @@ async function makeProject(config?: object): Promise<string> {
   return cwd
 }
 
-function event(cwd: string, toolName: "Write" | "Edit" | "Bash", toolInput: object): string {
+function event(
+  cwd: string,
+  toolName: "Write" | "Edit" | "Bash",
+  toolInput: object,
+  sessionId = "session-1",
+): string {
   return JSON.stringify({
-    session_id: "session-1",
+    session_id: sessionId,
     transcript_path: join(cwd, "transcript.jsonl"),
     cwd,
     permission_mode: "default",
@@ -75,6 +85,7 @@ function stopEvent(
   sessionId: string,
   transcriptPath: string,
   lastAssistantMessage?: string,
+  stopHookActive = false,
 ): string {
   return JSON.stringify({
     session_id: sessionId,
@@ -82,7 +93,7 @@ function stopEvent(
     cwd,
     permission_mode: "default",
     hook_event_name: "Stop",
-    stop_hook_active: false,
+    stop_hook_active: stopHookActive,
     ...(lastAssistantMessage === undefined ? {} : { last_assistant_message: lastAssistantMessage }),
   })
 }
@@ -152,12 +163,218 @@ function runReplyHook(stdin: string, cwd: string, xdgStateHome: string) {
   return runHook(stdin, cwd, undefined, undefined, undefined, undefined, xdgStateHome)
 }
 
+function runSessionCommand(
+  sessionId: string,
+  cwd: string,
+  command: string,
+  xdgStateHome: string,
+  dictionaryPath?: string,
+) {
+  return runCli(["session", sessionId, cwd, command], {
+    cwd,
+    xdgStateHome,
+    dictionaryPath,
+  })
+}
+
 function decision(output: HookOutput): HookSpecificOutput {
   expect(output.hookSpecificOutput).toBeDefined()
   return output.hookSpecificOutput as HookSpecificOutput
 }
 
 describe("simple-english CLI hook mode", () => {
+  test("disables every hook gate for only the selected session and enables it again", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const violatingWrite = (sessionId: string) =>
+      event(
+        cwd,
+        "Write",
+        {
+          file_path: join(cwd, "notes.md"),
+          content: "This isn't permitted.",
+        },
+        sessionId,
+      )
+
+    const disabled = await runSessionCommand("session-1", cwd, "off", xdgStateHome)
+    const disabledWrite = await runReplyHook(violatingWrite("session-1"), cwd, xdgStateHome)
+    const parallelWrite = await runReplyHook(violatingWrite("session-2"), cwd, xdgStateHome)
+    const disabledStart = await runReplyHook(sessionStartEvent(cwd), cwd, xdgStateHome)
+    const transcriptPath = join(cwd, "disabled-session.jsonl")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    const disabledStop = await runReplyHook(
+      stopEvent(cwd, "session-1", transcriptPath, "This isn't permitted."),
+      cwd,
+      xdgStateHome,
+    )
+    const disabledPrompt = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
+
+    expect(disabled).toMatchObject({ code: 0, stdout: "STE enforcement disabled.\n" })
+    expect(decision(disabledWrite.output).permissionDecision).toBe("allow")
+    expect(decision(parallelWrite.output).permissionDecision).toBe("deny")
+    expect(disabledStart.output).toEqual({})
+    expect(disabledStop.output).toEqual({})
+    expect(disabledPrompt.output).toEqual({})
+    const disabledFiles = await stateFiles(xdgStateHome)
+    expect(disabledFiles).toHaveLength(1)
+    const disabledState = JSON.parse(
+      await readFile(
+        join(xdgStateHome, "simple-english", "sessions", disabledFiles[0] as string),
+        "utf8",
+      ),
+    ) as SessionState
+    expect(disabledState).toMatchObject({ version: 3, enabled: false, strict: false })
+
+    const enabled = await runSessionCommand("session-1", cwd, "on", xdgStateHome)
+    const enabledWrite = await runReplyHook(violatingWrite("session-1"), cwd, xdgStateHome)
+
+    expect(enabled).toMatchObject({ code: 0, stdout: "STE enforcement enabled.\n" })
+    expect(decision(enabledWrite.output).permissionDecision).toBe("deny")
+    const enabledState = JSON.parse(
+      await readFile(
+        join(xdgStateHome, "simple-english", "sessions", disabledFiles[0] as string),
+        "utf8",
+      ),
+    ) as SessionState
+    expect(enabledState).toMatchObject({ version: 3, enabled: true, strict: false })
+  })
+
+  test("starts a new session in enabled non-strict mode", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    await runSessionCommand("old-session", cwd, "strict", xdgStateHome)
+    await runSessionCommand("old-session", cwd, "off", xdgStateHome)
+
+    const result = await runReplyHook(
+      event(
+        cwd,
+        "Write",
+        { file_path: join(cwd, "notes.md"), content: "This isn't permitted." },
+        "new-session",
+      ),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(decision(result.output).permissionDecision).toBe("deny")
+  })
+
+  test("reports session mode, rule counts, and dictionary state", async () => {
+    const cwd = await makeProject({
+      rules: { contraction: "off", semicolon: "soft" },
+    })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    await runSessionCommand("session-1", cwd, "off", xdgStateHome)
+
+    const status = await runSessionCommand("session-1", cwd, "status", xdgStateHome)
+
+    expect(status.code).toBe(0)
+    expect(status.stdout).toContain("Mode: disabled")
+    expect(status.stdout).toContain("Rules: 6 hard, 4 soft, 1 off")
+    expect(status.stdout).toContain("Dictionary: loaded")
+
+    const failedDictionary = await runSessionCommand(
+      "session-1",
+      cwd,
+      "status",
+      xdgStateHome,
+      join(cwd, "missing-dictionary.json"),
+    )
+    expect(failedDictionary.code).toBe(0)
+    expect(failedDictionary.stdout).toContain("Dictionary: failed (")
+    expect(failedDictionary.stdout).toContain("missing-dictionary.json")
+  })
+
+  test("blocks one strict Stop, then allows the clean rewrite Stop", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "strict-session.jsonl")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    await runSessionCommand("strict-session", cwd, "strict", xdgStateHome)
+    const strictFiles = await stateFiles(xdgStateHome)
+    const strictState = JSON.parse(
+      await readFile(
+        join(xdgStateHome, "simple-english", "sessions", strictFiles[0] as string),
+        "utf8",
+      ),
+    ) as SessionState
+    expect(strictState).toMatchObject({ version: 3, enabled: true, strict: true })
+
+    const blocked = await runReplyHook(
+      stopEvent(cwd, "strict-session", transcriptPath, "This isn't permitted."),
+      cwd,
+      xdgStateHome,
+    )
+    const rewritten = await runReplyHook(
+      stopEvent(cwd, "strict-session", transcriptPath, "Close the valve.", true),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(blocked.output.decision).toBe("block")
+    expect(blocked.output.reason).toContain("[contraction]")
+    expect(rewritten.output).toEqual({})
+  })
+
+  test("never blocks an already active Stop hook", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "active-session.jsonl")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    await runSessionCommand("active-session", cwd, "strict", xdgStateHome)
+
+    const result = await runReplyHook(
+      stopEvent(cwd, "active-session", transcriptPath, "This isn't permitted.", true),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(result.output).toEqual({})
+  })
+
+  test("returns strict mode to deferred feedback behavior", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const transcriptPath = join(cwd, "strict-off-session.jsonl")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    await runSessionCommand("strict-off-session", cwd, "strict", xdgStateHome)
+
+    const disabled = await runSessionCommand("strict-off-session", cwd, "strict off", xdgStateHome)
+    const stopped = await runReplyHook(
+      stopEvent(cwd, "strict-off-session", transcriptPath, "This isn't permitted."),
+      cwd,
+      xdgStateHome,
+    )
+    const submitted = await runReplyHook(
+      userPromptEvent(cwd, "strict-off-session"),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(disabled).toMatchObject({ code: 0, stdout: "STE strict mode disabled.\n" })
+    expect(stopped.output).toEqual({})
+    expect(decision(submitted.output).additionalContext).toContain("[contraction]")
+  })
+
+  test("rejects an invalid session command without changing state", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const result = await runSessionCommand("session-1", cwd, "invalid", xdgStateHome)
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("Usage: /ste [on|off|status|strict|strict off]")
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+  })
+
   test("records hard reply feedback, injects it once, and clears pending feedback", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))

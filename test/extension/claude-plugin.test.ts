@@ -20,6 +20,7 @@ const repoRoot = process.cwd()
 const pluginManifestPath = join(repoRoot, ".claude-plugin", "plugin.json")
 const marketplaceManifestPath = join(repoRoot, ".claude-plugin", "marketplace.json")
 const hooksPath = join(repoRoot, "hooks", "hooks.json")
+const steCommandPath = join(repoRoot, "commands", "ste.md")
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8")) as unknown
@@ -43,7 +44,7 @@ describe("Claude Code plugin wiring", () => {
       repository: "https://github.com/jyooi/agent-simple-english",
     })
     expect(packageManifest.files).toEqual(
-      expect.arrayContaining([".claude-plugin", "hooks", "src"]),
+      expect.arrayContaining([".claude-plugin", "commands", "hooks", "src"]),
     )
     expect(marketplace.name).toBe("agent-simple-english")
     expect(marketplace.plugins).toEqual([
@@ -53,6 +54,18 @@ describe("Claude Code plugin wiring", () => {
         source: "./",
       }),
     ])
+  })
+
+  test("defines the session STE command", async () => {
+    const command = await readFile(steCommandPath, "utf8")
+
+    expect(command).toContain("description: Control STE for this Claude Code session")
+    expect(command).toContain("argument-hint: on|off|status|strict|strict off")
+    expect(command).toContain("${CLAUDE_PLUGIN_ROOT}")
+    expect(command).toContain("${CLAUDE_SESSION_ID}")
+    expect(command).toContain("${CLAUDE_PROJECT_DIR}")
+    expect(command).toContain("$ARGUMENTS")
+    expect(command).toContain('src/cli/main.ts" session')
   })
 
   test("registers the session, tool gate, and reply feedback hooks", async () => {
