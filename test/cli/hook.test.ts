@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
@@ -6,7 +6,7 @@ import { repoRoot, runCli } from "./run-cli.ts"
 
 interface HookSpecificOutput {
   readonly hookEventName: string
-  readonly permissionDecision: string
+  readonly permissionDecision?: string
   readonly permissionDecisionReason?: string
   readonly additionalContext?: string
 }
@@ -45,8 +45,19 @@ function event(cwd: string, toolName: "Write" | "Edit" | "Bash", toolInput: obje
   })
 }
 
-async function runHook(stdin: string, cwd?: string, preload?: string) {
-  const result = await runCli(["hook"], { stdin, cwd, preload })
+function sessionStartEvent(cwd: string): string {
+  return JSON.stringify({
+    session_id: "session-1",
+    transcript_path: join(cwd, "transcript.jsonl"),
+    cwd,
+    permission_mode: "default",
+    hook_event_name: "SessionStart",
+    source: "startup",
+  })
+}
+
+async function runHook(stdin: string, cwd?: string, preload?: string, xdgConfigHome?: string) {
+  const result = await runCli(["hook"], { stdin, cwd, preload, xdgConfigHome })
   return { ...result, output: JSON.parse(result.stdout) as HookOutput }
 }
 
@@ -56,6 +67,50 @@ function decision(output: HookOutput): HookSpecificOutput {
 }
 
 describe("simple-english CLI hook mode", () => {
+  test("adds the merged active rule summary to SessionStart context", async () => {
+    const cwd = await makeProject({
+      maxSentenceWords: 8,
+      rules: { contraction: "off", semicolon: "soft" },
+    })
+    const xdgConfigHome = await mkdtemp(join(tmpdir(), "ste-hook-config-"))
+    temporaryDirectories.push(xdgConfigHome)
+    const configDirectory = join(xdgConfigHome, "simple-english")
+    await mkdir(configDirectory)
+    await writeFile(
+      join(configDirectory, "config.json"),
+      JSON.stringify({
+        maxSentenceWords: 30,
+        rules: { contraction: "hard", marketing: "hard", semicolon: "hard" },
+      }),
+    )
+
+    const result = await runHook(sessionStartEvent(cwd), cwd, undefined, xdgConfigHome)
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.hookEventName).toBe("SessionStart")
+    expect(output.additionalContext).toContain("Simplified Technical English")
+    expect(output.additionalContext).toContain("[hard] Use factual language")
+    expect(output.additionalContext).toContain("[soft] Do not use semicolons")
+    expect(output.additionalContext).toContain("Keep each sentence to 8 words or fewer")
+    expect(output.additionalContext).not.toContain("Do not use contractions")
+  })
+
+  test("adds SessionStart context without tagger setup", async () => {
+    const cwd = await makeProject()
+
+    const result = await runHook(
+      sessionStartEvent(cwd),
+      cwd,
+      join(repoRoot, "test", "fixtures", "failing-tagger-preload.js"),
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output.hookEventName).toBe("SessionStart")
+    expect(output.additionalContext).toContain("Simplified Technical English")
+  })
+
   test("denies a Write event and lists every hard violation with a suggested fix", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const result = await runHook(

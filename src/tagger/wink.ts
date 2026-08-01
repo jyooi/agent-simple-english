@@ -33,4 +33,12 @@ export function makeWinkTagger(): Tagger {
 
 export class TaggerService extends Context.Tag("TaggerService")<TaggerService, Tagger>() {}
 
-export const WinkTaggerLive = Layer.sync(TaggerService, makeWinkTagger)
+const makeLazyWinkTagger = (): Tagger => {
+  let tagger: Tagger | undefined
+  return (text) => {
+    tagger ??= makeWinkTagger()
+    return tagger(text)
+  }
+}
+
+export const WinkTaggerLive = Layer.sync(TaggerService, makeLazyWinkTagger)
