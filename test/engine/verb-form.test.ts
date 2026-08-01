@@ -94,6 +94,40 @@ describe("lint prose-file: verb-form rules (stub tagger)", () => {
     expect(lint("prose-file", text, { tagger }).violations).toHaveLength(0)
   })
 
+  test("does not flag simple present as progressive", () => {
+    const text = "The pump runs."
+    const tagger = stubTagger({
+      [text]: "The/DET/the pump/NOUN/pump runs/VERB/run ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "verb-progressive" }),
+    )
+  })
+
+  test("does not flag an adjective that ends in ing as progressive", () => {
+    const text = "The manual is interesting."
+    const tagger = stubTagger({
+      [text]: "The/DET/the manual/NOUN/manual is/AUX/be interesting/ADJ/interesting ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "verb-progressive" }),
+    )
+  })
+
+  test("does not flag simple past as perfect", () => {
+    const text = "The team completed the test."
+    const tagger = stubTagger({
+      [text]:
+        "The/DET/the team/NOUN/team completed/VERB/complete the/DET/the test/NOUN/test ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "verb-perfect" }),
+    )
+  })
+
   test("detects passive across an intervening adverb", () => {
     const text = "The valve was quickly closed."
     const tagger = stubTagger({

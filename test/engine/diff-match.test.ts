@@ -5,6 +5,7 @@ import {
   newFindings,
 } from "../../src/engine/diff-match.ts"
 import type { RetainedRange } from "../../src/engine/diff.ts"
+import type { RuleId } from "../../src/engine/rules/registry.ts"
 
 const scope = (startOffset: number, endOffset: number, identity = "scope"): ViolationScope => ({
   kind: "sentence",
@@ -16,12 +17,13 @@ const scope = (startOffset: number, endOffset: number, identity = "scope"): Viol
 const finding = (
   findingScope: ViolationScope,
   options: {
+    readonly ruleId?: RuleId
     readonly sentenceIdentity?: string
     readonly occurrenceOffset?: number
   } = {},
 ): ScopedViolation => ({
   violation: {
-    ruleId: "sentence-length",
+    ruleId: options.ruleId ?? "sentence-length",
     severity: "hard",
     message: "Test violation.",
     line: 1,
@@ -114,5 +116,34 @@ describe("diff finding matcher", () => {
         ],
       ),
     ).toEqual([])
+  })
+
+  test("reports a new rule occurrence in a retained sentence", () => {
+    const previous = finding(scope(0, 10), {
+      ruleId: "semicolon",
+      sentenceIdentity: "same sentence",
+      occurrenceOffset: 4,
+    })
+    const retained = finding(scope(0, 11), {
+      ruleId: "semicolon",
+      sentenceIdentity: "same sentence",
+      occurrenceOffset: 4,
+    })
+    const added = finding(scope(0, 11), {
+      ruleId: "semicolon",
+      sentenceIdentity: "same sentence",
+      occurrenceOffset: 5,
+    })
+
+    expect(
+      match(
+        [previous],
+        [retained, added],
+        [
+          { previousStart: 0, currentStart: 0, length: 5 },
+          { previousStart: 5, currentStart: 6, length: 5 },
+        ],
+      ),
+    ).toEqual([added])
   })
 })
