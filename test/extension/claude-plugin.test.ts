@@ -90,7 +90,9 @@ describe("Claude Code plugin wiring", () => {
 
     expect(commands).toHaveLength(2)
     for (const command of commands) {
-      const match = command.match(/^bun "\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)" hook$/u)
+      const match = command.match(
+        /^cd "\$\{CLAUDE_PLUGIN_ROOT\}" && bun "([^"]+)" hook$/u,
+      )
       expect(match).not.toBeNull()
       await expect(access(join(repoRoot, match?.[1] ?? ""))).resolves.toBeUndefined()
     }

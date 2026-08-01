@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/src/cli/main.ts\" hook",
+            "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && bun \"src/cli/main.ts\" hook",
             "timeout": 120
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/src/cli/main.ts\" hook",
+            "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && bun \"src/cli/main.ts\" hook",
             "timeout": 120
           }
         ]
