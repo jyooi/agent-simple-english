@@ -225,6 +225,8 @@ Soft violations can appear with exit code 0.
 
 - `--version` writes the package version.
 
+- The command rejects an unknown flag as an argument error.
+
 - A path of `-` reads standard input.
   With no paths, the command also reads standard input.
 

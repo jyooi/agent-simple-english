@@ -77,9 +77,7 @@ const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
 
 const rejectUnknownFlags = (args: readonly string[]): Effect.Effect<void, Error> => {
   const flag = args.find((arg) => arg.startsWith("--"))
-  return flag === undefined
-    ? Effect.void
-    : Effect.fail(new Error(`unknown flag "${flag}"`))
+  return flag === undefined ? Effect.void : Effect.fail(new Error(`unknown flag "${flag}"`))
 }
 
 const isLintKind = (value: string): value is LintKind =>
