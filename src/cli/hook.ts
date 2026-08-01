@@ -143,7 +143,7 @@ function proposedEdit(
   if (oldString.length === 0) throw new Error("old_string must not be empty")
   const firstMatch = previousText.indexOf(oldString)
   if (firstMatch === -1) throw new Error("old_string was not found in the edit file")
-  if (replaceAll) return previousText.replaceAll(oldString, newString)
+  if (replaceAll) return previousText.replaceAll(oldString, () => newString)
   if (previousText.indexOf(oldString, firstMatch + oldString.length) !== -1) {
     throw new Error("old_string is not unique in the edit file")
   }

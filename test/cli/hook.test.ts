@@ -265,6 +265,28 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason).toContain("line 2, column 6 [contraction]")
   })
 
+  test("inserts replace-all text literally", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "This isn't permitted. Replace this sentence.")
+
+    const result = await runHook(
+      event(cwd, "Edit", {
+        file_path: path,
+        old_string: "Replace this sentence.",
+        new_string: "Keep $& and $`.",
+        replace_all: true,
+      }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
+  })
+
   test("gates a static git commit message", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const denied = await runHook(
