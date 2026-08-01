@@ -2,6 +2,7 @@
 
 `simple-english` checks ASD-STE100 Simplified Technical English (STE).
 It supplies one Engine, one CLI, and a pi Adapter.
+The CLI also supplies a `PreToolUse` hook for Claude Code.
 The [pi coding agent](https://pi.dev) can use the Adapter to enforce the same rules.
 
 This package reports deterministic writing problems.
@@ -16,7 +17,7 @@ It then applies the rules at three layers.
    The extension checks prose before the `write` or `edit` tool changes a file.
    A hard violation blocks the tool.
    A soft violation gives the model a warning but lets the tool change the file.
-   An edit checks only affected sentences, so an old violation does not block an unrelated edit.
+   An edit reports only new violations, so an old violation does not block an unrelated edit.
 
 2. **Commit-message gate.**
    The extension checks static messages in detected `git commit -m` and `git commit --message` commands.
@@ -81,6 +82,44 @@ Install it from the same npm package:
 ```sh
 bun add --global simple-english
 ```
+
+### Claude Code `PreToolUse` hook
+
+Add this command hook to the project `.claude/settings.json` file:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "simple-english hook"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The `hook` subcommand reads one Claude Code `PreToolUse` event from standard input.
+It writes one hook decision as JSON.
+A `Write` event checks the proposed content.
+An `Edit` event reconstructs the proposed file and reports only new violations.
+A `Bash` event checks static messages in detected `git commit` commands.
+The hook denies a detected commit that has no static message.
+
+A hard violation denies the event with its line, column, rule ID, and suggested correction.
+A soft violation alone allows the event and adds warning text.
+The hook allows clean events.
+Malformed JSON returns a non-blocking error so Claude Code can continue.
+The hook allows a valid event when configuration, dictionary, tagger, or file processing fails.
+It adds warning text.
+
+### Lint files and standard input
 
 Lint one or more files:
 

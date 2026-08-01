@@ -37,10 +37,9 @@ describe("lint prose-file: diff-only linting via previousText", () => {
   })
 
   test("indexes repeated violations within the hook budget", () => {
-    const text = Array.from(
-      { length: 8_000 },
-      (_, index) => `Sentence ${index} isn't valid.`,
-    ).join("\n")
+    const text = Array.from({ length: 8_000 }, (_, index) => `Sentence ${index} isn't valid.`).join(
+      "\n",
+    )
     const start = performance.now()
     const report = lint("prose-file", text, { previousText: text })
 

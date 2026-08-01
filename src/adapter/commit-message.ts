@@ -161,7 +161,11 @@ function tokenize(command: string): ShellToken[] {
       operator()
       continue
     }
-    if (character === "<" || character === ">" || (character === "&" && command[index + 1] === ">")) {
+    if (
+      character === "<" ||
+      character === ">" ||
+      (character === "&" && command[index + 1] === ">")
+    ) {
       const rest = command.slice(index)
       const redirectionOperator =
         rest.match(/^(?:<<<|<<-|&>>|<<|<>|<&|>>|>\||>&|&>|<|>)/u)?.[0] ?? character

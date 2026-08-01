@@ -167,9 +167,7 @@ function paragraphScope(
     identity: normalizeIdentity(paragraph.lines.join("\n")),
     startOffset: sourceOffset + startOffset,
     endOffset:
-      sourceOffset +
-      (offsets[endLine - 1] ?? startOffset) +
-      (lines[endLine - 1]?.length ?? 0),
+      sourceOffset + (offsets[endLine - 1] ?? startOffset) + (lines[endLine - 1]?.length ?? 0),
   }
 }
 
@@ -263,8 +261,7 @@ const lintProse = (
         violation,
         scope,
         sentenceIdentity: scope.identity,
-        occurrenceOffset:
-          sourceOffset + (offsets[violation.line - 1] ?? 0) + violation.column - 1,
+        occurrenceOffset: sourceOffset + (offsets[violation.line - 1] ?? 0) + violation.column - 1,
       }
     })
 
@@ -315,11 +312,7 @@ function configuredFinding(
   return { ...finding, violation: { ...finding.violation, severity: setting } }
 }
 
-function evaluate(
-  kind: LintKind,
-  text: string,
-  options: LintOptions,
-): ScopedViolation[] {
+function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedViolation[] {
   const resolved: ResolvedOptions = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
@@ -333,8 +326,7 @@ function evaluate(
           ...finding.violation,
           line: finding.violation.line + run.lineOffset,
           column:
-            finding.violation.column +
-            (finding.violation.line === 1 ? run.firstColumnOffset : 0),
+            finding.violation.column + (finding.violation.line === 1 ? run.firstColumnOffset : 0),
         },
       })),
     )

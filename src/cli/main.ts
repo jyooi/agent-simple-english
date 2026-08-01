@@ -172,7 +172,8 @@ const lintProgram = Effect.gen(function* () {
   return report.summary.hard > 0 ? 1 : 0
 })
 
-const program = args[0] === "hook" ? hookProgram : lintProgram.pipe(Effect.provide(WinkTaggerLive))
+const program: Effect.Effect<number, Error> =
+  args[0] === "hook" ? hookProgram : lintProgram.pipe(Effect.provide(WinkTaggerLive))
 
 const handled = program.pipe(
   Effect.catchAll((error) =>
