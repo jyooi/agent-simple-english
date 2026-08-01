@@ -128,10 +128,7 @@ describe("simple-english CLI hook mode", () => {
   test("resolves a custom dictionary from the event directory", async () => {
     const cwd = await makeProject()
     const dictionaryPath = join(cwd, "dictionary.json")
-    await copyFile(
-      join(repoRoot, "test", "fixtures", "hyphenated-dictionary.json"),
-      dictionaryPath,
-    )
+    await copyFile(join(repoRoot, "test", "fixtures", "hyphenated-dictionary.json"), dictionaryPath)
     const input = event(cwd, "Write", {
       file_path: join(cwd, "notes.md"),
       content: "Use state-of-the-art parts.",
@@ -144,9 +141,7 @@ describe("simple-english CLI hook mode", () => {
       expect(result.code).toBe(0)
       const output = decision(result.output)
       expect(output.permissionDecision).toBe("deny")
-      expect(output.permissionDecisionReason).toContain(
-        'Use "advanced", not "state-of-the-art".',
-      )
+      expect(output.permissionDecisionReason).toContain('Use "advanced", not "state-of-the-art".')
     }
   })
 

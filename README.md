@@ -215,6 +215,7 @@ The project fallback is `.pi/simple-english.json`.
 The global fallback is `simple-english.json` in the pi agent config directory.
 The default pi agent config directory is `~/.pi/agent`.
 `PI_CODING_AGENT_DIR` can change that directory.
+The loader resolves a relative value from the working directory that requested the config.
 The loader reads a fallback file only when the new file at the same level is absent.
 
 This example contains every config key and every rule:
@@ -367,8 +368,9 @@ This project has no affiliation with or endorsement from ASD.
 
 The package dictionary format and match rules are in [`src/dictionary/README.md`](src/dictionary/README.md).
 Set `SIMPLE_ENGLISH_DICTIONARY` to a replacement dictionary file if necessary.
-The CLI reports a replacement dictionary load error and continues with all other rules.
-The enabled extension fails closed after that error.
+Hook mode resolves a relative replacement path from the session working directory.
+A lint command reports a replacement dictionary load error and continues with all other rules.
+The enabled pi Adapter fails closed after that error.
 
 ## Development
 

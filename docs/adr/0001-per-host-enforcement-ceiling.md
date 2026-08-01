@@ -4,11 +4,10 @@ We design adapters for pi and Claude Code.
 Each adapter uses the strongest enforcement that its host allows.
 We do not reduce all hosts to one common enforcement level or limit new hosts to warnings.
 
-The planned host ceilings differ.
+The host ceilings differ.
 Pi gets prompt rules, write and edit gates, commit gates, reply feedback, and strict reply gates.
 Claude Code gets prompt rules through SessionStart and write, edit, and commit gates through PreToolUse.
-It gets reply feedback through UserPromptSubmit.
-A Stop hook approximates strict mode because it cannot hide text that Claude Code sent.
+Claude Code has no reply check or strict mode.
 We accept and document the host differences.
 
 A host ceiling can increase when its extension surface changes.

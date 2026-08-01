@@ -10,8 +10,7 @@ const legacyAgentConfigDirectory = (cwd: string): string => {
   if (!configured) return join(homedir(), ".pi", "agent")
   if (configured === "~") return homedir()
   const expanded =
-    configured.startsWith("~/") ||
-    (process.platform === "win32" && configured.startsWith("~\\"))
+    configured.startsWith("~/") || (process.platform === "win32" && configured.startsWith("~\\"))
       ? join(homedir(), configured.slice(2))
       : configured
   return isAbsolute(expanded) ? expanded : resolve(cwd, expanded)
