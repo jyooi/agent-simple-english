@@ -316,10 +316,20 @@ const blankTextRange = (text: string[], start: number, end: number): void => {
   }
 }
 
+interface ReferenceCandidate {
+  readonly imageIdentifier: string
+  readonly labelStart: number
+  readonly sourceStart: number
+  sourceEnd?: number
+  identifier?: string
+  valid: boolean
+}
+
 interface BracketFrame {
   readonly opening: number
   readonly image: boolean
   readonly imageDepth: number
+  readonly referenceCandidate?: ReferenceCandidate
 }
 
 interface ResourceCandidate {
@@ -336,10 +346,24 @@ interface SourceRange {
 interface PreparedMarkdownSource {
   readonly value: string
   readonly resourceCandidates: readonly ResourceCandidate[]
+  readonly referenceCandidates: readonly ReferenceCandidate[]
 }
 
 const isMarkdownWhitespace = (character: string | undefined): boolean =>
   character === " " || character === "\t" || character === "\n" || character === "\r"
+
+const normalizeIdentifier = (value: string): string =>
+  value
+    .replace(/[\t\n\r ]+/g, " ")
+    .replace(/^ | $/g, "")
+    .toLowerCase()
+    .toUpperCase()
+
+const markdownLabelSize = (value: string): number =>
+  Array.from(value).reduce(
+    (size, character) => size + (character === "\n" || character === "\r" ? 0 : 1),
+    0,
+  )
 
 interface ResourceScanIndex {
   readonly escaped: Uint8Array
@@ -596,7 +620,7 @@ const prepareMarkdownSource = (
   let imageDepth = 0
   let opaqueRangeIndex = 0
   let backslashRun = 0
-  let needsResourceIndex = false
+  let needsDeepImageFallback = false
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
@@ -631,8 +655,8 @@ const prepareMarkdownSource = (
     } else if (character === "]") {
       const frame = brackets.pop()
       if (frame?.image) {
-        if (frame.imageDepth > 32 && source[index + 1] === "(") {
-          needsResourceIndex = true
+        if (frame.imageDepth > 32) {
+          needsDeepImageFallback = true
           break
         }
         imageDepth--
@@ -640,15 +664,17 @@ const prepareMarkdownSource = (
     }
   }
 
-  if (!needsResourceIndex) {
-    return { value: boundCdataMarkers(source), resourceCandidates: [] }
+  if (!needsDeepImageFallback) {
+    return { value: boundCdataMarkers(source), resourceCandidates: [], referenceCandidates: [] }
   }
 
   const characters = boundCdataMarkers(source).split("")
-  const scanIndex = resourceScanIndex(source)
-  const escaped = scanIndex.escaped
-  const candidateByOpening = new Map<number, ResourceCandidate>()
+  const escaped = escapedCharacters(source)
+  let scanIndex: ResourceScanIndex | undefined
+  const resourceCandidateByOpening = new Map<number, ResourceCandidate>()
+  const referenceCandidateByOpening = new Map<number, ReferenceCandidate>()
   const resourceCandidates: ResourceCandidate[] = []
+  const referenceCandidates: ReferenceCandidate[] = []
   brackets.length = 0
   imageDepth = 0
   opaqueRangeIndex = 0
@@ -667,24 +693,56 @@ const prepareMarkdownSource = (
     if (character === "\\" || escaped[index] !== 0) continue
 
     if (character === "[") {
+      const parentReference = brackets.at(-1)?.referenceCandidate
+      if (parentReference !== undefined) parentReference.valid = false
       const image = source[index - 1] === "!" && escaped[index - 1] === 0
       if (image) imageDepth++
-      brackets.push({ opening: index, image, imageDepth })
+      brackets.push({
+        opening: index,
+        image,
+        imageDepth,
+        referenceCandidate: referenceCandidateByOpening.get(index),
+      })
     } else if (character === "]") {
       const frame = brackets.pop()
-      if (frame?.image) {
-        if (frame.imageDepth > 32 && source[index + 1] === "(") {
+      if (frame?.referenceCandidate !== undefined) {
+        const candidate = frame.referenceCandidate
+        const identifierSource = source.slice(frame.opening + 1, index)
+        candidate.sourceEnd = index + 1
+        if (identifierSource === "") {
+          candidate.identifier = candidate.imageIdentifier
+        } else if (
+          candidate.valid &&
+          markdownLabelSize(identifierSource) <= 999 &&
+          identifierSource.trim() !== ""
+        ) {
+          candidate.identifier = normalizeIdentifier(identifierSource)
+        }
+      } else if (frame?.image) {
+        if (frame.imageDepth > 32) {
           characters[frame.opening] = "x"
           characters[index] = "x"
-          const candidate = { labelStart: frame.opening, sourceStart: index + 1 }
-          candidateByOpening.set(index + 1, candidate)
-          resourceCandidates.push(candidate)
+          if (source[index + 1] === "(") {
+            const candidate = { labelStart: frame.opening, sourceStart: index + 1 }
+            resourceCandidateByOpening.set(index + 1, candidate)
+            resourceCandidates.push(candidate)
+          } else if (source[index + 1] === "[") {
+            const candidate = {
+              imageIdentifier: normalizeIdentifier(source.slice(frame.opening + 1, index)),
+              labelStart: frame.opening,
+              sourceStart: index + 1,
+              valid: true,
+            }
+            referenceCandidateByOpening.set(index + 1, candidate)
+            referenceCandidates.push(candidate)
+          }
         }
         imageDepth--
       }
     } else if (character === "(") {
-      const candidate = candidateByOpening.get(index)
+      const candidate = resourceCandidateByOpening.get(index)
       if (candidate !== undefined) {
+        scanIndex ??= resourceScanIndex(source)
         const end = resourceEnd(source, index, scanIndex)
         if (end >= 0) {
           candidate.sourceEnd = end
@@ -695,7 +753,7 @@ const prepareMarkdownSource = (
     }
   }
 
-  return { value: characters.join(""), resourceCandidates }
+  return { value: characters.join(""), resourceCandidates, referenceCandidates }
 }
 
 const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
@@ -753,6 +811,35 @@ const rangeContaining = (
   }
   const range = ranges[low - 1]
   return range !== undefined && offset < range.end ? range : undefined
+}
+
+const fallbackReferenceRanges = (
+  candidates: readonly ReferenceCandidate[],
+  inlineBlocks: readonly SourceRange[],
+  opaqueInlineRanges: readonly SourceRange[],
+  definedIdentifiers: ReadonlySet<string>,
+): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  for (const candidate of candidates) {
+    if (
+      candidate.sourceEnd === undefined ||
+      candidate.identifier === undefined ||
+      !definedIdentifiers.has(candidate.identifier)
+    ) {
+      continue
+    }
+    const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
+    if (
+      inlineBlock === undefined ||
+      candidate.sourceStart < inlineBlock.start ||
+      candidate.sourceEnd > inlineBlock.end ||
+      rangeContaining(opaqueInlineRanges, candidate.labelStart) !== undefined
+    ) {
+      continue
+    }
+    ranges.push({ start: candidate.sourceStart, end: candidate.sourceEnd })
+  }
+  return ranges
 }
 
 const fallbackResourceRanges = (
@@ -891,10 +978,29 @@ export function blankMarkdownDestinations(
     blankSourceRange(range.start, range.end)
   }
 
+  const inlineBlocks = tokenRanges(events, INLINE_BLOCK_TOKENS)
+  const definedIdentifiers = new Set<string>()
+  for (const [phase, token] of events) {
+    if (phase === "enter" && token.type === "definitionLabelString") {
+      definedIdentifiers.add(
+        normalizeIdentifier(source.slice(token.start.offset, token.end.offset)),
+      )
+    }
+  }
+
+  for (const range of fallbackReferenceRanges(
+    preparedSource.referenceCandidates,
+    inlineBlocks,
+    opaqueInlineRanges,
+    definedIdentifiers,
+  )) {
+    blankSourceRange(range.start, range.end)
+  }
+
   for (const range of fallbackResourceRanges(
     source,
     preparedSource.resourceCandidates,
-    tokenRanges(events, INLINE_BLOCK_TOKENS),
+    inlineBlocks,
     opaqueInlineRanges,
   )) {
     blankSourceRange(range.start, range.end)

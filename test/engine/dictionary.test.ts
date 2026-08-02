@@ -256,6 +256,65 @@ describe("lint prose-file: dictionary rule", () => {
     },
   )
 
+  test("masks resolved full references in deeply nested images", () => {
+    const text = `${"![x ".repeat(33)}Alphaword${"][r]".repeat(33)}\n\n[r]: /u`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  })
+
+  test("keeps unresolved deep image reference labels visible", () => {
+    const text = `${"![x ".repeat(33)}Alphaword${"][r]".repeat(33)}`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const violations = lint("prose-file", text, { dictionary: list, rules }).violations
+
+    expect(violations).toHaveLength(33)
+    expect(
+      violations.every(
+        (violation) => violation.message === '"r" is not in the approved-word list.',
+      ),
+    ).toBe(true)
+  })
+
+  test("bounds valid nested full reference images", () => {
+    const depth = 5_000
+    const text = `${"![x ".repeat(depth)}x${"][r]".repeat(depth)}\n\n[r]: /u`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
+
+  test.each([
+    ["collapsed", "][]"],
+    ["shortcut", "]"],
+  ])(
+    "bounds malformed nested %s reference images",
+    (_kind, closing) => {
+      const depth = 5_000
+      const text = `${"![x ".repeat(depth)}x${closing.repeat(depth)}`
+      const list = {
+        ...approvedWordList,
+        approvedWords: [...approvedWordList.approvedWords, "x"],
+      }
+      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+      expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+    },
+    3_000,
+  )
+
   test("does not build deep-resource indexes for large plain prose", () => {
     const text = "Alphaword ".repeat(100_000)
     const OriginalInt32Array = globalThis.Int32Array
