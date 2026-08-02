@@ -9,7 +9,7 @@ It does not rewrite text because an automatic rewrite can change its meaning.
 
 ## What the pi Adapter does
 
-The pi Adapter adds its active STE rules to the model prompt before each agent turn.
+The pi Adapter adds its active writing rules to the model prompt before each agent turn.
 It then applies the rules at three layers.
 
 1. **Write and edit gate.**
@@ -52,7 +52,7 @@ The repository supplies the local marketplace manifest.
 Marketplace publication is outside this package release.
 
 At `SessionStart`, the Adapter loads the merged config for an enabled session.
-It reads the config from the session working directory and adds the active STE rule summary to context.
+It reads the config from the session working directory and adds the active writing-rule summary to context.
 The summary honors `hard`, `soft`, and `off` rule settings plus `maxSentenceWords`.
 
 The `PreToolUse` gate checks `Write`, `Edit`, and `Bash` events.
@@ -392,8 +392,9 @@ A phrase match stays on one source line.
 #### `marketing`
 
 Default: soft.
-Reports the first listed term in each token from [`src/dictionary/data/marketing.json`](src/dictionary/data/marketing.json).
-Matching does not depend on letter case, and it also examines components of hyphenated tokens.
+Reports complete listed forms from [`src/dictionary/data/marketing.json`](src/dictionary/data/marketing.json).
+A multi-word form stays on one source line.
+Matching does not depend on letter case, and the rule also reports the first listed single-token component of a hyphenated token.
 
 ## Dictionary and attribution
 

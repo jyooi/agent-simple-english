@@ -63,9 +63,15 @@ export function formatStatusSummary(
   ].join("\n")
 }
 
-export function ruleSummary(config: SteConfig): string {
-  const maxSentenceWords = config.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS
-  const rules = (Object.keys(RULE_SUMMARIES) as RuleId[])
+const HOUSE_STYLE_RULE_IDS: ReadonlySet<RuleId> = new Set(["hedging", "marketing"])
+
+function formatRuleGroup(
+  heading: string,
+  ruleIds: readonly RuleId[],
+  config: SteConfig,
+  maxSentenceWords: number,
+): string | undefined {
+  const rules = ruleIds
     .filter((ruleId) => resolvedRuleSetting(config, ruleId) !== "off")
     .map((ruleId) => {
       const summary =
@@ -74,6 +80,30 @@ export function ruleSummary(config: SteConfig): string {
           : RULE_SUMMARIES[ruleId]
       return `- [${resolvedRuleSetting(config, ruleId)}] ${summary}`
     })
-    .join("\n")
-  return `## Simplified Technical English\n\nFollow these STE rules in prose that you write or edit:\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
+  if (rules.length === 0) return undefined
+  return `### ${heading}\n\n${rules.join("\n")}`
+}
+
+export function ruleSummary(config: SteConfig): string {
+  const maxSentenceWords = config.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS
+  const ruleIds = Object.keys(RULE_SUMMARIES) as RuleId[]
+  const sections = [
+    formatRuleGroup(
+      "Rules derived from ASD-STE100 Simplified Technical English",
+      ruleIds.filter((ruleId) => !HOUSE_STYLE_RULE_IDS.has(ruleId)),
+      config,
+      maxSentenceWords,
+    ),
+    formatRuleGroup(
+      "House-style rules",
+      ruleIds.filter((ruleId) => HOUSE_STYLE_RULE_IDS.has(ruleId)),
+      config,
+      maxSentenceWords,
+    ),
+  ].filter((section): section is string => section !== undefined)
+  const rules =
+    sections.length === 0
+      ? "No writing rules are enabled."
+      : `Apply these enabled rules to prose that you write or edit:\n\n${sections.join("\n\n")}`
+  return `## Writing rules\n\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
 }

@@ -82,6 +82,53 @@ describe("lint prose-file: marketing rule", () => {
     ])
   })
 
+  test("matches multi-word forms from an extension dictionary", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "marketing.json",
+      },
+      entries: [{ unapproved: ["best in class"], suggestions: ["excellent"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "A best in class platform.", {
+      ruleData: { marketing: extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({
+        ruleId: "marketing",
+        line: 1,
+        column: 3,
+        message: expect.stringContaining("best in class"),
+      }),
+    ])
+  })
+
+  test("preserves source columns when Unicode lowercase expands", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "marketing.json",
+      },
+      entries: [{ unapproved: ["robust"], suggestions: ["delete"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "An İ-robust platform.", {
+      ruleData: { marketing: extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "marketing", line: 1, column: 6 }),
+    ])
+  })
+
   test("soft marketing violations do not count as hard in the summary", () => {
     const report = lint("prose-file", "A robust and powerful tool.")
 

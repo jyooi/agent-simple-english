@@ -384,7 +384,7 @@ describe.sequential("pi extension wiring", () => {
     expect(manifest.devDependencies).toMatchObject({ typebox: "1.3.7" })
   })
 
-  test("injects an STE rule summary that reflects merged active settings", async () => {
+  test("injects a grouped rule summary that reflects merged active settings", async () => {
     const { pi, context } = await startExtension({
       globalConfig: {
         maxSentenceWords: 30,
@@ -402,21 +402,25 @@ describe.sequential("pi extension wiring", () => {
       context,
     )
 
-    expect(result).toMatchObject({
-      systemPrompt: expect.stringContaining("Simplified Technical English"),
-    })
-    expect(result).toMatchObject({
-      systemPrompt: expect.stringContaining("[hard] Do not use semicolons"),
-    })
-    expect(result).toMatchObject({
-      systemPrompt: expect.stringContaining("Keep each sentence to 8 words or fewer"),
-    })
-    expect(result).toMatchObject({
-      systemPrompt: expect.not.stringContaining("Do not use contractions"),
-    })
-    expect(result).toMatchObject({
-      systemPrompt: expect.stringContaining("git commit messages reject hard violations"),
-    })
+    const systemPrompt = result?.systemPrompt ?? ""
+    expect(systemPrompt).toContain("Rules derived from ASD-STE100 Simplified Technical English")
+    expect(systemPrompt).toContain("[hard] Do not use semicolons")
+    expect(systemPrompt).toContain("Keep each sentence to 8 words or fewer")
+    expect(systemPrompt).not.toContain("Do not use contractions")
+    expect(systemPrompt).toContain("git commit messages reject hard violations")
+
+    const steStart = systemPrompt.indexOf("### Rules derived from ASD-STE100")
+    const houseStart = systemPrompt.indexOf("### House-style rules")
+    expect(steStart).toBeGreaterThan(-1)
+    expect(houseStart).toBeGreaterThan(steStart)
+
+    const steRules = systemPrompt.slice(steStart, houseStart)
+    const houseRules = systemPrompt.slice(houseStart)
+    expect(steRules).not.toContain("Remove hedging phrases")
+    expect(steRules).not.toContain("marketing language")
+    expect(houseRules).toContain("Remove hedging phrases")
+    expect(houseRules).toContain("marketing language")
+    expect(houseRules).not.toContain("ASD-STE100")
   })
 
   test("blocks a hard commit message with structured feedback", async () => {

@@ -3,7 +3,14 @@ import { scanLines } from "../scan.ts"
 import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
 
-const compilePatterns = (dictionary: Dictionary) =>
+interface PhrasalVerbPattern {
+  readonly suggestion: string
+  readonly pattern: RegExp
+}
+
+const patternsByDictionary = new WeakMap<Dictionary, readonly PhrasalVerbPattern[]>()
+
+const compilePatterns = (dictionary: Dictionary): readonly PhrasalVerbPattern[] =>
   dictionary.entries.map((entry) => ({
     suggestion: entry.suggestions[0],
     pattern: new RegExp(
@@ -14,8 +21,17 @@ const compilePatterns = (dictionary: Dictionary) =>
     ),
   }))
 
+const patternsFor = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
+  const cached = patternsByDictionary.get(dictionary)
+  if (cached !== undefined) return cached
+
+  const compiled = compilePatterns(dictionary)
+  patternsByDictionary.set(dictionary, compiled)
+  return compiled
+}
+
 export function phrasalVerb(lines: readonly string[], dictionary: Dictionary): Violation[] {
-  return compilePatterns(dictionary).flatMap(({ pattern, suggestion }) =>
+  return patternsFor(dictionary).flatMap(({ pattern, suggestion }) =>
     scanLines(lines, pattern).map((match) => ({
       ruleId: "phrasal-verb",
       severity: "hard" as const,
