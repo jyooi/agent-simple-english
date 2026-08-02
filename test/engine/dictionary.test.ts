@@ -76,6 +76,23 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: approvedWordList }).violations).toEqual([])
   })
 
+  test("checks prose that only resembles a Markdown link destination", () => {
+    const report = lint("prose-file", "Alphaword ](betaword) word-form.", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 13,
+      },
+    ])
+  })
+
   test("flags a word that is absent from the approved-word list", () => {
     const report = lint("prose-file", "Alphaword betaword.", { dictionary: approvedWordList })
 

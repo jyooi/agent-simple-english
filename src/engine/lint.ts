@@ -235,12 +235,29 @@ const lintProse = (
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
-  const sentenceFindings = (violations: readonly Violation[]): ScopedViolation[] =>
+  const approvedWordMode =
+    options.dictionary !== undefined && "approvedWords" in options.dictionary
+  const dictionarySentenceIndex = approvedWordMode
+    ? indexSentenceScopes(
+        segmentSentences(
+          prepared.dictionaryLines,
+          prepared.dictionaryLines.join("\n"),
+          prepared.structuralBlanks,
+        ),
+        prepared.dictionaryLines.length,
+        sourceOffset,
+      )
+    : sentenceIndex
+  const sentenceFindings = (
+    violations: readonly Violation[],
+    findingSentenceIndex: SentenceScopeIndex = sentenceIndex,
+    findingLines: readonly string[] = prepared.structuralLines,
+  ): ScopedViolation[] =>
     violations.map((violation) => {
       const scope = scopeForViolation(
         violation,
-        sentenceIndex,
-        prepared.structuralLines,
+        findingSentenceIndex,
+        findingLines,
         offsets,
         sourceOffset,
       )
@@ -286,6 +303,8 @@ const lintProse = (
             contentStarts,
             prepared.dictionaryLines,
           ),
+          dictionarySentenceIndex,
+          approvedWordMode ? prepared.dictionaryLines : prepared.structuralLines,
         )),
     ...(options.tagger === undefined
       ? []

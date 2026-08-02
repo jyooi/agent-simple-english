@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
-import type { Dictionary } from "../../src/dictionary/schema.ts"
+import type { ApprovedWordList, Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const fixture = (name: string) =>
@@ -20,6 +20,17 @@ const dictionary = {
     { unapproved: ["prior to"], suggestions: ["before"] },
   ],
 } as const satisfies Dictionary
+
+const approvedWordList = {
+  formatVersion: 1,
+  source: {
+    name: "synthetic test fixture",
+    repository: "https://example.test/approved-words",
+    commit: "fixture",
+    path: "approved-words.json",
+  },
+  approvedWords: ["alphaword"],
+} as const satisfies ApprovedWordList
 
 describe("lint prose-file: diff-only linting via previousText", () => {
   const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(" ")
@@ -253,6 +264,16 @@ describe("lint prose-file: diff-only linting via previousText", () => {
 
     expect(
       lint("prose-file", current, { previousText: previous, dictionary }).violations,
+    ).toHaveLength(0)
+  })
+
+  test("a link destination edit does not report an existing allowlist violation", () => {
+    const previous = "[Alphaword](old-target) Betaword."
+    const current = "[Alphaword](longer-target) Betaword."
+
+    expect(
+      lint("prose-file", current, { previousText: previous, dictionary: approvedWordList })
+        .violations,
     ).toHaveLength(0)
   })
 

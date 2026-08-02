@@ -280,6 +280,114 @@ const blankTextRange = (text: string[], start: number, end: number): void => {
   }
 }
 
+const isMarkdownWhitespace = (character: string | undefined): boolean =>
+  character === " " || character === "\t" || character === "\n" || character === "\r"
+
+const markdownWhitespaceEnd = (text: string, start: number): number | undefined => {
+  let index = start
+  let lineEndings = 0
+  while (index < text.length) {
+    const character = text[index]
+    if (character === " " || character === "\t") {
+      index++
+      continue
+    }
+    if (character !== "\n" && character !== "\r") break
+    lineEndings++
+    if (lineEndings > 1) return undefined
+    index += character === "\r" && text[index + 1] === "\n" ? 2 : 1
+  }
+  return index
+}
+
+const markdownLinkTitleEnd = (text: string, start: number): number | undefined => {
+  const opening = text[start]
+  const closing = opening === "(" ? ")" : opening
+  if (closing !== ")" && closing !== '"' && closing !== "'") return undefined
+
+  for (let index = start + 1; index < text.length; index++) {
+    const character = text[index]
+    if (character === "\\") {
+      index++
+      continue
+    }
+    if (character === closing) return index + 1
+    if (opening === "(" && character === "(") return undefined
+  }
+  return undefined
+}
+
+const markdownInlineLinkEnd = (text: string, opening: number): number | undefined => {
+  const destinationStart = markdownWhitespaceEnd(text, opening + 1)
+  if (destinationStart === undefined) return undefined
+  let index = destinationStart
+
+  if (text[index] === "<") {
+    let closed = false
+    for (index += 1; index < text.length; index++) {
+      const character = text[index]
+      if (character === "\\") {
+        index++
+        continue
+      }
+      if (character === "\n" || character === "<") return undefined
+      if (character === ">") {
+        index++
+        closed = true
+        break
+      }
+    }
+    if (!closed) return undefined
+  } else {
+    let depth = 0
+    while (index < text.length) {
+      const character = text[index]
+      if (character === "\\") {
+        index += 2
+        continue
+      }
+      if (character === "(") {
+        depth++
+        index++
+        continue
+      }
+      if (character === ")") {
+        if (depth === 0) return index
+        depth--
+        index++
+        continue
+      }
+      if (character === "<" || character === ">") return undefined
+      if (isMarkdownWhitespace(character)) break
+      index++
+    }
+    if (depth !== 0) return undefined
+  }
+
+  if (text[index] === ")") return index
+  const titleStart = markdownWhitespaceEnd(text, index)
+  if (titleStart === undefined || titleStart === index) return undefined
+  if (text[titleStart] === ")") return titleStart
+
+  const titleEnd = markdownLinkTitleEnd(text, titleStart)
+  if (titleEnd === undefined) return undefined
+  const linkEnd = markdownWhitespaceEnd(text, titleEnd)
+  return linkEnd !== undefined && text[linkEnd] === ")" ? linkEnd : undefined
+}
+
+const markdownReferenceEnd = (text: string, opening: number): number | undefined => {
+  for (let index = opening + 1; index < text.length; index++) {
+    const character = text[index]
+    if (character === "\\") {
+      index++
+      continue
+    }
+    if (character === "[" || character === "\n") return undefined
+    if (character === "]") return index
+  }
+  return undefined
+}
+
 export function blankMarkdownDestinations(lines: readonly string[]): string[] {
   const source = lines.join("\n")
   const blanked = source.split("")
@@ -288,27 +396,39 @@ export function blankMarkdownDestinations(lines: readonly string[]): string[] {
     blankTextRange(blanked, match.index, match.index + match[0].length)
   }
 
-  for (const match of source.matchAll(/\]\[[^\]\n]*\]/gu)) {
-    blankTextRange(blanked, match.index + 1, match.index + match[0].length)
-  }
-
-  // Link destinations can contain escaped and nested parentheses.
-  let opener = source.indexOf("](")
-  while (opener !== -1) {
-    let depth = 1
-    let index = opener + 2
-    while (index < source.length && depth > 0) {
-      if (source[index] === "\\") {
-        index += 2
-        continue
-      }
-      if (source[index] === "(") depth++
-      if (source[index] === ")") depth--
+  const labelOpeners: number[] = []
+  let lineStart = 0
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]
+    if (character === "\\") {
       index++
+      continue
     }
-    if (depth === 0) blankTextRange(blanked, opener + 2, index - 1)
-    const nextStart = depth === 0 ? index : opener + 2
-    opener = source.indexOf("](", nextStart)
+    if (character === "\n") {
+      if (source.slice(lineStart, index).trim() === "") labelOpeners.length = 0
+      lineStart = index + 1
+      continue
+    }
+    if (character === "[") {
+      labelOpeners.push(index)
+      continue
+    }
+    if (character !== "]" || labelOpeners.pop() === undefined) continue
+
+    const suffixStart = index + 1
+    if (source[suffixStart] === "(") {
+      const linkEnd = markdownInlineLinkEnd(source, suffixStart)
+      if (linkEnd === undefined) continue
+      blankTextRange(blanked, suffixStart + 1, linkEnd)
+      index = linkEnd
+      continue
+    }
+    if (source[suffixStart] === "[") {
+      const referenceEnd = markdownReferenceEnd(source, suffixStart)
+      if (referenceEnd === undefined) continue
+      blankTextRange(blanked, suffixStart, referenceEnd + 1)
+      index = referenceEnd
+    }
   }
 
   for (const pattern of [
