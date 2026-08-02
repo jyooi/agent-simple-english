@@ -561,9 +561,7 @@ function textDecision(
   if (hard.length > 0) {
     return deny(formatViolations(path, `Writing rules blocked ${operation} for`, hard))
   }
-  return allow(
-    soft.length === 0 ? [] : [formatViolations(path, "Writing-rule warnings for", soft)],
-  )
+  return allow(soft.length === 0 ? [] : [formatViolations(path, "Writing-rule warnings for", soft)])
 }
 
 function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutput, Error> {

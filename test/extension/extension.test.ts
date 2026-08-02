@@ -403,7 +403,10 @@ describe.sequential("pi extension wiring", () => {
       context,
     )
 
-    const systemPrompt = result?.systemPrompt ?? ""
+    const systemPrompt =
+      typeof result === "object" && result !== null && "systemPrompt" in result
+        ? String(result.systemPrompt)
+        : ""
     expect(systemPrompt).toContain("Rules derived from ASD-STE100 Simplified Technical English")
     expect(systemPrompt).toContain("[hard] Do not use semicolons")
     expect(systemPrompt).toContain("Keep each sentence to 8 words or fewer")

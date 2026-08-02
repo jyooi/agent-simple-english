@@ -97,9 +97,10 @@ describe("lint prose-file: phrasal-verb rule", () => {
     ]
 
     for (const separator of separators) {
-      expect(idsFor(`Carry${separator}out the test.`), separator.codePointAt(0)?.toString(16)).toContain(
-        "phrasal-verb",
-      )
+      expect(
+        idsFor(`Carry${separator}out the test.`),
+        separator.codePointAt(0)?.toString(16),
+      ).toContain("phrasal-verb")
     }
   })
 

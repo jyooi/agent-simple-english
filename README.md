@@ -33,7 +33,7 @@ It then applies the rules at three layers.
 
 The pi Adapter checks Markdown prose and source comments according to the [content kinds](#content-kinds).
 It gives the line, column, rule ID, and suggested correction for a blocked tool call.
-A config or dictionary load error makes enabled write, edit, and commit gates fail closed.
+A config, dictionary, or rule-data load error makes enabled write, edit, and commit gates fail closed.
 
 ## Install the Claude Code Adapter
 
@@ -166,7 +166,7 @@ In strict mode, it blocks a reply that has hard violations.
 A `UserPromptSubmit` event adds pending feedback to context and clears that feedback.
 Every hook reads the current session mode before it applies a gate.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
-The hook also allows the event when configuration, dictionary, tagger, transcript, state, or file processing fails.
+The hook also allows the event when configuration, dictionary, rule-data, tagger, transcript, state, or file processing fails.
 It adds warning text.
 
 ### Lint files and standard input
@@ -302,6 +302,8 @@ Unknown keys, unknown rule IDs, and invalid values cause a config error.
 The loader adds entries from these files after the bundled entries.
 The loader resolves relative paths from the current working directory.
 Each file must use the [package dictionary data format](src/dictionary/README.md).
+A lint command reports an extension load error and continues with the bundled rule data.
+The enabled pi Adapter fails closed after that error, while Claude Code Hook mode allows the event and adds a warning.
 
 ## Rule reference
 
@@ -329,21 +331,8 @@ Markdown block boundaries and list items start separate paragraphs.
 #### `phrasal-verb`
 
 Default: hard.
-Reports these forms and supplies the listed suggestion:
-
-| Forms | Suggestion |
-| --- | --- |
-| `carry out`, `carries out`, `carried out`, `carrying out` | `do`. |
-| `spin up`, `spins up`, `spun up`, `spinning up` | `start`. |
-| `spin down`, `spins down`, `spun down`, `spinning down` | `stop`. |
-| `tear down`, `tears down`, `tore down`, `torn down`, `tearing down` | `remove`. |
-| `reach out`, `reaches out`, `reached out`, `reaching out` | `ask`. |
-| `dive into`, `dives into`, `dived into`, `dove into`, `diving into` | `examine`. |
-| `kick off`, `kicks off`, `kicked off`, `kicking off` | `start`. |
-| `roll out`, `rolls out`, `rolled out`, `rolling out` | `release`. |
-| `ramp up`, `ramps up`, `ramped up`, `ramping up` | `increase`. |
-| `circle back`, `circles back`, `circled back`, `circling back` | `return`. |
-| `drill down`, `drills down`, `drilled down`, `drilling down` | `examine`. |
+Reports listed forms and supplies their suggestion.
+The bundled forms and suggestions are in [`src/dictionary/data/phrasal-verbs.json`](src/dictionary/data/phrasal-verbs.json).
 
 Matching does not depend on letter case.
 A phrase match stays on one source line.
@@ -386,7 +375,7 @@ The default config enables both rules.
 #### `hedging`
 
 Default: soft.
-Reports these phrases: `it is important to note`, `it should be noted`, `it is worth noting`, `please note that`, `as mentioned`, `as noted above`.
+Reports the phrases in [`src/dictionary/data/hedging.json`](src/dictionary/data/hedging.json).
 A phrase match stays on one source line.
 
 #### `marketing`

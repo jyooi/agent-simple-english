@@ -1,7 +1,7 @@
 import type { Dictionary } from "../../dictionary/schema.ts"
 import {
-  compileCaseFoldedPhrase,
   type CaseFoldedPhrase,
+  compileCaseFoldedPhrase,
   scanCaseFoldedPhrases,
 } from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"

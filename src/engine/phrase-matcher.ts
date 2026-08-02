@@ -1,8 +1,4 @@
-import {
-  caseFoldKey,
-  type CaseFoldedToken,
-  tokenizeCaseFolded,
-} from "./case-fold.ts"
+import { type CaseFoldedToken, caseFoldKey, tokenizeCaseFolded } from "./case-fold.ts"
 import type { LineMatch } from "./scan.ts"
 
 export interface CaseFoldedPhrase {
@@ -48,9 +44,7 @@ export function scanCaseFoldedPhrases(
       const first = tokens[tokenIndex]
       if (first === undefined) continue
 
-      const phrase = phrases.find((candidate) =>
-        matchesPhrase(line, tokens, tokenIndex, candidate),
-      )
+      const phrase = phrases.find((candidate) => matchesPhrase(line, tokens, tokenIndex, candidate))
       if (phrase === undefined) continue
 
       const last = tokens[tokenIndex + phrase.words.length - 1]

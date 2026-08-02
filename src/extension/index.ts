@@ -590,10 +590,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
         state.rejectedSayReplies.clear()
         if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
       }
-      ctx.ui.notify(
-        `Writing-rule enforcement ${state.enabled ? "enabled" : "disabled"}.`,
-        "info",
-      )
+      ctx.ui.notify(`Writing-rule enforcement ${state.enabled ? "enabled" : "disabled"}.`, "info")
     },
   })
 

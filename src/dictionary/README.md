@@ -7,8 +7,10 @@ The CLI and Adapters load all bundled data through `load.ts`.
 - `source` records the source name and pins the repository, commit, and path from which the data was converted.
 - `entries[].unapproved` lists exact case-insensitive word forms or phrases.
   Forms can contain letters, numbers, internal apostrophes, internal hyphens, and horizontal whitespace between words.
-- `entries[].suggestions` lists approved alternatives.
+- `entries[].suggestions` is a required list of rule responses.
+  The dictionary rule reports all values as approved alternatives, the phrasal-verb rule uses the first value, and the hedging and marketing rules ignore this field.
 - `entries[].partsOfSpeech`, when present, lists the POS tags for which the forms are unapproved.
+  Only the `dictionary-not-approved-word` rule uses this field.
 
 Unknown properties and unsupported form syntax cause dictionary validation to fail.
 For the `dictionary-not-approved-word` rule, matching is token based.

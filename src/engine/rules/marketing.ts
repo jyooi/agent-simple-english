@@ -1,9 +1,5 @@
 import type { Dictionary } from "../../dictionary/schema.ts"
-import {
-  caseFoldKey,
-  type CaseFoldedToken,
-  tokenizeCaseFolded,
-} from "../case-fold.ts"
+import { type CaseFoldedToken, caseFoldKey, tokenizeCaseFolded } from "../case-fold.ts"
 import type { Violation } from "../types.ts"
 
 interface MarketingForm {
