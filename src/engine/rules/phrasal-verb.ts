@@ -10,16 +10,31 @@ interface PhrasalVerbPattern {
 
 const patternsByDictionary = new WeakMap<Dictionary, readonly PhrasalVerbPattern[]>()
 
-const compilePatterns = (dictionary: Dictionary): readonly PhrasalVerbPattern[] =>
-  dictionary.entries.map((entry) => ({
-    suggestion: entry.suggestions[0],
-    pattern: new RegExp(
-      `(?<!${TOKEN_CHARACTER_PATTERN})(?:${entry.unapproved
-        .map((form) => form.replace(/[\t ]+/g, "\\s+"))
-        .join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-      "giu",
-    ),
-  }))
+const compilePatterns = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
+  const seenPairs = new Set<string>()
+  return dictionary.entries.flatMap((entry) => {
+    const suggestion = entry.suggestions[0]
+    const forms = entry.unapproved.filter((form) => {
+      const pair = JSON.stringify([form, suggestion])
+      if (seenPairs.has(pair)) return false
+      seenPairs.add(pair)
+      return true
+    })
+    if (forms.length === 0) return []
+
+    return [
+      {
+        suggestion,
+        pattern: new RegExp(
+          `(?<!${TOKEN_CHARACTER_PATTERN})(?:${forms
+            .map((form) => form.replace(/[\t ]+/g, "\\s+"))
+            .join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
+          "giu",
+        ),
+      },
+    ]
+  })
+}
 
 const patternsFor = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
   const cached = patternsByDictionary.get(dictionary)

@@ -373,6 +373,7 @@ describe.sequential("pi extension wiring", () => {
     expect(manifest.bin).toEqual({ "simple-english": "src/cli/main.ts" })
     expect(manifest.dependencies).toMatchObject({
       effect: expect.any(String),
+      "unicode-case-folding": expect.any(String),
       "wink-eng-lite-web-model": expect.any(String),
       "wink-nlp": expect.any(String),
     })
@@ -522,17 +523,17 @@ describe.sequential("pi extension wiring", () => {
     expect(error?.message).toContain("[contraction]")
   })
 
-  test("suggests STE command arguments and filters them by prefix", async () => {
+  test("suggests writing-rule command arguments and filters them by prefix", async () => {
     const { pi } = await startExtension()
 
     expect(pi.getArgumentCompletions("ste", "")).toEqual([
-      { value: "on", label: "on", description: "Enable STE enforcement" },
-      { value: "off", label: "off", description: "Disable STE enforcement" },
-      { value: "status", label: "status", description: "Show STE status" },
+      { value: "on", label: "on", description: "Enable writing-rule enforcement" },
+      { value: "off", label: "off", description: "Disable writing-rule enforcement" },
+      { value: "status", label: "status", description: "Show writing-rule status" },
       { value: "strict", label: "strict", description: "Enable strict reply gating" },
     ])
     expect(pi.getArgumentCompletions("ste", "s")).toEqual([
-      { value: "status", label: "status", description: "Show STE status" },
+      { value: "status", label: "status", description: "Show writing-rule status" },
       { value: "strict", label: "strict", description: "Enable strict reply gating" },
     ])
     expect(pi.getArgumentCompletions("ste", "missing")).toBeNull()
@@ -627,7 +628,7 @@ describe.sequential("pi extension wiring", () => {
       )?.message,
     ).toContain("[contraction]")
     await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: 1 hard, 0 soft"])
   })
 
   test("reports the mode, rule severity counts, and dictionary state", async () => {
@@ -809,10 +810,15 @@ describe.sequential("pi extension wiring", () => {
 
     expect(update.assistantMessageEvent.delta).toBe("")
     expect(message.content[0]?.arguments).toEqual({
-      text: "[redacted until STE approval]",
+      text: "[redacted until writing-rule approval]",
     })
     await expect(
-      pi.executeTool("say", "say-redacted", { text: "[redacted until STE approval]" }, context),
+      pi.executeTool(
+        "say",
+        "say-redacted",
+        { text: "[redacted until writing-rule approval]" },
+        context,
+      ),
     ).resolves.toMatchObject({ content: [{ type: "text", text: "Open the valve." }] })
   })
 
@@ -946,7 +952,7 @@ describe.sequential("pi extension wiring", () => {
 
     const reply = assistantMessage("This isn't permitted.")
     await expect(pi.finalizeAssistant(reply, context)).resolves.toBe(reply)
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: 1 hard, 0 soft"])
   })
 
   test("blocks a hard write with location, rule, and fix feedback, then permits a clean write", async () => {
@@ -1191,7 +1197,7 @@ describe.sequential("pi extension wiring", () => {
     expect(toolResult).toMatchObject({
       content: [
         { type: "text", text: "Wrote notes.md" },
-        { type: "text", text: expect.stringContaining("STE warnings for notes.md") },
+        { type: "text", text: expect.stringContaining("Writing-rule warnings for notes.md") },
       ],
     })
   })
@@ -1207,7 +1213,7 @@ describe.sequential("pi extension wiring", () => {
     const finalized = await pi.finalizeAssistant(reply, context)
 
     expect(finalized).toBe(reply)
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 1 soft"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: 1 hard, 1 soft"])
 
     const result = await pi.emit(
       "context",
@@ -1240,7 +1246,7 @@ describe.sequential("pi extension wiring", () => {
       sessionStartReason: "resume",
     })
 
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 1 hard, 0 soft"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: 1 hard, 0 soft"])
     const result = await pi.emit("context", { messages: [reply] }, context)
     expect(result).toMatchObject({
       messages: expect.arrayContaining([
@@ -1262,7 +1268,7 @@ describe.sequential("pi extension wiring", () => {
       sessionStartReason: "resume",
     })
 
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
@@ -1298,7 +1304,7 @@ describe.sequential("pi extension wiring", () => {
       context,
     )
 
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
@@ -1311,7 +1317,7 @@ describe.sequential("pi extension wiring", () => {
     const finalized = await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
 
     expect(finalized.content).toEqual([{ type: "text", text: "Open the valve." }])
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
@@ -1325,7 +1331,7 @@ describe.sequential("pi extension wiring", () => {
       context,
     )
 
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: 0 hard, 1 soft"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: 0 hard, 1 soft"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
@@ -1336,7 +1342,7 @@ describe.sequential("pi extension wiring", () => {
 
     await pi.finalizeAssistant(assistantMessage("Open the valve."), context)
 
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 
@@ -1348,7 +1354,7 @@ describe.sequential("pi extension wiring", () => {
 
     await pi.finalizeAssistant(assistantMessage(reply), context)
 
-    expect(widgets.get("simple-english-reply")).toEqual(["STE reply: clean"])
+    expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: clean"])
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()
   })
 

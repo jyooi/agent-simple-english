@@ -134,6 +134,25 @@ describe("lint prose-file: marketing rule", () => {
     ])
   })
 
+  test("does not apply Turkic case equivalence", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "marketing.json",
+      },
+      entries: [{ unapproved: ["kisa"], suggestions: ["plain"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "A kısa platform.", {
+      ruleData: { marketing: extension },
+    })
+
+    expect(report.violations).toEqual([])
+  })
+
   test("preserves source columns when Unicode lowercase expands", () => {
     const extension = {
       formatVersion: 1,

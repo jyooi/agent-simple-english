@@ -1,3 +1,4 @@
+import { caseFold } from "unicode-case-folding"
 import type { Dictionary } from "../../dictionary/schema.ts"
 import { TOKEN_RUN_PATTERN } from "../tokens.ts"
 import type { Violation } from "../types.ts"
@@ -25,8 +26,7 @@ interface MarketingMatch {
 
 const compiledDataByDictionary = new WeakMap<Dictionary, CompiledMarketingData>()
 
-const caseFoldKey = (text: string): string =>
-  text.toLowerCase().toUpperCase().toLowerCase()
+const caseFoldKey = (text: string): string => caseFold(text)
 
 const tokenize = (line: string): readonly MarketingToken[] =>
   Array.from(line.matchAll(TOKEN_RUN_PATTERN), (match) => ({

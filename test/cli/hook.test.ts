@@ -211,7 +211,7 @@ describe("simple-english CLI hook mode", () => {
     )
     const disabledPrompt = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
 
-    expect(disabled).toMatchObject({ code: 0, stdout: "STE enforcement disabled.\n" })
+    expect(disabled).toMatchObject({ code: 0, stdout: "Writing-rule enforcement disabled.\n" })
     expect(decision(disabledWrite.output).permissionDecision).toBe("allow")
     expect(decision(parallelWrite.output).permissionDecision).toBe("deny")
     expect(disabledStart.output).toEqual({})
@@ -230,7 +230,7 @@ describe("simple-english CLI hook mode", () => {
     const enabled = await runSessionCommand("session-1", cwd, "on", xdgStateHome)
     const enabledWrite = await runReplyHook(violatingWrite("session-1"), cwd, xdgStateHome)
 
-    expect(enabled).toMatchObject({ code: 0, stdout: "STE enforcement enabled.\n" })
+    expect(enabled).toMatchObject({ code: 0, stdout: "Writing-rule enforcement enabled.\n" })
     expect(decision(enabledWrite.output).permissionDecision).toBe("deny")
     const enabledState = JSON.parse(
       await readFile(
@@ -376,7 +376,7 @@ describe("simple-english CLI hook mode", () => {
       xdgStateHome,
     )
 
-    expect(disabled).toMatchObject({ code: 0, stdout: "STE strict mode disabled.\n" })
+    expect(disabled).toMatchObject({ code: 0, stdout: "Writing-rule strict mode disabled.\n" })
     expect(stopped.output).toEqual({})
     expect(decision(submitted.output).additionalContext).toContain("[contraction]")
   })
@@ -688,7 +688,7 @@ describe("simple-english CLI hook mode", () => {
 
     expect(result.code).toBe(0)
     expect(result.output.continue).toBe(true)
-    expect(result.output.systemMessage).toContain("STE hook error")
+    expect(result.output.systemMessage).toContain("Writing-rule hook error")
     expect(await stateFiles(xdgStateHome)).toEqual([])
   })
 
@@ -1213,7 +1213,7 @@ describe("simple-english CLI hook mode", () => {
     expect(result.code).toBe(0)
     const output = decision(result.output)
     expect(output.permissionDecision).toBe("allow")
-    expect(output.additionalContext).toContain("STE warning")
+    expect(output.additionalContext).toContain("Writing-rule warning")
     expect(output.additionalContext).toContain("line 1, column 1 [hedging]")
     expect(output.additionalContext).toContain("Suggested fix:")
   })
@@ -1251,7 +1251,7 @@ describe("simple-english CLI hook mode", () => {
     expect(result.code).toBe(0)
     const output = decision(result.output)
     expect(output.permissionDecision).toBe("allow")
-    expect(output.additionalContext).toContain("STE hook warning")
+    expect(output.additionalContext).toContain("Writing-rule hook warning")
     expect(output.additionalContext).toContain(`invalid JSON in ${configPath}`)
     expect(result.output.continue).toBeUndefined()
   })
@@ -1270,7 +1270,7 @@ describe("simple-english CLI hook mode", () => {
     expect(result.code).toBe(0)
     const output = decision(result.output)
     expect(output.permissionDecision).toBe("allow")
-    expect(output.additionalContext).toContain("STE hook warning")
+    expect(output.additionalContext).toContain("Writing-rule hook warning")
     expect(output.additionalContext).toContain("forced tagger setup failure")
   })
 
@@ -1279,7 +1279,7 @@ describe("simple-english CLI hook mode", () => {
 
     expect(result.code).toBe(0)
     expect(result.output.continue).toBe(true)
-    expect(result.output.systemMessage).toContain("STE hook error")
+    expect(result.output.systemMessage).toContain("Writing-rule hook error")
     expect(result.output.hookSpecificOutput).toBeUndefined()
   })
 })

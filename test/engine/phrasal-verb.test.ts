@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import type { Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const idsFor = (text: string) => lint("prose-file", text).violations.map((v) => v.ruleId)
@@ -44,6 +45,30 @@ describe("lint prose-file: phrasal-verb rule", () => {
       const violation = report.violations.find((v) => v.ruleId === "phrasal-verb")
       expect(violation?.suggestion, text).toBe(suggestion)
     }
+  })
+
+  test("deduplicates repeated extension entries", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "phrasal-verbs.json",
+      },
+      entries: [
+        { unapproved: ["carry out"], suggestions: ["do"] },
+        { unapproved: ["carry out"], suggestions: ["do"] },
+      ],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "Carry out the test.", {
+      ruleData: { "phrasal-verb": extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "do" }),
+    ])
   })
 
   test("reports the column where the phrasal verb starts", () => {

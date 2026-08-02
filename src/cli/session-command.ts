@@ -68,16 +68,16 @@ export function runSessionCommand(args: readonly string[]): Effect.Effect<string
   const command = commandParts.join(" ").trim().toLowerCase()
   if (command === "status") return status(sessionId, cwd)
   if (command === "on") {
-    return updateEnabled(sessionId, true).pipe(Effect.as("STE enforcement enabled."))
+    return updateEnabled(sessionId, true).pipe(Effect.as("Writing-rule enforcement enabled."))
   }
   if (command === "off") {
-    return updateEnabled(sessionId, false).pipe(Effect.as("STE enforcement disabled."))
+    return updateEnabled(sessionId, false).pipe(Effect.as("Writing-rule enforcement disabled."))
   }
   if (command === "strict" || command === "strict on") {
-    return updateStrict(sessionId, true).pipe(Effect.as("STE strict mode enabled."))
+    return updateStrict(sessionId, true).pipe(Effect.as("Writing-rule strict mode enabled."))
   }
   if (command === "strict off") {
-    return updateStrict(sessionId, false).pipe(Effect.as("STE strict mode disabled."))
+    return updateStrict(sessionId, false).pipe(Effect.as("Writing-rule strict mode disabled."))
   }
   return Effect.fail(new Error(USAGE))
 }

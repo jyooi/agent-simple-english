@@ -209,12 +209,12 @@ function addContext(
 function nonBlockingError(message: string): HookError {
   return {
     continue: true,
-    systemMessage: `STE hook error: ${message}. The event is allowed.`,
+    systemMessage: `Writing-rule hook error: ${message}. The event is allowed.`,
   }
 }
 
 function nonBlockingWarning(message: string): HookDecision {
-  return allow([`STE hook warning: ${message}. The event is allowed.`])
+  return allow([`Writing-rule hook warning: ${message}. The event is allowed.`])
 }
 
 export function hookInternalFailure(cause: Cause.Cause<unknown>): HookOutput {
@@ -559,9 +559,11 @@ function textDecision(
   })
   const { hard, soft } = splitViolations(report.violations)
   if (hard.length > 0) {
-    return deny(formatViolations(path, `STE blocked ${operation} for`, hard))
+    return deny(formatViolations(path, `Writing rules blocked ${operation} for`, hard))
   }
-  return allow(soft.length === 0 ? [] : [formatViolations(path, "STE warnings for", soft)])
+  return allow(
+    soft.length === 0 ? [] : [formatViolations(path, "Writing-rule warnings for", soft)],
+  )
 }
 
 function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutput, Error> {
@@ -579,7 +581,7 @@ function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutp
     const feedback =
       hard.length === 0
         ? undefined
-        : formatViolations("assistant reply", "STE reply feedback for", hard)
+        : formatViolations("assistant reply", "Writing-rule reply feedback for", hard)
     const currentControl = yield* updateReplyFeedback(event.sessionId, reply.identity, feedback)
     if (
       currentControl === undefined ||
@@ -591,7 +593,7 @@ function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutp
     }
     return {
       decision: "block",
-      reason: formatViolations("assistant reply", "STE blocked reply for", hard),
+      reason: formatViolations("assistant reply", "Writing rules blocked reply for", hard),
     }
   })
 }
@@ -603,7 +605,7 @@ function evaluateEvent(event: PreToolUseEvent, tagger: Tagger): Effect.Effect<Ho
     if (invocations.some((invocation) => invocation.requiresExplicitMessage)) {
       return Effect.succeed(
         deny(
-          "STE could not check the git commit message. Use git commit with a static -m or --message argument.",
+          "Writing rules could not check the git commit message. Use git commit with a static -m or --message argument.",
         ),
       )
     }
@@ -616,10 +618,12 @@ function evaluateEvent(event: PreToolUseEvent, tagger: Tagger): Effect.Effect<Ho
       )
       const { hard, soft } = splitViolations(violations)
       if (hard.length > 0) {
-        return deny(formatViolations("commit message", "STE blocked commit for", hard))
+        return deny(formatViolations("commit message", "Writing rules blocked commit for", hard))
       }
       return allow(
-        soft.length === 0 ? [] : [formatViolations("commit message", "STE warnings for", soft)],
+        soft.length === 0
+          ? []
+          : [formatViolations("commit message", "Writing-rule warnings for", soft)],
       )
     })
   }
