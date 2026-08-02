@@ -1,13 +1,10 @@
-import { caseFold } from "unicode-case-folding"
 import type { Dictionary } from "../../dictionary/schema.ts"
-import { TOKEN_RUN_PATTERN } from "../tokens.ts"
+import {
+  caseFoldKey,
+  type CaseFoldedToken,
+  tokenizeCaseFolded,
+} from "../case-fold.ts"
 import type { Violation } from "../types.ts"
-
-interface MarketingToken {
-  readonly text: string
-  readonly key: string
-  readonly offset: number
-}
 
 interface MarketingForm {
   readonly words: readonly string[]
@@ -25,15 +22,6 @@ interface MarketingMatch {
 }
 
 const compiledDataByDictionary = new WeakMap<Dictionary, CompiledMarketingData>()
-
-const caseFoldKey = (text: string): string => caseFold(text)
-
-const tokenize = (line: string): readonly MarketingToken[] =>
-  Array.from(line.matchAll(TOKEN_RUN_PATTERN), (match) => ({
-    text: match[0],
-    key: caseFoldKey(match[0]),
-    offset: match.index,
-  }))
 
 const compileMarketingData = (dictionary: Dictionary): CompiledMarketingData => {
   const forms = dictionary.entries
@@ -70,7 +58,7 @@ const marketingDataFor = (dictionary: Dictionary): CompiledMarketingData => {
 
 function matchesForm(
   line: string,
-  tokens: readonly MarketingToken[],
+  tokens: readonly CaseFoldedToken[],
   start: number,
   form: MarketingForm,
 ): boolean {
@@ -87,7 +75,7 @@ function matchesForm(
 
 function findCompleteForm(
   line: string,
-  tokens: readonly MarketingToken[],
+  tokens: readonly CaseFoldedToken[],
   start: number,
   data: CompiledMarketingData,
 ): MarketingMatch | undefined {
@@ -108,7 +96,7 @@ function findCompleteForm(
 }
 
 function findMarketingComponent(
-  token: MarketingToken,
+  token: CaseFoldedToken,
   componentWords: ReadonlySet<string>,
 ): MarketingMatch | undefined {
   let partOffset = 0
@@ -128,7 +116,7 @@ export function marketing(lines: readonly string[], dictionary: Dictionary): Vio
     const line = lines[lineIndex]
     if (line === undefined) continue
 
-    const tokens = tokenize(line)
+    const tokens = tokenizeCaseFolded(line)
     for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
       const token = tokens[tokenIndex]
       if (token === undefined) continue

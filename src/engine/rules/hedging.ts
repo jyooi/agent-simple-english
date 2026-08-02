@@ -1,42 +1,26 @@
 import type { Dictionary } from "../../dictionary/schema.ts"
-import { scanLines } from "../scan.ts"
-import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
+import {
+  compileCaseFoldedPhrase,
+  type CaseFoldedPhrase,
+  scanCaseFoldedPhrases,
+} from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
 
-interface CompiledHedgingData {
-  readonly pattern?: RegExp
-}
+const phrasesByDictionary = new WeakMap<Dictionary, readonly CaseFoldedPhrase[]>()
 
-const compiledDataByDictionary = new WeakMap<Dictionary, CompiledHedgingData>()
-
-const compileHedgingData = (dictionary: Dictionary): CompiledHedgingData => {
-  const forms = dictionary.entries.flatMap((entry) => entry.unapproved)
-  if (forms.length === 0) return {}
-
-  return {
-    pattern: new RegExp(
-      `(?<!${TOKEN_CHARACTER_PATTERN})(?:${forms
-        .map((phrase) => phrase.replace(/[\t ]+/g, "\\s+"))
-        .join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-      "giu",
-    ),
-  }
-}
-
-const hedgingDataFor = (dictionary: Dictionary): CompiledHedgingData => {
-  const cached = compiledDataByDictionary.get(dictionary)
+const phrasesFor = (dictionary: Dictionary): readonly CaseFoldedPhrase[] => {
+  const cached = phrasesByDictionary.get(dictionary)
   if (cached !== undefined) return cached
 
-  const compiled = compileHedgingData(dictionary)
-  compiledDataByDictionary.set(dictionary, compiled)
+  const compiled = dictionary.entries.flatMap((entry) =>
+    entry.unapproved.map(compileCaseFoldedPhrase),
+  )
+  phrasesByDictionary.set(dictionary, compiled)
   return compiled
 }
 
 export function hedging(lines: readonly string[], dictionary: Dictionary): Violation[] {
-  const { pattern } = hedgingDataFor(dictionary)
-  if (pattern === undefined) return []
-
-  return scanLines(lines, pattern).map((match) => ({
+  return scanCaseFoldedPhrases(lines, phrasesFor(dictionary)).map((match) => ({
     ruleId: "hedging",
     severity: "soft" as const,
     message: `Do not hedge. Delete "${match.found.toLowerCase()}".`,

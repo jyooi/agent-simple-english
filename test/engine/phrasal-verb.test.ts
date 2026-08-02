@@ -71,6 +71,32 @@ describe("lint prose-file: phrasal-verb rule", () => {
     ])
   })
 
+  test("case-folds Unicode extension forms without changing source offsets", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "phrasal-verbs.json",
+      },
+      entries: [{ unapproved: ["straße aus"], suggestions: ["leave"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "İ STRASSE AUS now.", {
+      ruleData: { "phrasal-verb": extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({
+        ruleId: "phrasal-verb",
+        line: 1,
+        column: 3,
+        suggestion: "leave",
+      }),
+    ])
+  })
+
   test("reports the column where the phrasal verb starts", () => {
     const report = lint("prose-file", "Please spin up the worker.")
 

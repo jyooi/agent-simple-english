@@ -1,49 +1,31 @@
 import type { Dictionary } from "../../dictionary/schema.ts"
-import { scanLines } from "../scan.ts"
-import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
+import {
+  compileCaseFoldedPhrase,
+  type CaseFoldedPhrase,
+  scanCaseFoldedPhrases,
+} from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
 
 interface PhrasalVerbPattern {
   readonly suggestion: string
-  readonly pattern: RegExp
+  readonly phrases: readonly CaseFoldedPhrase[]
 }
 
 const patternsByDictionary = new WeakMap<Dictionary, readonly PhrasalVerbPattern[]>()
 
-const normalizeWhitespace = (form: string): string => form.replace(/[\t ]+/gu, " ")
-
 const compilePatterns = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
-  const canonicalForms: Array<{ readonly form: string; readonly pattern: RegExp }> = []
   const seenPairs = new Set<string>()
   return dictionary.entries.flatMap((entry) => {
     const suggestion = entry.suggestions[0]
-    const forms = entry.unapproved.filter((form) => {
-      const normalized = normalizeWhitespace(form)
-      const pattern = new RegExp(`^(?:${normalized})$`, "iu")
-      const equivalent = canonicalForms.find(
-        (candidate) => candidate.pattern.test(normalized) && pattern.test(candidate.form),
-      )
-      const canonical = equivalent?.form ?? normalized
-      if (equivalent === undefined) canonicalForms.push({ form: canonical, pattern })
+    const phrases = entry.unapproved.flatMap((form) => {
+      const phrase = compileCaseFoldedPhrase(form)
+      const pair = JSON.stringify([phrase.words, suggestion])
+      if (seenPairs.has(pair)) return []
 
-      const pair = JSON.stringify([canonical, suggestion])
-      if (seenPairs.has(pair)) return false
       seenPairs.add(pair)
-      return true
+      return [phrase]
     })
-    if (forms.length === 0) return []
-
-    return [
-      {
-        suggestion,
-        pattern: new RegExp(
-          `(?<!${TOKEN_CHARACTER_PATTERN})(?:${forms
-            .map((form) => form.replace(/[\t ]+/g, "\\s+"))
-            .join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-          "giu",
-        ),
-      },
-    ]
+    return phrases.length === 0 ? [] : [{ suggestion, phrases }]
   })
 }
 
@@ -57,8 +39,8 @@ const patternsFor = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
 }
 
 export function phrasalVerb(lines: readonly string[], dictionary: Dictionary): Violation[] {
-  return patternsFor(dictionary).flatMap(({ pattern, suggestion }) =>
-    scanLines(lines, pattern).map((match) => ({
+  return patternsFor(dictionary).flatMap(({ phrases, suggestion }) =>
+    scanCaseFoldedPhrases(lines, phrases).map((match) => ({
       ruleId: "phrasal-verb",
       severity: "hard" as const,
       message: `Do not use a phrasal verb. Use "${suggestion}", not "${match.found.toLowerCase()}".`,

@@ -43,6 +43,27 @@ describe("lint prose-file: hedging rule", () => {
     expect(idsFor(text)).not.toContain("hedging")
   })
 
+  test("case-folds Unicode extension forms without changing source offsets", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "hedging.json",
+      },
+      entries: [{ unapproved: ["große sache"], suggestions: ["delete"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "İ GROSSE SACHE.", {
+      ruleData: { hedging: extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "hedging", line: 1, column: 3 }),
+    ])
+  })
+
   test("returns no violations for an empty dictionary", () => {
     const emptyDictionary = {
       formatVersion: 1,
