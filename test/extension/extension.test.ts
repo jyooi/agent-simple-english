@@ -688,7 +688,7 @@ describe.sequential("pi extension wiring", () => {
         { path: "notes.md", content: "Alphaword." },
         context,
       ),
-    ).rejects.toThrow("STE check is unavailable")
+    ).rejects.toThrow("Writing-rule check is unavailable")
     await expect(readFile(join(cwd, "notes.md"), "utf8")).rejects.toThrow()
   })
 
