@@ -71,6 +71,45 @@ describe("lint prose-file: phrasal-verb rule", () => {
     ])
   })
 
+  test("accepts every ECMAScript same-line whitespace separator", () => {
+    const separators = [
+      "\t",
+      "\v",
+      "\f",
+      " ",
+      "\u00a0",
+      "\u1680",
+      "\u2000",
+      "\u2001",
+      "\u2002",
+      "\u2003",
+      "\u2004",
+      "\u2005",
+      "\u2006",
+      "\u2007",
+      "\u2008",
+      "\u2009",
+      "\u200a",
+      "\u202f",
+      "\u205f",
+      "\u3000",
+      "\ufeff",
+    ]
+
+    for (const separator of separators) {
+      expect(idsFor(`Carry${separator}out the test.`), separator.codePointAt(0)?.toString(16)).toContain(
+        "phrasal-verb",
+      )
+    }
+  })
+
+  test.each(["\n", "\r", "\u2028", "\u2029"])(
+    "does not match across line terminator U+%s",
+    (separator) => {
+      expect(idsFor(`Carry${separator}out the test.`)).not.toContain("phrasal-verb")
+    },
+  )
+
   test("case-folds Unicode extension forms without changing source offsets", () => {
     const extension = {
       formatVersion: 1,

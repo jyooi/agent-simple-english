@@ -28,6 +28,12 @@ describe("lint prose-file: hedging rule", () => {
     }
   })
 
+  test("flags a phrase separated by non-breaking spaces", () => {
+    expect(idsFor("It\u00a0is\u00a0important\u00a0to\u00a0note that the pump runs.")).toContain(
+      "hedging",
+    )
+  })
+
   test("soft hedging violations do not count as hard in the summary", () => {
     const report = lint("prose-file", "It is worth noting that the pump runs.")
 

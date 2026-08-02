@@ -9,6 +9,8 @@ export interface CaseFoldedPhrase {
   readonly words: readonly string[]
 }
 
+const SAME_LINE_WHITESPACE_PATTERN = /^[^\S\r\n\u2028\u2029]+$/u
+
 export const compileCaseFoldedPhrase = (form: string): CaseFoldedPhrase => ({
   words: form.split(/[\t ]+/u).map(caseFoldKey),
 })
@@ -26,7 +28,9 @@ const matchesPhrase = (
 
     const previous = tokens[start + wordIndex - 1]
     if (previous === undefined) return false
-    return /^[\t ]+$/u.test(line.slice(previous.offset + previous.text.length, token.offset))
+    return SAME_LINE_WHITESPACE_PATTERN.test(
+      line.slice(previous.offset + previous.text.length, token.offset),
+    )
   })
 
 export function scanCaseFoldedPhrases(
