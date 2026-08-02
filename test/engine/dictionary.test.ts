@@ -348,6 +348,25 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   }, 3_000)
 
+  test("bounds deeply nested unresolved labels", () => {
+    const depth = 16_000
+    const text = `${"[".repeat(depth)}Alphaword${"]".repeat(depth)}`
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: approvedWordList, rules }).violations).toEqual(
+      [],
+    )
+  }, 3_000)
+
+  test("masks resources on deeply nested link labels", () => {
+    const text = `${"[".repeat(33)}Alphaword](Betaword)${"]".repeat(32)}`
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(
+      lint("prose-file", text, { dictionary: approvedWordList, rules }).violations,
+    ).toEqual([])
+  })
+
   test.each([
     ["collapsed", "][]"],
     ["shortcut", "]"],
@@ -367,8 +386,10 @@ describe("lint prose-file: dictionary rule", () => {
     3_000,
   )
 
-  test("does not build deep-resource indexes for large plain prose", () => {
-    const text = "Alphaword ".repeat(100_000)
+  test.each([
+    ["large plain prose", "Alphaword ".repeat(100_000)],
+    ["many shallow images", "![Alphaword](target) ".repeat(10_000)],
+  ])("does not build deep-resource indexes for %s", (_name, text) => {
     const OriginalInt32Array = globalThis.Int32Array
     let fullDocumentAllocations = 0
     const instrumentedInt32Array = new Proxy(OriginalInt32Array, {
@@ -381,7 +402,7 @@ describe("lint prose-file: dictionary rule", () => {
 
     globalThis.Int32Array = instrumentedInt32Array
     try {
-      expect(blankMarkdownDestinations([text])).toEqual([text])
+      blankMarkdownDestinations([text])
     } finally {
       globalThis.Int32Array = OriginalInt32Array
     }

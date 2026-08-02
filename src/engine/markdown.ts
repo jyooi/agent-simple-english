@@ -317,6 +317,7 @@ const blankTextRange = (text: string[], start: number, end: number): void => {
 }
 
 interface ReferenceCandidate {
+  readonly image: boolean
   readonly imageLabelStart: number
   readonly imageLabelEnd: number
   readonly labelStart: number
@@ -329,7 +330,7 @@ interface ReferenceCandidate {
 interface BracketFrame {
   readonly opening: number
   readonly image: boolean
-  readonly imageDepth: number
+  readonly labelDepth: number
   readonly linkEpoch: number
   readonly referenceCandidate?: ReferenceCandidate
 }
@@ -638,11 +639,9 @@ const prepareMarkdownSource = (
   definedIdentifiers?: ReadonlySet<string>,
 ): PreparedMarkdownSource => {
   const brackets: BracketFrame[] = []
-  let imageDepth = 0
-  let imageOpenings = 0
   let opaqueRangeIndex = 0
   let backslashRun = 0
-  let needsDeepImageFallback = false
+  let needsDeepLabelFallback = false
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
@@ -672,22 +671,17 @@ const prepareMarkdownSource = (
         precedingBackslashes++
       }
       const image = source[index - 1] === "!" && precedingBackslashes % 2 === 0
-      if (image) {
-        imageDepth++
-        imageOpenings++
-      }
-      brackets.push({ opening: index, image, imageDepth, linkEpoch: 0 })
-      if (imageOpenings > 32) {
-        needsDeepImageFallback = true
+      brackets.push({ opening: index, image, labelDepth: brackets.length + 1, linkEpoch: 0 })
+      if (brackets.length > 32) {
+        needsDeepLabelFallback = true
         break
       }
     } else if (character === "]") {
-      const frame = brackets.pop()
-      if (frame?.image) imageDepth--
+      brackets.pop()
     }
   }
 
-  if (!needsDeepImageFallback) {
+  if (!needsDeepLabelFallback) {
     return { value: boundCdataMarkers(source), resourceCandidates: [], referenceCandidates: [] }
   }
 
@@ -699,7 +693,6 @@ const prepareMarkdownSource = (
   const resourceCandidates: ResourceCandidate[] = []
   const referenceCandidates: ReferenceCandidate[] = []
   brackets.length = 0
-  imageDepth = 0
   opaqueRangeIndex = 0
 
   for (let index = 0; index < source.length; index++) {
@@ -719,11 +712,10 @@ const prepareMarkdownSource = (
       const parentReference = brackets.at(-1)?.referenceCandidate
       if (parentReference !== undefined) parentReference.valid = false
       const image = source[index - 1] === "!" && escaped[index - 1] === 0
-      if (image) imageDepth++
       brackets.push({
         opening: index,
         image,
-        imageDepth,
+        labelDepth: brackets.length + 1,
         linkEpoch,
         referenceCandidate: referenceCandidateByOpening.get(index),
       })
@@ -746,14 +738,17 @@ const prepareMarkdownSource = (
             definedIdentifiers?.has(candidate.identifier)
           ) {
             blankTextRange(characters, candidate.sourceStart, candidate.sourceEnd)
+            if (!candidate.image) linkEpoch++
           }
         }
       } else if (frame !== undefined) {
-        if (frame.image && frame.imageDepth > 32) {
-          characters[frame.opening] = "x"
-          characters[index] = "x"
+        const needsFallback = frame.labelDepth > 32
+        if (needsFallback) {
+          characters[frame.opening] = "^"
+          characters[index] = "^"
           if (source[index + 1] === "[") {
             const candidate = {
+              image: frame.image,
               imageLabelStart: frame.opening + 1,
               imageLabelEnd: index,
               labelStart: frame.opening,
@@ -769,7 +764,7 @@ const prepareMarkdownSource = (
           scanIndex ??= resourceScanIndex(source)
           const end = resourceEnd(source, index + 1, scanIndex)
           if (end >= 0) {
-            if (frame.image && frame.imageDepth > 32) {
+            if (needsFallback) {
               const candidate = {
                 labelStart: frame.opening,
                 sourceStart: index + 1,
@@ -777,15 +772,13 @@ const prepareMarkdownSource = (
               }
               resourceCandidates.push(candidate)
               blankTextRange(characters, index + 1, end)
-            } else if (!frame.image) {
-              linkEpoch++
             }
+            if (!frame.image) linkEpoch++
             index = end - 1
-          } else if (frame.image && frame.imageDepth > 32) {
+          } else if (needsFallback) {
             resourceCandidates.push({ labelStart: frame.opening, sourceStart: index + 1 })
           }
         }
-        if (frame.image) imageDepth--
       }
     }
   }
