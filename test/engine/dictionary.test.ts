@@ -154,6 +154,15 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test.each(["pre", "script", "style", "textarea"])(
+    "ignores raw content in %s HTML flow blocks",
+    (tag) => {
+      const text = `<${tag}>\nBetaword\n</${tag}>`
+
+      expect(lint("prose-file", text, { dictionary: approvedWordList }).violations).toEqual([])
+    },
+  )
+
   test("checks invalid tag-like text inside HTML flow blocks", () => {
     const report = lint("prose-file", "<div>\n<[Betaword]>\n</div>", {
       dictionary: approvedWordList,
@@ -274,6 +283,27 @@ describe("lint prose-file: dictionary rule", () => {
       const text = `${"![x ".repeat(depth)}${opaqueSegment}${"](v)".repeat(depth)}`
       expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
     }
+  }, 3_000)
+
+  test("bounds deep image parsing without creating email autolinks", () => {
+    const depth = 5_000
+    const text = `${"![x ".repeat(depth)}<a${"]".repeat(depth)}@x>](Betaword)`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "a", "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: text.indexOf("Betaword") + 1,
+      },
+    ])
   }, 3_000)
 
   test("bounds deep image parsing after an unmatched code span in another block", () => {

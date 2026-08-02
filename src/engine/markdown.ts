@@ -544,11 +544,24 @@ const markdownTextEvents = (source: string) =>
 
 const opaqueInlineProbe = (source: string): string => {
   const characters = source.split("")
+  const nextGreater = new Int32Array(source.length + 1).fill(-1)
+  let greater = -1
+  for (let index = source.length - 1; index >= 0; index--) {
+    if (source[index] === ">") greater = index
+    nextGreater[index] = greater
+  }
+
+  let protectedEnd = -1
   for (let index = 0; index < source.length; index++) {
     if (source.startsWith("<![CDATA[", index)) {
       const end = source.indexOf("]]>", index + 9)
-      index = end < 0 ? source.length : end + 2
-    } else if (source[index] === "[" || source[index] === "]") {
+      protectedEnd = end < 0 ? source.length : end + 2
+    } else if (source[index] === "<" && index > protectedEnd) {
+      protectedEnd = nextGreater[index + 1] ?? -1
+    } else if (
+      index > protectedEnd &&
+      (source[index] === "[" || source[index] === "]")
+    ) {
       characters[index] = "^"
     }
   }
@@ -617,6 +630,7 @@ const prepareMarkdownSource = (
 const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
 const OPAQUE_INLINE_TOKENS = new Set(["autolink", "codeText", "htmlText"])
 const HTML_FLOW_SYNTAX_TOKENS = new Set(["characterReference", "htmlText"])
+const RAW_HTML_FLOW_START = /^ {0,3}<(?:pre|script|style|textarea)(?:[\t\n\f />]|$)/iu
 
 const tokenRanges = (
   events: ReturnType<typeof markdownEvents>,
@@ -639,7 +653,12 @@ const htmlFlowSyntaxRanges = (
   for (const [phase, token] of events) {
     if (phase !== "enter" || token.type !== "htmlFlow") continue
     const start = token.start.offset
-    const flowSource = source.slice(start, token.end.offset)
+    const end = token.end.offset
+    const flowSource = source.slice(start, end)
+    if (RAW_HTML_FLOW_START.test(flowSource)) {
+      ranges.push({ start, end })
+      continue
+    }
     for (const range of tokenRanges(
       markdownTextEvents(opaqueInlineProbe(flowSource)),
       HTML_FLOW_SYNTAX_TOKENS,
