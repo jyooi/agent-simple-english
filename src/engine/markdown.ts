@@ -330,6 +330,7 @@ interface BracketFrame {
   readonly opening: number
   readonly image: boolean
   readonly imageDepth: number
+  readonly linkEpoch: number
   readonly referenceCandidate?: ReferenceCandidate
 }
 
@@ -638,6 +639,7 @@ const prepareMarkdownSource = (
 ): PreparedMarkdownSource => {
   const brackets: BracketFrame[] = []
   let imageDepth = 0
+  let imageOpenings = 0
   let opaqueRangeIndex = 0
   let backslashRun = 0
   let needsDeepImageFallback = false
@@ -670,17 +672,18 @@ const prepareMarkdownSource = (
         precedingBackslashes++
       }
       const image = source[index - 1] === "!" && precedingBackslashes % 2 === 0
-      if (image) imageDepth++
-      brackets.push({ opening: index, image, imageDepth })
+      if (image) {
+        imageDepth++
+        imageOpenings++
+      }
+      brackets.push({ opening: index, image, imageDepth, linkEpoch: 0 })
+      if (imageOpenings > 32) {
+        needsDeepImageFallback = true
+        break
+      }
     } else if (character === "]") {
       const frame = brackets.pop()
-      if (frame?.image) {
-        if (frame.imageDepth > 32) {
-          needsDeepImageFallback = true
-          break
-        }
-        imageDepth--
-      }
+      if (frame?.image) imageDepth--
     }
   }
 
@@ -691,7 +694,7 @@ const prepareMarkdownSource = (
   const characters = boundCdataMarkers(source).split("")
   const escaped = escapedCharacters(source)
   let scanIndex: ResourceScanIndex | undefined
-  const resourceCandidateByOpening = new Map<number, ResourceCandidate>()
+  let linkEpoch = 0
   const referenceCandidateByOpening = new Map<number, ReferenceCandidate>()
   const resourceCandidates: ResourceCandidate[] = []
   const referenceCandidates: ReferenceCandidate[] = []
@@ -721,6 +724,7 @@ const prepareMarkdownSource = (
         opening: index,
         image,
         imageDepth,
+        linkEpoch,
         referenceCandidate: referenceCandidateByOpening.get(index),
       })
     } else if (character === "]") {
@@ -744,15 +748,11 @@ const prepareMarkdownSource = (
             blankTextRange(characters, candidate.sourceStart, candidate.sourceEnd)
           }
         }
-      } else if (frame?.image) {
-        if (frame.imageDepth > 32) {
+      } else if (frame !== undefined) {
+        if (frame.image && frame.imageDepth > 32) {
           characters[frame.opening] = "x"
           characters[index] = "x"
-          if (source[index + 1] === "(") {
-            const candidate = { labelStart: frame.opening, sourceStart: index + 1 }
-            resourceCandidateByOpening.set(index + 1, candidate)
-            resourceCandidates.push(candidate)
-          } else if (source[index + 1] === "[") {
+          if (source[index + 1] === "[") {
             const candidate = {
               imageLabelStart: frame.opening + 1,
               imageLabelEnd: index,
@@ -764,18 +764,28 @@ const prepareMarkdownSource = (
             referenceCandidates.push(candidate)
           }
         }
-        imageDepth--
-      }
-    } else if (character === "(") {
-      const candidate = resourceCandidateByOpening.get(index)
-      if (candidate !== undefined) {
-        scanIndex ??= resourceScanIndex(source)
-        const end = resourceEnd(source, index, scanIndex)
-        if (end >= 0) {
-          candidate.sourceEnd = end
-          blankTextRange(characters, index, end)
-          index = end - 1
+
+        if (source[index + 1] === "(" && (frame.image || frame.linkEpoch === linkEpoch)) {
+          scanIndex ??= resourceScanIndex(source)
+          const end = resourceEnd(source, index + 1, scanIndex)
+          if (end >= 0) {
+            if (frame.image && frame.imageDepth > 32) {
+              const candidate = {
+                labelStart: frame.opening,
+                sourceStart: index + 1,
+                sourceEnd: end,
+              }
+              resourceCandidates.push(candidate)
+              blankTextRange(characters, index + 1, end)
+            } else if (!frame.image) {
+              linkEpoch++
+            }
+            index = end - 1
+          } else if (frame.image && frame.imageDepth > 32) {
+            resourceCandidates.push({ labelStart: frame.opening, sourceStart: index + 1 })
+          }
         }
+        if (frame.image) imageDepth--
       }
     }
   }
@@ -786,7 +796,7 @@ const prepareMarkdownSource = (
 const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
 const OPAQUE_INLINE_TOKENS = new Set(["autolink", "codeText", "htmlText"])
 const HTML_FLOW_SYNTAX_TOKENS = new Set(["characterReference", "htmlText"])
-const RAW_HTML_FLOW_START = /^ {0,3}<(?:pre|script|style|textarea)(?:[\t\n\f />]|$)/iu
+const RAW_HTML_FLOW_START = /^ {0,3}<(?:pre|script|style|textarea)(?:[\t\n\r\f >]|$)/iu
 
 const tokenRanges = (
   events: ReturnType<typeof markdownEvents>,

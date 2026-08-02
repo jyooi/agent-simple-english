@@ -164,6 +164,26 @@ describe("lint prose-file: dictionary rule", () => {
     },
   )
 
+  test.each(["pre", "script", "style", "textarea"])(
+    "retains prose after self-closing %s HTML flow tags",
+    (tag) => {
+      const report = lint("prose-file", `<${tag}/>\nBetaword`, {
+        dictionary: approvedWordList,
+      })
+
+      expect(report.violations).toEqual([
+        {
+          ruleId: "dictionary-not-approved-word",
+          severity: "hard",
+          message: '"Betaword" is not in the approved-word list.',
+          suggestions: [],
+          line: 2,
+          column: 1,
+        },
+      ])
+    },
+  )
+
   test("checks invalid tag-like text inside HTML flow blocks", () => {
     const report = lint("prose-file", "<div>\n<[Betaword]>\n</div>", {
       dictionary: approvedWordList,
@@ -255,6 +275,17 @@ describe("lint prose-file: dictionary rule", () => {
       expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
     },
   )
+
+  test("keeps resource brackets opaque in deeply nested images", () => {
+    const text = `${"![x ".repeat(33)}[Alphaword](foo]bar)${"](v)".repeat(33)}`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  })
 
   test("masks resolved full references in deeply nested images", () => {
     const text = `${"![x ".repeat(33)}Alphaword${"][r]".repeat(33)}\n\n[r]: /u`
