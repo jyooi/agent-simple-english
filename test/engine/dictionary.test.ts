@@ -140,6 +140,25 @@ describe("lint prose-file: dictionary rule", () => {
     ).toEqual([])
   })
 
+  test("ignores HTML flow tags while retaining visible content", () => {
+    const report = lint(
+      "prose-file",
+      '<div class="attribute">\nAlphaword Betaword\n</div>',
+      { dictionary: approvedWordList },
+    )
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 11,
+      },
+    ])
+  })
+
   test("does not pair link delimiters across Markdown inline blocks", () => {
     const report = lint("prose-file", "[Alphaword\n# word-form](Betaword)", {
       dictionary: approvedWordList,
@@ -223,6 +242,22 @@ describe("lint prose-file: dictionary rule", () => {
         const text = `${"![x ".repeat(depth)}${opaqueSegment}${"](v)".repeat(depth)}`
         expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
       }
+    },
+    3_000,
+  )
+
+  test(
+    "bounds deep image parsing after an unmatched code span in another block",
+    () => {
+      const depth = 5_000
+      const text = `\`\n# ${"![x ".repeat(depth)}x${"](v)".repeat(depth)}\``
+      const list = {
+        ...approvedWordList,
+        approvedWords: [...approvedWordList.approvedWords, "x"],
+      }
+      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+      expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
     },
     3_000,
   )

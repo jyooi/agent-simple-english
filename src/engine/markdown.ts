@@ -341,14 +341,16 @@ interface PreparedMarkdownSource {
 const markdownEvents = (source: string) =>
   postprocess(parse().document().write(preprocess()(source, "utf8", true)))
 
+const markdownTextEvents = (source: string) =>
+  postprocess(parse().text().write(preprocess()(source, "utf8", true)))
+
 const opaqueInlineProbe = (source: string): string => {
   const characters = source.split("")
-  for (let index = 1; index < source.length; index++) {
-    if (
-      source[index] === "[" &&
-      source[index - 1] === "!" &&
-      !source.startsWith("<![CDATA[", index - 2)
-    ) {
+  for (let index = 0; index < source.length; index++) {
+    if (source.startsWith("<![CDATA[", index)) {
+      const end = source.indexOf("]]>", index + 9)
+      index = end < 0 ? source.length : end + 2
+    } else if (source[index] === "[" || source[index] === "]") {
       characters[index] = "x"
     }
   }
@@ -422,6 +424,7 @@ const prepareMarkdownSource = (
 
 const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
 const OPAQUE_INLINE_TOKENS = new Set(["autolink", "codeText", "htmlText"])
+const HTML_FLOW_SYNTAX_TOKENS = new Set(["characterReference", "htmlText"])
 
 const tokenRanges = (
   events: ReturnType<typeof markdownEvents>,
@@ -431,6 +434,25 @@ const tokenRanges = (
   for (const [phase, token] of events) {
     if (phase === "enter" && tokenTypes.has(token.type)) {
       ranges.push({ start: token.start.offset, end: token.end.offset })
+    }
+  }
+  return ranges
+}
+
+const htmlFlowSyntaxRanges = (
+  source: string,
+  events: ReturnType<typeof markdownEvents>,
+): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  for (const [phase, token] of events) {
+    if (phase !== "enter" || token.type !== "htmlFlow") continue
+    const start = token.start.offset
+    const flowSource = source.slice(start, token.end.offset)
+    for (const range of tokenRanges(
+      markdownTextEvents(opaqueInlineProbe(flowSource)),
+      HTML_FLOW_SYNTAX_TOKENS,
+    )) {
+      ranges.push({ start: start + range.start, end: start + range.end })
     }
   }
   return ranges
@@ -521,13 +543,13 @@ export function blankMarkdownDestinations(
     blankTextRange(blanked, outputOffset(start), outputOffset(end))
   }
 
-  const delimiterSource = blankMarkdownCode(lines, contentStarts)
-    .map((line, index) => line.slice(Math.min(contentStarts[index] ?? 0, line.length)))
-    .join("\n")
-  const opaqueInlineRanges = tokenRanges(
-    markdownEvents(opaqueInlineProbe(delimiterSource)),
-    OPAQUE_INLINE_TOKENS,
-  )
+  const delimiterEvents = markdownEvents(opaqueInlineProbe(source))
+  const opaqueInlineRanges = tokenRanges(delimiterEvents, OPAQUE_INLINE_TOKENS)
+  const delimiterCharacters = source.split("")
+  for (const range of opaqueInlineRanges) {
+    blankTextRange(delimiterCharacters, range.start, range.end)
+  }
+  const delimiterSource = delimiterCharacters.join("")
   const preparedSource = prepareMarkdownSource(source, delimiterSource, opaqueInlineRanges)
   const events = markdownEvents(preparedSource.value)
   const definitionMaskEnds = new Map<number, number>()
@@ -568,6 +590,10 @@ export function blankMarkdownDestinations(
     } else if (MASKED_MARKDOWN_TOKENS.has(token.type)) {
       blankSourceRange(token.start.offset, token.end.offset)
     }
+  }
+
+  for (const range of htmlFlowSyntaxRanges(source, events)) {
+    blankSourceRange(range.start, range.end)
   }
 
   for (const range of fallbackResourceRanges(
