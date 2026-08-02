@@ -549,6 +549,17 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   }, 3_000)
 
+  test("bounds malformed CDATA probes", () => {
+    const text = "<![CDATA[".repeat(10_000)
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "cdata"],
+    }
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
+
   test("bounds unmatched resources in deeply nested images", () => {
     const depth = 10_000
     const text = `${"![x ".repeat(depth)}x${"](".repeat(depth)}`

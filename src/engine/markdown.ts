@@ -542,26 +542,43 @@ const markdownTextEvents = (source: string) =>
       .write(preprocess()(source, "utf8", true)),
   )
 
-const opaqueInlineProbe = (source: string): string => {
+const boundCdataMarkers = (source: string): string => {
   const characters = source.split("")
-  const nextGreater = new Int32Array(source.length + 1).fill(-1)
+  let protectedEnd = -1
+
+  for (let index = 0; index < source.length; index++) {
+    if (!source.startsWith("<![CDATA[", index)) continue
+    if (index <= protectedEnd) {
+      characters[index] = " "
+      continue
+    }
+    const end = source.indexOf("]]>", index + 9)
+    protectedEnd = end < 0 ? source.length : end + 2
+  }
+
+  return characters.join("")
+}
+
+const opaqueInlineProbe = (source: string): string => {
+  const boundedSource = boundCdataMarkers(source)
+  const characters = boundedSource.split("")
+  const nextGreater = new Int32Array(boundedSource.length + 1).fill(-1)
   let greater = -1
-  for (let index = source.length - 1; index >= 0; index--) {
-    if (source[index] === ">") greater = index
+  for (let index = boundedSource.length - 1; index >= 0; index--) {
+    if (boundedSource[index] === ">") greater = index
     nextGreater[index] = greater
   }
 
   let protectedEnd = -1
-  for (let index = 0; index < source.length; index++) {
-    if (source.startsWith("<![CDATA[", index)) {
-      const end = source.indexOf("]]>", index + 9)
-      protectedEnd = end < 0 ? source.length : end + 2
-    } else if (source[index] === "<" && index > protectedEnd) {
+  for (let index = 0; index < boundedSource.length; index++) {
+    if (index <= protectedEnd) continue
+    if (boundedSource.startsWith("<![CDATA[", index)) {
+      const end = boundedSource.indexOf("]]>", index + 9)
+      if (end < 0) break
+      protectedEnd = end + 2
+    } else if (boundedSource[index] === "<") {
       protectedEnd = nextGreater[index + 1] ?? -1
-    } else if (
-      index > protectedEnd &&
-      (source[index] === "[" || source[index] === "]")
-    ) {
+    } else if (boundedSource[index] === "[" || boundedSource[index] === "]") {
       characters[index] = "^"
     }
   }
@@ -573,7 +590,7 @@ const prepareMarkdownSource = (
   delimiterSource: string,
   opaqueInlineRanges: readonly SourceRange[],
 ): PreparedMarkdownSource => {
-  const characters = source.split("")
+  const characters = boundCdataMarkers(source).split("")
   const scanIndex = resourceScanIndex(source)
   const escaped = scanIndex.escaped
   const brackets: BracketFrame[] = []
