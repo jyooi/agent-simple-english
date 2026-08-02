@@ -321,8 +321,14 @@ interface BracketFrame {
 }
 
 interface ResourceCandidate {
+  readonly labelStart: number
   readonly sourceStart: number
   sourceEnd?: number
+}
+
+interface SourceRange {
+  readonly start: number
+  readonly end: number
 }
 
 interface PreparedMarkdownSource {
@@ -363,7 +369,7 @@ const prepareMarkdownSource = (source: string): PreparedMarkdownSource => {
         if (frame.imageDepth > 32 && source[index + 1] === "(") {
           characters[frame.opening] = "x"
           characters[index] = "x"
-          const candidate = { sourceStart: index + 1 }
+          const candidate = { labelStart: frame.opening, sourceStart: index + 1 }
           candidateByOpening.set(index + 1, candidate)
           resourceCandidates.push(candidate)
         }
@@ -380,20 +386,52 @@ const prepareMarkdownSource = (source: string): PreparedMarkdownSource => {
     }
   }
 
-  for (const opening of parentheses) characters[opening] = "x"
   return { value: characters.join(""), resourceCandidates }
+}
+
+const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
+
+const inlineBlockRanges = (events: ReturnType<typeof markdownEvents>): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  for (const [phase, token] of events) {
+    if (phase === "enter" && INLINE_BLOCK_TOKENS.has(token.type)) {
+      ranges.push({ start: token.start.offset, end: token.end.offset })
+    }
+  }
+  return ranges
+}
+
+const rangeContaining = (ranges: readonly SourceRange[], offset: number): SourceRange | undefined => {
+  let low = 0
+  let high = ranges.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if ((ranges[middle]?.start ?? Number.POSITIVE_INFINITY) <= offset) low = middle + 1
+    else high = middle
+  }
+  const range = ranges[low - 1]
+  return range !== undefined && offset < range.end ? range : undefined
 }
 
 const fallbackResourceRanges = (
   source: string,
   candidates: readonly ResourceCandidate[],
-): readonly { start: number; end: number }[] => {
+  inlineBlocks: readonly SourceRange[],
+): readonly SourceRange[] => {
   const chunks: string[] = []
   const segments = new Map<number, { sourceStart: number; syntheticEnd: number }>()
   let syntheticOffset = 0
 
   for (const candidate of candidates) {
     if (candidate.sourceEnd === undefined) continue
+    const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
+    if (
+      inlineBlock === undefined ||
+      candidate.sourceStart < inlineBlock.start ||
+      candidate.sourceEnd > inlineBlock.end
+    ) {
+      continue
+    }
     const resource = source.slice(candidate.sourceStart, candidate.sourceEnd)
     const syntheticStart = syntheticOffset + 3
     chunks.push(`[x]${resource}\n\n`)
@@ -488,7 +526,11 @@ export function blankMarkdownDestinations(
     }
   }
 
-  for (const range of fallbackResourceRanges(source, preparedSource.resourceCandidates)) {
+  for (const range of fallbackResourceRanges(
+    source,
+    preparedSource.resourceCandidates,
+    inlineBlockRanges(events),
+  )) {
     blankSourceRange(range.start, range.end)
   }
 

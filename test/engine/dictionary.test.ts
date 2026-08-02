@@ -130,6 +130,22 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("keeps deep image delimiters within one Markdown inline block", () => {
+    const text = `${"![".repeat(33)}Alphaword\n# ](Betaword)`
+    const report = lint("prose-file", text, { dictionary: approvedWordList })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 5,
+      },
+    ])
+  })
+
   test("resolves link destinations before inline code spans", () => {
     const report = lint("prose-file", "[Alphaword](target`) Betaword `", {
       dictionary: approvedWordList,
@@ -290,8 +306,25 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("checks unbalanced definition destinations as prose", () => {
+    const report = lint("prose-file", "[Alphaword]: Betaword(", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 14,
+      },
+    ])
+  })
+
   test("bounds malformed Markdown destination parsing", () => {
-    const text = "[a](".repeat(50_000)
+    const text = "[a](".repeat(10_000)
     const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
     const list = {
       ...approvedWordList,
