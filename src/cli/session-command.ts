@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 import { Effect, Either } from "effect"
 import { formatFailedStatusSummary, formatStatusSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
-import { loadDictionary } from "../dictionary/load.ts"
+import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
 import {
   type SessionControl,
   getSessionControl,
@@ -46,7 +46,12 @@ function status(sessionId: string, cwd: string): Effect.Effect<string, Error> {
     }
     const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
     const dictionaryResult = yield* Effect.either(
-      loadDictionary(dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath)),
+      Effect.all({
+        dictionary: loadDictionary(
+          dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
+        ),
+        ruleData: loadRuleData(configResult.right.ruleDataExtensions, cwd),
+      }),
     )
     const dictionary: DictionaryState = Either.isRight(dictionaryResult)
       ? "loaded"
@@ -63,16 +68,16 @@ export function runSessionCommand(args: readonly string[]): Effect.Effect<string
   const command = commandParts.join(" ").trim().toLowerCase()
   if (command === "status") return status(sessionId, cwd)
   if (command === "on") {
-    return updateEnabled(sessionId, true).pipe(Effect.as("STE enforcement enabled."))
+    return updateEnabled(sessionId, true).pipe(Effect.as("Writing-rule enforcement enabled."))
   }
   if (command === "off") {
-    return updateEnabled(sessionId, false).pipe(Effect.as("STE enforcement disabled."))
+    return updateEnabled(sessionId, false).pipe(Effect.as("Writing-rule enforcement disabled."))
   }
   if (command === "strict" || command === "strict on") {
-    return updateStrict(sessionId, true).pipe(Effect.as("STE strict mode enabled."))
+    return updateStrict(sessionId, true).pipe(Effect.as("Writing-rule strict mode enabled."))
   }
   if (command === "strict off") {
-    return updateStrict(sessionId, false).pipe(Effect.as("STE strict mode disabled."))
+    return updateStrict(sessionId, false).pipe(Effect.as("Writing-rule strict mode disabled."))
   }
   return Effect.fail(new Error(USAGE))
 }

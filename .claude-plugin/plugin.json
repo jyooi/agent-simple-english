@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "simple-english",
   "version": "0.1.0",
-  "description": "Apply Simplified Technical English rules to writes, edits, and git commit messages.",
+  "description": "Apply technical and house-style writing rules to writes, edits, and git commit messages.",
   "repository": "https://github.com/jyooi/agent-simple-english",
   "license": "MIT",
   "keywords": ["simplified-technical-english", "lint", "hooks"],

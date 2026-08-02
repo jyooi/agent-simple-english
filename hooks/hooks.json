@@ -1,5 +1,5 @@
 {
-  "description": "Inject active STE rules, gate changes, and return reply feedback on the next prompt.",
+  "description": "Inject active writing rules, gate changes, and return reply feedback on the next prompt.",
 
   "hooks": {
     "SessionStart": [

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import type { Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const idsFor = (text: string) => lint("prose-file", text).violations.map((v) => v.ruleId)
@@ -44,6 +45,96 @@ describe("lint prose-file: phrasal-verb rule", () => {
       const violation = report.violations.find((v) => v.ruleId === "phrasal-verb")
       expect(violation?.suggestion, text).toBe(suggestion)
     }
+  })
+
+  test("deduplicates case and whitespace variants of extension entries", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "phrasal-verbs.json",
+      },
+      entries: [
+        { unapproved: ["Carry\tout"], suggestions: ["do"] },
+        { unapproved: ["carry out"], suggestions: ["do"] },
+      ],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "CARRY   OUT the test.", {
+      ruleData: { "phrasal-verb": extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "do" }),
+    ])
+  })
+
+  test("accepts every ECMAScript same-line whitespace separator", () => {
+    const separators = [
+      "\t",
+      "\v",
+      "\f",
+      " ",
+      "\u00a0",
+      "\u1680",
+      "\u2000",
+      "\u2001",
+      "\u2002",
+      "\u2003",
+      "\u2004",
+      "\u2005",
+      "\u2006",
+      "\u2007",
+      "\u2008",
+      "\u2009",
+      "\u200a",
+      "\u202f",
+      "\u205f",
+      "\u3000",
+      "\ufeff",
+    ]
+
+    for (const separator of separators) {
+      expect(
+        idsFor(`Carry${separator}out the test.`),
+        separator.codePointAt(0)?.toString(16),
+      ).toContain("phrasal-verb")
+    }
+  })
+
+  test.each(["\n", "\r", "\u2028", "\u2029"])(
+    "does not match across line terminator U+%s",
+    (separator) => {
+      expect(idsFor(`Carry${separator}out the test.`)).not.toContain("phrasal-verb")
+    },
+  )
+
+  test("case-folds Unicode extension forms without changing source offsets", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "phrasal-verbs.json",
+      },
+      entries: [{ unapproved: ["straße aus"], suggestions: ["leave"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "İ STRASSE AUS now.", {
+      ruleData: { "phrasal-verb": extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({
+        ruleId: "phrasal-verb",
+        line: 1,
+        column: 3,
+        suggestion: "leave",
+      }),
+    ])
   })
 
   test("reports the column where the phrasal verb starts", () => {

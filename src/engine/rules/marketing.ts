@@ -1,71 +1,137 @@
-import { TOKEN_RUN_PATTERN } from "../tokens.ts"
+import type { Dictionary } from "../../dictionary/schema.ts"
+import { type CaseFoldedToken, caseFoldKey, tokenizeCaseFolded } from "../case-fold.ts"
 import type { Violation } from "../types.ts"
 
-const MARKETING_WORDS = [
-  "seamless",
-  "seamlessly",
-  "robust",
-  "powerful",
-  "cutting-edge",
-  "effortless",
-  "effortlessly",
-  "world-class",
-  "next-generation",
-  "revolutionary",
-  "blazing",
-  "lightning-fast",
-  "elegant",
-  "delightful",
-  "turnkey",
-  "best-in-class",
-  "state-of-the-art",
-  "game-changing",
-  "battle-tested",
-  "enterprise-grade",
-  "supercharge",
-  "unleash",
-  "empower",
-  "empowers",
-]
+interface MarketingForm {
+  readonly words: readonly string[]
+}
 
-const MARKETING_SET = new Set(MARKETING_WORDS)
+interface CompiledMarketingData {
+  readonly formsByFirstWord: ReadonlyMap<string, readonly MarketingForm[]>
+  readonly componentWords: ReadonlySet<string>
+}
 
 interface MarketingMatch {
   readonly found: string
   readonly offset: number
+  readonly tokenCount: number
 }
 
-function findMarketingLanguage(token: string): MarketingMatch | undefined {
-  const normalized = token.toLowerCase()
-  if (MARKETING_SET.has(normalized)) {
-    return { found: normalized, offset: 0 }
-  }
+const compiledDataByDictionary = new WeakMap<Dictionary, CompiledMarketingData>()
 
-  let offset = 0
-  for (const part of normalized.split("-")) {
-    if (MARKETING_SET.has(part)) {
-      return { found: part, offset }
+const compileMarketingData = (dictionary: Dictionary): CompiledMarketingData => {
+  const forms = dictionary.entries
+    .flatMap((entry) => entry.unapproved)
+    .map((form) => ({ words: form.split(/[\t ]+/u).map(caseFoldKey) }))
+    .sort((left, right) => right.words.length - left.words.length)
+  const formsByFirstWord = new Map<string, MarketingForm[]>()
+  const componentWords = new Set<string>()
+
+  for (const form of forms) {
+    const firstWord = form.words[0]
+    if (firstWord === undefined) continue
+
+    const candidates = formsByFirstWord.get(firstWord)
+    if (candidates === undefined) {
+      formsByFirstWord.set(firstWord, [form])
+    } else {
+      candidates.push(form)
     }
-    offset += part.length + 1
+    if (form.words.length === 1) componentWords.add(firstWord)
+  }
+
+  return { formsByFirstWord, componentWords }
+}
+
+const marketingDataFor = (dictionary: Dictionary): CompiledMarketingData => {
+  const cached = compiledDataByDictionary.get(dictionary)
+  if (cached !== undefined) return cached
+
+  const compiled = compileMarketingData(dictionary)
+  compiledDataByDictionary.set(dictionary, compiled)
+  return compiled
+}
+
+function matchesForm(
+  line: string,
+  tokens: readonly CaseFoldedToken[],
+  start: number,
+  form: MarketingForm,
+): boolean {
+  return form.words.every((word, wordIndex) => {
+    const token = tokens[start + wordIndex]
+    if (token === undefined || token.key !== word) return false
+    if (wordIndex === 0) return true
+
+    const previous = tokens[start + wordIndex - 1]
+    if (previous === undefined) return false
+    return /^[\t ]+$/u.test(line.slice(previous.offset + previous.text.length, token.offset))
+  })
+}
+
+function findCompleteForm(
+  line: string,
+  tokens: readonly CaseFoldedToken[],
+  start: number,
+  data: CompiledMarketingData,
+): MarketingMatch | undefined {
+  const first = tokens[start]
+  if (first === undefined) return undefined
+
+  for (const form of data.formsByFirstWord.get(first.key) ?? []) {
+    if (!matchesForm(line, tokens, start, form)) continue
+
+    const last = tokens[start + form.words.length - 1]
+    if (last === undefined) continue
+    return {
+      found: line.slice(first.offset, last.offset + last.text.length).toLowerCase(),
+      offset: first.offset,
+      tokenCount: form.words.length,
+    }
   }
 }
 
-export function marketing(lines: readonly string[]): Violation[] {
-  return lines.flatMap((line, lineIndex) =>
-    Array.from(line.matchAll(TOKEN_RUN_PATTERN)).flatMap((tokenMatch) => {
-      const match = findMarketingLanguage(tokenMatch[0])
-      if (!match) {
-        return []
-      }
-      return [
-        {
-          ruleId: "marketing",
-          severity: "soft" as const,
-          message: `Do not use marketing language. Delete "${match.found}".`,
-          line: lineIndex + 1,
-          column: tokenMatch.index + match.offset + 1,
-        },
-      ]
-    }),
-  )
+function findMarketingComponent(
+  token: CaseFoldedToken,
+  componentWords: ReadonlySet<string>,
+): MarketingMatch | undefined {
+  let partOffset = 0
+  for (const part of token.text.split(/[-‐‑]/u)) {
+    if (componentWords.has(caseFoldKey(part))) {
+      return { found: part.toLowerCase(), offset: token.offset + partOffset, tokenCount: 1 }
+    }
+    partOffset += part.length + 1
+  }
+}
+
+export function marketing(lines: readonly string[], dictionary: Dictionary): Violation[] {
+  const data = marketingDataFor(dictionary)
+  const violations: Violation[] = []
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]
+    if (line === undefined) continue
+
+    const tokens = tokenizeCaseFolded(line)
+    for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
+      const token = tokens[tokenIndex]
+      if (token === undefined) continue
+
+      const match =
+        findCompleteForm(line, tokens, tokenIndex, data) ??
+        findMarketingComponent(token, data.componentWords)
+      if (match === undefined) continue
+
+      violations.push({
+        ruleId: "marketing",
+        severity: "soft",
+        message: `Do not use marketing language. Delete "${match.found}".`,
+        line: lineIndex + 1,
+        column: match.offset + 1,
+      })
+      tokenIndex += match.tokenCount - 1
+    }
+  }
+
+  return violations
 }

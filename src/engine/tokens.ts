@@ -1,2 +1,2 @@
-export const TOKEN_CHARACTER_PATTERN = "[A-Za-z0-9_'’-]"
-export const TOKEN_RUN_PATTERN = new RegExp(`${TOKEN_CHARACTER_PATTERN}+`, "g")
+export const TOKEN_CHARACTER_PATTERN = String.raw`[\p{L}\p{N}_'’\u2010\u2011-]`
+export const TOKEN_RUN_PATTERN = new RegExp(`${TOKEN_CHARACTER_PATTERN}+`, "gu")

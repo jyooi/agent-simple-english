@@ -1,6 +1,6 @@
 # agent-simple-english
 
-`agent-simple-english` checks ASD-STE100 Simplified Technical English (STE).
+`agent-simple-english` checks rules derived from ASD-STE100 Simplified Technical English (STE) and two enabled house-style rules.
 It supplies one Engine, one CLI, a pi Adapter, and a Claude Code Adapter.
 The Claude Code plugin uses CLI Hook mode to enforce the same rules.
 
@@ -9,7 +9,7 @@ It does not rewrite text because an automatic rewrite can change its meaning.
 
 ## What the pi Adapter does
 
-The pi Adapter adds its active STE rules to the model prompt before each agent turn.
+The pi Adapter adds its active writing rules to the model prompt before each agent turn.
 It then applies the rules at three layers.
 
 1. **Write and edit gate.**
@@ -33,7 +33,7 @@ It then applies the rules at three layers.
 
 The pi Adapter checks Markdown prose and source comments according to the [content kinds](#content-kinds).
 It gives the line, column, rule ID, and suggested correction for a blocked tool call.
-A config or dictionary load error makes enabled write, edit, and commit gates fail closed.
+A config, dictionary, or rule-data load error makes enabled write, edit, and commit gates fail closed.
 
 ## Install the Claude Code Adapter
 
@@ -52,7 +52,7 @@ The repository supplies the local marketplace manifest.
 Marketplace publication is outside this package release.
 
 At `SessionStart`, the Adapter loads the merged config for an enabled session.
-It reads the config from the session working directory and adds the active STE rule summary to context.
+It reads the config from the session working directory and adds the active writing-rule summary to context.
 The summary honors `hard`, `soft`, and `off` rule settings plus `maxSentenceWords`.
 
 The `PreToolUse` gate checks `Write`, `Edit`, and `Bash` events.
@@ -166,7 +166,7 @@ In strict mode, it blocks a reply that has hard violations.
 A `UserPromptSubmit` event adds pending feedback to context and clears that feedback.
 Every hook reads the current session mode before it applies a gate.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
-The hook also allows the event when configuration, dictionary, tagger, transcript, state, or file processing fails.
+The hook also allows the event when configuration, dictionary, rule-data, tagger, transcript, state, or file processing fails.
 It adds warning text.
 
 ### Lint files and standard input
@@ -275,6 +275,11 @@ This example contains every config key and every rule:
 ```json
 {
   "maxSentenceWords": 25,
+  "ruleDataExtensions": {
+    "phrasal-verb": ["config/phrasal-verbs.json"],
+    "hedging": ["config/hedging.json"],
+    "marketing": ["config/marketing.json"]
+  },
   "rules": {
     "contraction": "hard",
     "dictionary-not-approved-word": "hard",
@@ -299,114 +304,92 @@ The `off` value disables that rule.
 `maxSentenceWords` must be a positive integer and has a default value of 25.
 Unknown keys, unknown rule IDs, and invalid values cause a config error.
 
+`ruleDataExtensions` maps each list-backed rule to more JSON data files.
+The loader adds entries from these files after the bundled entries.
+The loader resolves relative paths from the current working directory.
+Each file must use the [package dictionary data format](src/dictionary/README.md).
+A lint command reports an extension load error and continues with the bundled rule data.
+The enabled pi Adapter fails closed after that error, while Claude Code Hook mode allows the event and adds a warning.
+
 ## Rule reference
 
-### `contraction`
+### Rules derived from ASD-STE100
+
+#### `contraction`
 
 Default: hard.
 Reports apostrophe contractions such as forms that end in `n't`, `'re`, `'ve`, `'ll`, `'d`, or `'m`.
 It also reports unambiguous forms that end in `'s`.
 
-### `dictionary-not-approved-word`
+#### `dictionary-not-approved-word`
 
 Default: hard.
 Reports an unapproved word or phrase from the bundled dictionary and supplies approved alternatives.
 Part-of-speech data limits applicable entries when that data exists.
 Matching does not depend on letter case.
 
-### `hedging`
-
-Default: soft.
-Reports these phrases: `it is important to note`, `it should be noted`, `it is worth noting`, `please note that`, `as mentioned`, `as noted above`.
-A phrase match stays on one source line.
-
-### `marketing`
-
-Default: soft.
-Reports the first listed term in each token.
-Matching does not depend on letter case, and it also examines components of hyphenated tokens.
-
-- `seamless`.
-- `seamlessly`.
-- `robust`.
-- `powerful`.
-- `cutting-edge`.
-- `effortless`.
-- `effortlessly`.
-- `world-class`.
-- `next-generation`.
-- `revolutionary`.
-- `blazing`.
-- `lightning-fast`.
-- `elegant`.
-- `delightful`.
-- `turnkey`.
-- `best-in-class`.
-- `state-of-the-art`.
-- `game-changing`.
-- `battle-tested`.
-- `enterprise-grade`.
-- `supercharge`.
-- `unleash`.
-- `empower`.
-- `empowers`.
-
-### `paragraph-length`
+#### `paragraph-length`
 
 Default: hard.
 Reports a prose paragraph that has more than six sentences.
 Markdown block boundaries and list items start separate paragraphs.
 
-### `phrasal-verb`
+#### `phrasal-verb`
 
 Default: hard.
-Reports these forms and supplies the listed suggestion:
-
-| Forms | Suggestion |
-| --- | --- |
-| `carry out`, `carries out`, `carried out`, `carrying out` | `do`. |
-| `spin up`, `spins up`, `spun up`, `spinning up` | `start`. |
-| `spin down`, `spins down`, `spun down`, `spinning down` | `stop`. |
-| `tear down`, `tears down`, `tore down`, `torn down`, `tearing down` | `remove`. |
-| `reach out`, `reaches out`, `reached out`, `reaching out` | `ask`. |
-| `dive into`, `dives into`, `dived into`, `dove into`, `diving into` | `examine`. |
-| `kick off`, `kicks off`, `kicked off`, `kicking off` | `start`. |
-| `roll out`, `rolls out`, `rolled out`, `rolling out` | `release`. |
-| `ramp up`, `ramps up`, `ramped up`, `ramping up` | `increase`. |
-| `circle back`, `circles back`, `circled back`, `circling back` | `return`. |
-| `drill down`, `drills down`, `drilled down`, `drilling down` | `examine`. |
+Reports listed forms and supplies their suggestion.
+The bundled forms and suggestions are in [`src/dictionary/data/phrasal-verbs.json`](src/dictionary/data/phrasal-verbs.json).
 
 Matching does not depend on letter case.
 A phrase match stays on one source line.
 
-### `semicolon`
+#### `semicolon`
 
 Default: hard.
 Reports each semicolon and asks for two sentences.
 This rule also checks semicolons inside inline Markdown code.
 
-### `sentence-length`
+#### `sentence-length`
 
 Default: hard.
 Reports a sentence above `maxSentenceWords`.
 The default maximum is 25 words.
 
-### `verb-progressive`
+#### `verb-progressive`
 
 Default: hard.
 Reports a form of `be` followed by an `-ing` verb, with optional adverbs or `not` between them.
 
-### `verb-passive`
+#### `verb-passive`
 
 Default: soft.
 Reports a form of `be` followed by a past participle, with optional adverbs or `not` between them.
 
-### `verb-perfect`
+#### `verb-perfect`
 
 Default: hard.
 Reports auxiliary `have` followed by a past participle, with optional adverbs or `not` between them.
 
 The three verb rules and applicable dictionary entries use the bundled English part-of-speech tagger.
+
+### House-style rules
+
+These rules define package house style.
+They do not come from ASD-STE100.
+The default config enables both rules.
+
+#### `hedging`
+
+Default: soft.
+Reports the phrases in [`src/dictionary/data/hedging.json`](src/dictionary/data/hedging.json).
+A phrase match stays on one source line.
+
+#### `marketing`
+
+Default: soft.
+Reports complete listed forms from [`src/dictionary/data/marketing.json`](src/dictionary/data/marketing.json).
+A multi-word form stays on one source line.
+Matching does not depend on letter case, and the rule also reports the first listed single-token component of a hyphenated token.
 
 ## Dictionary and attribution
 

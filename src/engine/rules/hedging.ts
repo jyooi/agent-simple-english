@@ -1,23 +1,26 @@
-import { scanLines } from "../scan.ts"
-import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
+import type { Dictionary } from "../../dictionary/schema.ts"
+import {
+  type CaseFoldedPhrase,
+  compileCaseFoldedPhrase,
+  scanCaseFoldedPhrases,
+} from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
 
-const HEDGES = [
-  "it is important to note",
-  "it should be noted",
-  "it is worth noting",
-  "please note that",
-  "as mentioned",
-  "as noted above",
-]
+const phrasesByDictionary = new WeakMap<Dictionary, readonly CaseFoldedPhrase[]>()
 
-const HEDGE_PATTERN = new RegExp(
-  `(?<!${TOKEN_CHARACTER_PATTERN})(?:${HEDGES.map((phrase) => phrase.replace(/ /g, "\\s+")).join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-  "gi",
-)
+const phrasesFor = (dictionary: Dictionary): readonly CaseFoldedPhrase[] => {
+  const cached = phrasesByDictionary.get(dictionary)
+  if (cached !== undefined) return cached
 
-export function hedging(lines: readonly string[]): Violation[] {
-  return scanLines(lines, HEDGE_PATTERN).map((match) => ({
+  const compiled = dictionary.entries.flatMap((entry) =>
+    entry.unapproved.map(compileCaseFoldedPhrase),
+  )
+  phrasesByDictionary.set(dictionary, compiled)
+  return compiled
+}
+
+export function hedging(lines: readonly string[], dictionary: Dictionary): Violation[] {
+  return scanCaseFoldedPhrases(lines, phrasesFor(dictionary)).map((match) => ({
     ruleId: "hedging",
     severity: "soft" as const,
     message: `Do not hedge. Delete "${match.found.toLowerCase()}".`,

@@ -1,6 +1,6 @@
 # agent-simple-english
 
-Coding agents use this lint engine to enforce ASD-STE100 Simplified Technical English.
+Coding agents use this lint engine to enforce technical and house-style writing rules.
 One agent-agnostic engine.
 One adapter per host.
 
@@ -11,7 +11,7 @@ The pure, synchronous lint core that turns text into a report of violations.
 _Avoid_: linter core, checker
 
 **Host**:
-A coding agent runtime that enforces STE with the Engine.
+A coding agent runtime that enforces writing rules with the Engine.
 Current hosts: pi and Claude Code.
 _Avoid_: platform, agent (ambiguous with the LLM itself), IDE
 
@@ -20,13 +20,13 @@ The per-host integration layer that wires the engine into that host's extension 
 _Avoid_: plugin (that is the Claude Code artifact name, not the concept), integration
 
 **Enforcement ceiling**:
-The strongest set of STE behaviors a host's extension surface allows.
-Each Adapter implements STE behaviors up to its Host's ceiling.
+The strongest set of writing-rule behaviors a host's extension surface allows.
+Each Adapter implements writing-rule behaviors up to its Host's ceiling.
 Adapters do not need parity across Hosts.
 
 **Hook mode**:
 The CLI mode that speaks a host's hook protocol: hook event JSON on stdin, hook decision JSON on stdout.
-Hosts with hook-based Adapters enforce STE when they start the CLI in this mode.
+Hosts with hook-based Adapters enforce writing rules when they start the CLI in this mode.
 
 **Gate**:
 A check that blocks an action (write, edit, commit, reply) when the text has hard violations.

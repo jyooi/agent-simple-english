@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import type { Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const idsFor = (text: string) => lint("prose-file", text).violations.map((v) => v.ruleId)
@@ -27,6 +28,12 @@ describe("lint prose-file: hedging rule", () => {
     }
   })
 
+  test("flags a phrase separated by non-breaking spaces", () => {
+    expect(idsFor("It\u00a0is\u00a0important\u00a0to\u00a0note that the pump runs.")).toContain(
+      "hedging",
+    )
+  })
+
   test("soft hedging violations do not count as hard in the summary", () => {
     const report = lint("prose-file", "It is worth noting that the pump runs.")
 
@@ -40,6 +47,46 @@ describe("lint prose-file: hedging rule", () => {
     "Do not use as mentioned’s wording.",
   ])("does not match within a token in %s", (text) => {
     expect(idsFor(text)).not.toContain("hedging")
+  })
+
+  test("case-folds Unicode extension forms without changing source offsets", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "hedging.json",
+      },
+      entries: [{ unapproved: ["große sache"], suggestions: ["delete"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "İ GROSSE SACHE.", {
+      ruleData: { hedging: extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "hedging", line: 1, column: 3 }),
+    ])
+  })
+
+  test("returns no violations for an empty dictionary", () => {
+    const emptyDictionary = {
+      formatVersion: 1,
+      source: {
+        name: "empty test dictionary",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "hedging.json",
+      },
+      entries: [],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "Plain text.", {
+      ruleData: { hedging: emptyDictionary },
+    })
+
+    expect(report.violations).toEqual([])
   })
 
   test("does not flag plain prose that mentions notes", () => {

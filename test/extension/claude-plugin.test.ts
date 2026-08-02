@@ -59,7 +59,9 @@ describe("Claude Code plugin wiring", () => {
   test("defines the session STE command", async () => {
     const command = await readFile(steCommandPath, "utf8")
 
-    expect(command).toContain("description: Control STE for this Claude Code session")
+    expect(command).toContain(
+      "description: Control writing-rule enforcement for this Claude Code session",
+    )
     expect(command).toContain("argument-hint: on|off|status|strict|strict off")
     expect(command).toContain("${CLAUDE_PLUGIN_ROOT}")
     expect(command).toContain("${CLAUDE_SESSION_ID}")

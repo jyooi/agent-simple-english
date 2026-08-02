@@ -1,3 +1,5 @@
+import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
+import type { RuleData } from "../dictionary/rule-data.ts"
 import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
@@ -23,6 +25,7 @@ export const DEFAULT_MAX_SENTENCE_WORDS = 25
 interface ResolvedOptions {
   readonly maxSentenceWords: number
   readonly dictionary?: Dictionary
+  readonly ruleData?: RuleData
   readonly tagger?: Tagger
 }
 
@@ -262,9 +265,15 @@ const lintProse = (
     ),
     ...sentenceFindings(contraction(prepared.lines)),
     ...sentenceFindings(semicolon(prepared.mechanicalLines)),
-    ...sentenceFindings(phrasalVerb(prepared.lines)),
-    ...sentenceFindings(hedging(prepared.lines)),
-    ...sentenceFindings(marketing(prepared.lines)),
+    ...(options.ruleData?.["phrasal-verb"] === undefined
+      ? []
+      : sentenceFindings(phrasalVerb(prepared.lines, options.ruleData["phrasal-verb"]))),
+    ...(options.ruleData?.hedging === undefined
+      ? []
+      : sentenceFindings(hedging(prepared.lines, options.ruleData.hedging))),
+    ...(options.ruleData?.marketing === undefined
+      ? []
+      : sentenceFindings(marketing(prepared.lines, options.ruleData.marketing))),
     ...(options.dictionary === undefined
       ? []
       : sentenceFindings(
@@ -298,6 +307,7 @@ function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedVio
   const resolved: ResolvedOptions = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
     dictionary: options.dictionary,
+    ruleData: options.ruleData ?? BUNDLED_RULE_DATA,
     tagger: options.tagger,
   }
   return splitProseRuns(extract(kind, text, options))

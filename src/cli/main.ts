@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises"
 import { Effect, Either } from "effect"
 import packageManifest from "../../package.json" with { type: "json" }
 import { loadConfig } from "../config/load.ts"
-import { loadDictionary } from "../dictionary/load.ts"
+import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
@@ -182,9 +182,14 @@ const lintProgram = Effect.gen(function* () {
   const loadedDictionary = yield* Effect.either(
     loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
   )
+  const loadedRuleData = yield* Effect.either(loadRuleData(config.ruleDataExtensions))
   const dictionary = Either.getOrUndefined(loadedDictionary)
+  const ruleData = Either.getOrUndefined(loadedRuleData)
   if (Either.isLeft(loadedDictionary)) {
     yield* Effect.sync(() => console.error(loadedDictionary.left.message))
+  }
+  if (Either.isLeft(loadedRuleData)) {
+    yield* Effect.sync(() => console.error(loadedRuleData.left.message))
   }
   const inputs =
     paths.length === 0
@@ -199,6 +204,7 @@ const lintProgram = Effect.gen(function* () {
         report: lint(kind ?? classification.kind, text, {
           ...config,
           dictionary,
+          ruleData,
           tagger,
           sourceDialect: classification.sourceDialect,
         }),

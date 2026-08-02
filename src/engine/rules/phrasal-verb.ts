@@ -1,51 +1,46 @@
-import { scanLines } from "../scan.ts"
-import { TOKEN_CHARACTER_PATTERN } from "../tokens.ts"
+import type { Dictionary } from "../../dictionary/schema.ts"
+import {
+  type CaseFoldedPhrase,
+  compileCaseFoldedPhrase,
+  scanCaseFoldedPhrases,
+} from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
 
-interface PhrasalVerbEntry {
-  readonly forms: readonly string[]
+interface PhrasalVerbPattern {
   readonly suggestion: string
+  readonly phrases: readonly CaseFoldedPhrase[]
 }
 
-// List and suggestions follow the pi-ste reference implementation, extended
-// with conjugated forms and "carry out" from the HUF-132 spec.
-const PHRASAL_VERBS: readonly PhrasalVerbEntry[] = [
-  { forms: ["carry out", "carries out", "carried out", "carrying out"], suggestion: "do" },
-  { forms: ["spin up", "spins up", "spun up", "spinning up"], suggestion: "start" },
-  { forms: ["spin down", "spins down", "spun down", "spinning down"], suggestion: "stop" },
-  {
-    forms: ["tear down", "tears down", "tore down", "torn down", "tearing down"],
-    suggestion: "remove",
-  },
-  { forms: ["reach out", "reaches out", "reached out", "reaching out"], suggestion: "ask" },
-  {
-    forms: ["dive into", "dives into", "dived into", "dove into", "diving into"],
-    suggestion: "examine",
-  },
-  { forms: ["kick off", "kicks off", "kicked off", "kicking off"], suggestion: "start" },
-  { forms: ["roll out", "rolls out", "rolled out", "rolling out"], suggestion: "release" },
-  { forms: ["ramp up", "ramps up", "ramped up", "ramping up"], suggestion: "increase" },
-  {
-    forms: ["circle back", "circles back", "circled back", "circling back"],
-    suggestion: "return",
-  },
-  {
-    forms: ["drill down", "drills down", "drilled down", "drilling down"],
-    suggestion: "examine",
-  },
-]
+const patternsByDictionary = new WeakMap<Dictionary, readonly PhrasalVerbPattern[]>()
 
-const patterns = PHRASAL_VERBS.map((entry) => ({
-  suggestion: entry.suggestion,
-  pattern: new RegExp(
-    `(?<!${TOKEN_CHARACTER_PATTERN})(?:${entry.forms.map((form) => form.replace(/ /g, "\\s+")).join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-    "gi",
-  ),
-}))
+const compilePatterns = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
+  const seenPairs = new Set<string>()
+  return dictionary.entries.flatMap((entry) => {
+    const suggestion = entry.suggestions[0]
+    const phrases = entry.unapproved.flatMap((form) => {
+      const phrase = compileCaseFoldedPhrase(form)
+      const pair = JSON.stringify([phrase.words, suggestion])
+      if (seenPairs.has(pair)) return []
 
-export function phrasalVerb(lines: readonly string[]): Violation[] {
-  return patterns.flatMap(({ pattern, suggestion }) =>
-    scanLines(lines, pattern).map((match) => ({
+      seenPairs.add(pair)
+      return [phrase]
+    })
+    return phrases.length === 0 ? [] : [{ suggestion, phrases }]
+  })
+}
+
+const patternsFor = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
+  const cached = patternsByDictionary.get(dictionary)
+  if (cached !== undefined) return cached
+
+  const compiled = compilePatterns(dictionary)
+  patternsByDictionary.set(dictionary, compiled)
+  return compiled
+}
+
+export function phrasalVerb(lines: readonly string[], dictionary: Dictionary): Violation[] {
+  return patternsFor(dictionary).flatMap(({ phrases, suggestion }) =>
+    scanCaseFoldedPhrases(lines, phrases).map((match) => ({
       ruleId: "phrasal-verb",
       severity: "hard" as const,
       message: `Do not use a phrasal verb. Use "${suggestion}", not "${match.found.toLowerCase()}".`,

@@ -123,6 +123,44 @@ describe("simple-english CLI config", () => {
     expect(result.stdout.trim()).toBe("")
   })
 
+  test("project config extends rule data without replacing bundled entries", async () => {
+    const cwd = await makeProject({
+      ruleDataExtensions: { "phrasal-verb": ["custom-phrasal-verbs.json"] },
+    })
+    await writeJson(join(cwd, "custom-phrasal-verbs.json"), {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "custom-phrasal-verbs.json",
+      },
+      entries: [{ unapproved: ["follow through"], suggestions: ["continue"] }],
+    })
+
+    const result = await runCli(["--json"], {
+      cwd,
+      stdin: "Carry out the test. Follow through now.",
+    })
+
+    expect(result.code).toBe(1)
+    const report = JSON.parse(result.stdout)
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "do" }),
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "continue" }),
+    ])
+  })
+
+  test("reports extension failures as rule data", async () => {
+    const cwd = await makeProject({
+      ruleDataExtensions: { marketing: ["missing-marketing.json"] },
+    })
+    const result = await runCli([], { cwd, stdin: "A short sentence." })
+
+    expect(result.stderr).toContain("Cannot load rule data")
+    expect(result.stderr).not.toContain("Cannot load STE dictionary")
+  })
+
   test("--config points at an explicit file and ignores discovered configs", async () => {
     const cwd = await makeProject({ maxSentenceWords: 5 })
     const explicit = join(await makeTempDir(), "custom.json")

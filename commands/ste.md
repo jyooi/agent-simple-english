@@ -1,5 +1,5 @@
 ---
-description: Control STE for this Claude Code session
+description: Control writing-rule enforcement for this Claude Code session
 argument-hint: on|off|status|strict|strict off
 allowed-tools: Bash
 disable-model-invocation: true

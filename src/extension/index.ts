@@ -20,7 +20,8 @@ import { formatViolations, violationDetails } from "../adapter/feedback.ts"
 import { formatStatusSummary, ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import type { SteConfig } from "../config/schema.ts"
-import { loadDictionary } from "../dictionary/load.ts"
+import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
+import type { RuleData } from "../dictionary/rule-data.ts"
 import type { Dictionary } from "../dictionary/schema.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
@@ -28,16 +29,17 @@ import type { Tagger } from "../engine/tagger.ts"
 import type { LintReport, Violation } from "../engine/types.ts"
 import { makeWinkTagger } from "../tagger/wink.ts"
 
-const STE_COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
-  { value: "on", label: "on", description: "Enable STE enforcement" },
-  { value: "off", label: "off", description: "Disable STE enforcement" },
-  { value: "status", label: "status", description: "Show STE status" },
+const COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
+  { value: "on", label: "on", description: "Enable writing-rule enforcement" },
+  { value: "off", label: "off", description: "Disable writing-rule enforcement" },
+  { value: "status", label: "status", description: "Show writing-rule status" },
   { value: "strict", label: "strict", description: "Enable strict reply gating" },
 ]
 
 interface SessionState {
   config: SteConfig
   dictionary?: Dictionary
+  ruleData?: RuleData
   tagger?: Tagger
   enabled: boolean
   error?: string
@@ -52,7 +54,7 @@ interface SessionState {
 }
 
 const STRICT_MODE_NOTE = [
-  "## Simplified Technical English: strict mode",
+  "## Writing rules: strict mode",
   "",
   "Send every user-facing reply through the `say` tool.",
   "Write no prose outside that tool.",
@@ -75,13 +77,14 @@ function statusSummary(state: SessionState): string {
 }
 
 function formatReplyFeedback(violations: readonly Violation[]): string {
-  return `STE feedback for your previous reply:\n${violationDetails(violations)}`
+  return `Writing-rule feedback for your previous reply:\n${violationDetails(violations)}`
 }
 
 function lintReply(state: SessionState, text: string): LintReport {
   return lint("prose-file", text, {
     ...state.config,
     dictionary: state.dictionary,
+    ruleData: state.ruleData,
     tagger: state.tagger,
   })
 }
@@ -98,7 +101,7 @@ type BoundaryGlobal = typeof globalThis & {
   __simpleEnglishStrictBoundaryV1?: BoundaryRegistry
 }
 
-const REDACTED_SAY_TEXT = "[redacted until STE approval]"
+const REDACTED_SAY_TEXT = "[redacted until writing-rule approval]"
 const boundaryGlobal = globalThis as BoundaryGlobal
 const boundaryRegistry = boundaryGlobal.__simpleEnglishStrictBoundaryV1 ?? {
   installed: false,
@@ -296,8 +299,8 @@ function showReplyReport(
 
   const status =
     report.summary.total === 0
-      ? "STE reply: clean"
-      : `STE reply: ${report.summary.hard} hard, ${softCount} soft`
+      ? "Writing-rule reply: clean"
+      : `Writing-rule reply: ${report.summary.hard} hard, ${softCount} soft`
   ctx.ui.setWidget("simple-english-reply", [status])
 }
 
@@ -336,7 +339,7 @@ function notifyWarnings(
   violations: readonly Violation[],
 ): void {
   if (violations.length === 0 || !ctx.hasUI) return
-  ctx.ui.notify(formatViolations(path, "STE warnings for", violations), "warning")
+  ctx.ui.notify(formatViolations(path, "Writing-rule warnings for", violations), "warning")
 }
 
 function lintProposedText(
@@ -352,6 +355,7 @@ function lintProposedText(
   const report = lint(classification.kind, text, {
     ...state.config,
     dictionary: state.dictionary,
+    ruleData: state.ruleData,
     tagger: state.tagger,
     sourceDialect: classification.sourceDialect,
     previousText,
@@ -361,13 +365,16 @@ function lintProposedText(
   notifyWarnings(ctx, path, soft)
   if (hard.length === 0) {
     if (soft.length > 0) {
-      state.pendingWarnings.set(toolCallId, formatViolations(path, "STE warnings for", soft))
+      state.pendingWarnings.set(
+        toolCallId,
+        formatViolations(path, "Writing-rule warnings for", soft),
+      )
     }
     return undefined
   }
   return {
     block: true,
-    reason: formatViolations(path, `STE blocked ${operation} for`, hard),
+    reason: formatViolations(path, `Writing rules blocked ${operation} for`, hard),
   }
 }
 
@@ -382,7 +389,7 @@ function lintCommitCommand(
   if (!state.ready) {
     return {
       block: true,
-      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+      reason: `Writing-rule check is unavailable: ${state.error ?? "session setup is not complete"}`,
     }
   }
 
@@ -392,13 +399,14 @@ function lintCommitCommand(
       return {
         block: true,
         reason:
-          "STE could not check the git commit message. Use git commit with a static -m or --message argument.",
+          "Writing rules could not check the git commit message. Use git commit with a static -m or --message argument.",
       }
     }
 
     const report = lint("commit-message", blankCommitMetadata(invocation.message), {
       ...state.config,
       dictionary: state.dictionary,
+      ruleData: state.ruleData,
       tagger: state.tagger,
     })
     const hard = report.violations.filter((violation) => violation.severity === "hard")
@@ -407,11 +415,11 @@ function lintCommitCommand(
     if (hard.length > 0) {
       return {
         block: true,
-        reason: formatViolations("commit message", "STE blocked commit for", hard),
+        reason: formatViolations("commit message", "Writing rules blocked commit for", hard),
       }
     }
     if (soft.length > 0) {
-      warnings.push(formatViolations("commit message", "STE warnings for", soft))
+      warnings.push(formatViolations("commit message", "Writing-rule warnings for", soft))
     }
   }
 
@@ -440,7 +448,7 @@ function lintStrictReply(
   if (!state.ready) {
     return {
       block: true,
-      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+      reason: `Writing-rule check is unavailable: ${state.error ?? "session setup is not complete"}`,
     }
   }
   const report = lintReply(state, text)
@@ -449,7 +457,7 @@ function lintStrictReply(
   if (hard.length === 0) return undefined
   return {
     block: true,
-    reason: formatViolations("reply", "STE blocked", hard),
+    reason: formatViolations("reply", "Writing rules blocked", hard),
   }
 }
 
@@ -464,7 +472,7 @@ function createGatedWriteTool(cwd: string, state: SessionState) {
           if (state.enabled) {
             if (!state.ready) {
               throw new Error(
-                `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+                `Writing-rule check is unavailable: ${state.error ?? "session setup is not complete"}`,
               )
             }
             const result = lintProposedText(state, ctx, "write", toolCallId, input.path, content)
@@ -498,7 +506,7 @@ function createGatedEditTool(cwd: string, state: SessionState) {
           if (state.enabled) {
             if (!state.ready) {
               throw new Error(
-                `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+                `Writing-rule check is unavailable: ${state.error ?? "session setup is not complete"}`,
               )
             }
             const result = lintProposedText(
@@ -539,9 +547,9 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
   }
 
   pi.registerCommand("ste", {
-    description: "Toggle STE enforcement or show status. Use strict to gate replies.",
+    description: "Toggle writing-rule enforcement or show status. Use strict to gate replies.",
     getArgumentCompletions: (prefix) => {
-      const completions = STE_COMMAND_COMPLETIONS.filter((item) => item.value.startsWith(prefix))
+      const completions = COMMAND_COMPLETIONS.filter((item) => item.value.startsWith(prefix))
       return completions.length > 0 ? completions : null
     },
     handler: async (args, ctx) => {
@@ -554,13 +562,16 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
         state.enabled = true
         state.strict = true
         setSayActive(true)
-        ctx.ui.notify("STE strict mode enabled. Send every reply through the say tool.", "info")
+        ctx.ui.notify(
+          "Writing-rule strict mode enabled. Send every reply through the say tool.",
+          "info",
+        )
         return
       }
       if (command === "strict off") {
         state.strict = false
         setSayActive(false)
-        ctx.ui.notify("STE strict mode disabled.", "info")
+        ctx.ui.notify("Writing-rule strict mode disabled.", "info")
         return
       }
       if (command !== "" && command !== "on" && command !== "off") {
@@ -579,7 +590,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
         state.rejectedSayReplies.clear()
         if (ctx.hasUI) ctx.ui.setWidget("simple-english-reply", undefined)
       }
-      ctx.ui.notify(`STE enforcement ${state.enabled ? "enabled" : "disabled"}.`, "info")
+      ctx.ui.notify(`Writing-rule enforcement ${state.enabled ? "enabled" : "disabled"}.`, "info")
     },
   })
 
@@ -587,7 +598,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     name: "say",
     label: "Say",
     description:
-      "Send prose to the user. In STE strict mode, use this tool for every user-facing reply.",
+      "Send prose to the user. In writing-rule strict mode, use this tool for every user-facing reply.",
     parameters: Type.Object({
       text: Type.String({ description: "The complete user-facing reply" }),
     }),
@@ -596,7 +607,10 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
         const result = lintStrictReply(state, ctx, params.text)
         if (result?.block) {
           state.approvedSayReplies.delete(toolCallId)
-          state.rejectedSayReplies.set(toolCallId, result.reason ?? "STE blocked the reply.")
+          state.rejectedSayReplies.set(
+            toolCallId,
+            result.reason ?? "Writing rules blocked the reply.",
+          )
           throw new Error(result.reason)
         }
         state.approvedSayReplies.set(toolCallId, params.text)
@@ -615,6 +629,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     setSayActive(state.enabled && state.strict)
     state.config = {}
     state.dictionary = undefined
+    state.ruleData = undefined
     state.tagger = undefined
     state.ready = false
     state.error = undefined
@@ -638,9 +653,14 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     }
 
     try {
-      state.dictionary = await Effect.runPromise(
-        loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+      const loadedData = await Effect.runPromise(
+        Effect.all({
+          dictionary: loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+          ruleData: loadRuleData(state.config.ruleDataExtensions, ctx.cwd),
+        }),
       )
+      state.dictionary = loadedData.dictionary
+      state.ruleData = loadedData.ruleData
     } catch (error) {
       state.dictionaryError = error instanceof Error ? error.message : String(error)
       state.error = state.dictionaryError
@@ -728,13 +748,16 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
       if (savedArguments !== undefined) replaceRecord(event.input, structuredClone(savedArguments))
       const text = (event.input as { text?: unknown }).text
       if (typeof text !== "string") {
-        const reason = "STE could not check the reply: say requires text."
+        const reason = "Writing rules could not check the reply: say requires text."
         state.rejectedSayReplies.set(event.toolCallId, reason)
         return { block: true, reason }
       }
       const result = lintStrictReply(state, ctx, text)
       if (result?.block) {
-        state.rejectedSayReplies.set(event.toolCallId, result.reason ?? "STE blocked the reply.")
+        state.rejectedSayReplies.set(
+          event.toolCallId,
+          result.reason ?? "Writing rules blocked the reply.",
+        )
       }
       return result
     }
@@ -742,7 +765,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     if (state.ready) return undefined
     return {
       block: true,
-      reason: `STE check is unavailable: ${state.error ?? "session setup is not complete"}`,
+      reason: `Writing-rule check is unavailable: ${state.error ?? "session setup is not complete"}`,
     }
   })
 
