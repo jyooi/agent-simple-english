@@ -543,6 +543,8 @@ const markdownTextEvents = (source: string) =>
   )
 
 const boundCdataMarkers = (source: string): string => {
+  if (!source.includes("<![CDATA[")) return source
+
   const characters = source.split("")
   let protectedEnd = -1
 
@@ -590,14 +592,66 @@ const prepareMarkdownSource = (
   delimiterSource: string,
   opaqueInlineRanges: readonly SourceRange[],
 ): PreparedMarkdownSource => {
+  const brackets: BracketFrame[] = []
+  let imageDepth = 0
+  let opaqueRangeIndex = 0
+  let backslashRun = 0
+  let needsResourceIndex = false
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]
+    while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
+      opaqueRangeIndex++
+    }
+    const opaqueRange = opaqueInlineRanges[opaqueRangeIndex]
+    if (opaqueRange !== undefined && index >= opaqueRange.start) {
+      index = opaqueRange.end - 1
+      backslashRun = 0
+      continue
+    }
+
+    const escaped = backslashRun % 2 !== 0
+    if (character === "\\") {
+      backslashRun++
+      continue
+    }
+    backslashRun = 0
+
+    if (delimiterSource[index] !== character && "[]()".includes(character ?? "")) continue
+    if (escaped) continue
+
+    if (character === "[") {
+      let precedingBackslashes = 0
+      for (let previous = index - 2; previous >= 0 && source[previous] === "\\"; previous--) {
+        precedingBackslashes++
+      }
+      const image = source[index - 1] === "!" && precedingBackslashes % 2 === 0
+      if (image) imageDepth++
+      brackets.push({ opening: index, image, imageDepth })
+    } else if (character === "]") {
+      const frame = brackets.pop()
+      if (frame?.image) {
+        if (frame.imageDepth > 32 && source[index + 1] === "(") {
+          needsResourceIndex = true
+          break
+        }
+        imageDepth--
+      }
+    }
+  }
+
+  if (!needsResourceIndex) {
+    return { value: boundCdataMarkers(source), resourceCandidates: [] }
+  }
+
   const characters = boundCdataMarkers(source).split("")
   const scanIndex = resourceScanIndex(source)
   const escaped = scanIndex.escaped
-  const brackets: BracketFrame[] = []
   const candidateByOpening = new Map<number, ResourceCandidate>()
   const resourceCandidates: ResourceCandidate[] = []
-  let imageDepth = 0
-  let opaqueRangeIndex = 0
+  brackets.length = 0
+  imageDepth = 0
+  opaqueRangeIndex = 0
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]

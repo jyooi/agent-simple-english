@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import type { ApprovedWordList, Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
+import { blankMarkdownDestinations } from "../../src/engine/markdown.ts"
 import type { Tagger } from "../../src/engine/tagger.ts"
 
 const dictionary = {
@@ -254,6 +255,28 @@ describe("lint prose-file: dictionary rule", () => {
       expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
     },
   )
+
+  test("does not build deep-resource indexes for large plain prose", () => {
+    const text = "Alphaword ".repeat(100_000)
+    const OriginalInt32Array = globalThis.Int32Array
+    let fullDocumentAllocations = 0
+    const instrumentedInt32Array = new Proxy(OriginalInt32Array, {
+      construct(target, argumentsList) {
+        const length = argumentsList[0]
+        if (typeof length === "number" && length >= text.length) fullDocumentAllocations++
+        return Reflect.construct(target, argumentsList, target)
+      },
+    })
+
+    globalThis.Int32Array = instrumentedInt32Array
+    try {
+      expect(blankMarkdownDestinations([text])).toEqual([text])
+    } finally {
+      globalThis.Int32Array = OriginalInt32Array
+    }
+
+    expect(fullDocumentAllocations).toBe(1)
+  })
 
   test("bounds deep image parsing when code spans contain brackets", () => {
     const depth = 10_000
