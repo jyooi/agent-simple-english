@@ -95,11 +95,9 @@ describe("lint prose-file: dictionary rule", () => {
   })
 
   test("checks destinations after nested links as prose", () => {
-    const report = lint(
-      "prose-file",
-      "[Alphaword [word-form](inner-target)](betaword)",
-      { dictionary: approvedWordList },
-    )
+    const report = lint("prose-file", "[Alphaword [word-form](inner-target)](betaword)", {
+      dictionary: approvedWordList,
+    })
 
     expect(report.violations).toEqual([
       {
@@ -132,20 +130,17 @@ describe("lint prose-file: dictionary rule", () => {
 
   test("ignores Markdown HTML and character reference syntax", () => {
     expect(
-      lint(
-        "prose-file",
-        '<span class="betaword">Alphaword</span> &copy; <![CDATA[betaword]]>',
-        { dictionary: approvedWordList, rules: { semicolon: "off" } },
-      ).violations,
+      lint("prose-file", '<span class="betaword">Alphaword</span> &copy; <![CDATA[betaword]]>', {
+        dictionary: approvedWordList,
+        rules: { semicolon: "off" },
+      }).violations,
     ).toEqual([])
   })
 
   test("ignores HTML flow tags while retaining visible content", () => {
-    const report = lint(
-      "prose-file",
-      '<div class="attribute">\nAlphaword Betaword\n</div>',
-      { dictionary: approvedWordList },
-    )
+    const report = lint("prose-file", '<div class="attribute">\nAlphaword Betaword\n</div>', {
+      dictionary: approvedWordList,
+    })
 
     expect(report.violations).toEqual([
       {
@@ -155,6 +150,23 @@ describe("lint prose-file: dictionary rule", () => {
         suggestions: [],
         line: 2,
         column: 11,
+      },
+    ])
+  })
+
+  test("checks invalid tag-like text inside HTML flow blocks", () => {
+    const report = lint("prose-file", "<div>\n<[Betaword]>\n</div>", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 3,
       },
     ])
   })
@@ -220,12 +232,23 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   })
 
-  test.each([
-    'target "Betaword(foo"',
-    "target 'Betaword(foo'",
-    String.raw`target (Betaword\)foo)`,
-  ])("parses %s titles in deeply nested images", (resource) => {
-    const text = `${"![x ".repeat(33)}Alphaword](${resource})${"](v)".repeat(32)}`
+  test.each(['target "Betaword(foo"', "target 'Betaword(foo'", String.raw`target (Betaword\)foo)`])(
+    "parses %s titles in deeply nested images",
+    (resource) => {
+      const text = `${"![x ".repeat(33)}Alphaword](${resource})${"](v)".repeat(32)}`
+      const list = {
+        ...approvedWordList,
+        approvedWords: [...approvedWordList.approvedWords, "x"],
+      }
+      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+      expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+    },
+  )
+
+  test("bounds deep image parsing when code spans contain brackets", () => {
+    const depth = 10_000
+    const text = `${"![x ".repeat(depth)}\`${"[".repeat(depth)}\`${"](v)".repeat(depth)}`
     const list = {
       ...approvedWordList,
       approvedWords: [...approvedWordList.approvedWords, "x"],
@@ -233,61 +256,37 @@ describe("lint prose-file: dictionary rule", () => {
     const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
 
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
-  })
+  }, 3_000)
 
-  test(
-    "bounds deep image parsing when code spans contain brackets",
-    () => {
-      const depth = 10_000
-      const text = `${"![x ".repeat(depth)}\`${"[".repeat(depth)}\`${"](v)".repeat(depth)}`
-      const list = {
-        ...approvedWordList,
-        approvedWords: [...approvedWordList.approvedWords, "x"],
-      }
-      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+  test("bounds deep image parsing around opaque inline syntax", () => {
+    const depth = 5_000
+    const opaqueSegments = [
+      `<http:${"[".repeat(depth)}>`,
+      `<span data-value="${"[".repeat(depth)}">`,
+    ]
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
 
+    for (const opaqueSegment of opaqueSegments) {
+      const text = `${"![x ".repeat(depth)}${opaqueSegment}${"](v)".repeat(depth)}`
       expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
-    },
-    3_000,
-  )
+    }
+  }, 3_000)
 
-  test(
-    "bounds deep image parsing around opaque inline syntax",
-    () => {
-      const depth = 5_000
-      const opaqueSegments = [
-        `<http:${"[".repeat(depth)}>`,
-        `<span data-value="${"[".repeat(depth)}">`,
-      ]
-      const list = {
-        ...approvedWordList,
-        approvedWords: [...approvedWordList.approvedWords, "x"],
-      }
-      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+  test("bounds deep image parsing after an unmatched code span in another block", () => {
+    const depth = 5_000
+    const text = `\`\n# ${"![x ".repeat(depth)}x${"](v)".repeat(depth)}\``
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
 
-      for (const opaqueSegment of opaqueSegments) {
-        const text = `${"![x ".repeat(depth)}${opaqueSegment}${"](v)".repeat(depth)}`
-        expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
-      }
-    },
-    3_000,
-  )
-
-  test(
-    "bounds deep image parsing after an unmatched code span in another block",
-    () => {
-      const depth = 5_000
-      const text = `\`\n# ${"![x ".repeat(depth)}x${"](v)".repeat(depth)}\``
-      const list = {
-        ...approvedWordList,
-        approvedWords: [...approvedWordList.approvedWords, "x"],
-      }
-      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
-
-      expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
-    },
-    3_000,
-  )
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
 
   test("resolves link destinations before inline code spans", () => {
     const report = lint("prose-file", "[Alphaword](target`) Betaword `", {
@@ -324,13 +323,11 @@ describe("lint prose-file: dictionary rule", () => {
 
   test("validates Markdown email autolinks", () => {
     expect(
-      lint("prose-file", "<Alphaword@example.test>", { dictionary: approvedWordList })
-        .violations,
+      lint("prose-file", "<Alphaword@example.test>", { dictionary: approvedWordList }).violations,
     ).toEqual([])
 
     expect(
-      lint("prose-file", "<Alphaword@-Betaword>", { dictionary: approvedWordList })
-        .violations,
+      lint("prose-file", "<Alphaword@-Betaword>", { dictionary: approvedWordList }).violations,
     ).toEqual([
       {
         ruleId: "dictionary-not-approved-word",
@@ -382,16 +379,13 @@ describe("lint prose-file: dictionary rule", () => {
   test.each([
     ["[Alphaword]: betaword extra", ["betaword", "extra"]],
     ["Alphaword\n[Alphaword]: betaword", ["betaword"]],
-  ])(
-    "checks malformed or interrupting reference definitions as prose: %s",
-    (text, unapproved) => {
-      const report = lint("prose-file", text, { dictionary: approvedWordList })
+  ])("checks malformed or interrupting reference definitions as prose: %s", (text, unapproved) => {
+    const report = lint("prose-file", text, { dictionary: approvedWordList })
 
-      expect(report.violations.map((violation) => violation.message)).toEqual(
-        unapproved.map((word) => `"${word}" is not in the approved-word list.`),
-      )
-    },
-  )
+    expect(report.violations.map((violation) => violation.message)).toEqual(
+      unapproved.map((word) => `"${word}" is not in the approved-word list.`),
+    )
+  })
 
   test("requires horizontal separation before a next-line definition title", () => {
     expect(
@@ -505,6 +499,18 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   }, 3_000)
 
+  test("bounds unmatched resources in deeply nested images", () => {
+    const depth = 10_000
+    const text = `${"![x ".repeat(depth)}x${"](".repeat(depth)}`
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
+
   test("bounds nested link parsing in image descriptions", () => {
     const depth = 10_000
     const text = `${"![x [a](u) ".repeat(depth)}x${"](v)".repeat(depth)}`
@@ -517,21 +523,17 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   }, 3_000)
 
-  test(
-    "compiles a large approved-word list once across prose runs",
-    () => {
-      const approvedWords = Array.from({ length: 100_000 }, (_, index) => `synthetic-${index}`)
-      approvedWords[0] = "alphaword"
-      const text = Array.from(
-        { length: 500 },
-        (_, index) => `// ALPHAWORD.\nconst separator${index} = 0;`,
-      ).join("\n")
-      const list = { ...approvedWordList, approvedWords }
+  test("compiles a large approved-word list once across prose runs", () => {
+    const approvedWords = Array.from({ length: 100_000 }, (_, index) => `synthetic-${index}`)
+    approvedWords[0] = "alphaword"
+    const text = Array.from(
+      { length: 500 },
+      (_, index) => `// ALPHAWORD.\nconst separator${index} = 0;`,
+    ).join("\n")
+    const list = { ...approvedWordList, approvedWords }
 
-      expect(lint("slash-source", text, { dictionary: list }).violations).toEqual([])
-    },
-    3_000,
-  )
+    expect(lint("slash-source", text, { dictionary: list }).violations).toEqual([])
+  }, 3_000)
 
   test("flags a word that is absent from the approved-word list", () => {
     const report = lint("prose-file", "Alphaword betaword.", { dictionary: approvedWordList })
