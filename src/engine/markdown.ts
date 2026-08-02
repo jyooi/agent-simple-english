@@ -390,11 +390,15 @@ const prepareMarkdownSource = (source: string): PreparedMarkdownSource => {
 }
 
 const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
+const OPAQUE_INLINE_TOKENS = new Set(["autolink", "codeText", "htmlText"])
 
-const inlineBlockRanges = (events: ReturnType<typeof markdownEvents>): readonly SourceRange[] => {
+const tokenRanges = (
+  events: ReturnType<typeof markdownEvents>,
+  tokenTypes: ReadonlySet<string>,
+): readonly SourceRange[] => {
   const ranges: SourceRange[] = []
   for (const [phase, token] of events) {
-    if (phase === "enter" && INLINE_BLOCK_TOKENS.has(token.type)) {
+    if (phase === "enter" && tokenTypes.has(token.type)) {
       ranges.push({ start: token.start.offset, end: token.end.offset })
     }
   }
@@ -417,6 +421,7 @@ const fallbackResourceRanges = (
   source: string,
   candidates: readonly ResourceCandidate[],
   inlineBlocks: readonly SourceRange[],
+  opaqueInlineRanges: readonly SourceRange[],
 ): readonly SourceRange[] => {
   const chunks: string[] = []
   const segments = new Map<number, { sourceStart: number; syntheticEnd: number }>()
@@ -428,7 +433,8 @@ const fallbackResourceRanges = (
     if (
       inlineBlock === undefined ||
       candidate.sourceStart < inlineBlock.start ||
-      candidate.sourceEnd > inlineBlock.end
+      candidate.sourceEnd > inlineBlock.end ||
+      rangeContaining(opaqueInlineRanges, candidate.labelStart) !== undefined
     ) {
       continue
     }
@@ -529,13 +535,10 @@ export function blankMarkdownDestinations(
   for (const range of fallbackResourceRanges(
     source,
     preparedSource.resourceCandidates,
-    inlineBlockRanges(events),
+    tokenRanges(events, INLINE_BLOCK_TOKENS),
+    tokenRanges(events, OPAQUE_INLINE_TOKENS),
   )) {
     blankSourceRange(range.start, range.end)
-  }
-
-  for (const match of source.matchAll(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<]+/gu)) {
-    blankSourceRange(match.index, match.index + match[0].length)
   }
 
   return blanked.join("").split("\n")
