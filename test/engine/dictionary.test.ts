@@ -69,6 +69,7 @@ describe("lint prose-file: dictionary rule", () => {
     const text = [
       "[Alphaword](https://example.test/private-path)",
       "<https://example.test/private-path>",
+      "",
       "[target]: /private/path",
       "[Alphaword][target]",
     ].join("\n")
@@ -92,6 +93,87 @@ describe("lint prose-file: dictionary rule", () => {
       },
     ])
   })
+
+  test("checks destinations after nested links as prose", () => {
+    const report = lint(
+      "prose-file",
+      "[Alphaword [word-form](inner-target)](betaword)",
+      { dictionary: approvedWordList },
+    )
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 39,
+      },
+    ])
+  })
+
+  test("checks unresolved Markdown reference labels as prose", () => {
+    const report = lint("prose-file", "[Alphaword][Betaword]", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 13,
+      },
+    ])
+  })
+
+  test("resolves normalized references defined in nested Markdown containers", () => {
+    const text = [
+      "> > > > [TaRGeT   ẞ Label]: /private/path",
+      "",
+      "[Alphaword][target ss label]",
+    ].join("\n")
+
+    expect(lint("prose-file", text, { dictionary: approvedWordList }).violations).toEqual([])
+  })
+
+  test("resolves references defined after source-comment prefixes", () => {
+    const text = [
+      "const first = 1 // [Target Label]: /private/path",
+      "const second = 2 // [Alphaword][target label]",
+    ].join("\n")
+
+    expect(lint("slash-source", text, { dictionary: approvedWordList }).violations).toEqual([])
+  })
+
+  test.each([
+    ["[Alphaword]: betaword extra", ["betaword", "extra"]],
+    ["Alphaword\n[Alphaword]: betaword", ["betaword"]],
+  ])(
+    "checks malformed or interrupting reference definitions as prose: %s",
+    (text, unapproved) => {
+      const report = lint("prose-file", text, { dictionary: approvedWordList })
+
+      expect(report.violations.map((violation) => violation.message)).toEqual(
+        unapproved.map((word) => `"${word}" is not in the approved-word list.`),
+      )
+    },
+  )
+
+  test("bounds malformed Markdown destination parsing", () => {
+    const text = "[a](".repeat(50_000)
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "a"],
+    }
+
+    expect(lint("prose-file", text, { rules }).violations).toEqual([])
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
 
   test("flags a word that is absent from the approved-word list", () => {
     const report = lint("prose-file", "Alphaword betaword.", { dictionary: approvedWordList })

@@ -267,15 +267,22 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     ).toHaveLength(0)
   })
 
-  test("a link destination edit does not report an existing allowlist violation", () => {
-    const previous = "[Alphaword](old-target) Betaword."
-    const current = "[Alphaword](longer-target) Betaword."
+  test.each([
+    ["changes", "old-target", "longer-target"],
+    ["adds", "", "target"],
+    ["removes", "target", ""],
+  ])(
+    "%s a link destination without reporting an existing allowlist violation",
+    (_description, previousTarget, currentTarget) => {
+      const previous = `[Alphaword](${previousTarget}) Betaword.`
+      const current = `[Alphaword](${currentTarget}) Betaword.`
 
-    expect(
-      lint("prose-file", current, { previousText: previous, dictionary: approvedWordList })
-        .violations,
-    ).toHaveLength(0)
-  })
+      expect(
+        lint("prose-file", current, { previousText: previous, dictionary: approvedWordList })
+          .violations,
+      ).toHaveLength(0)
+    },
+  )
 
   test("an excluded-code insertion does not select unrelated deletion-only prose", () => {
     const previous = `${words(15)}  ${words(15)}.\n\n\`\`\`\nconst oldValue = 1;\n\`\`\``

@@ -107,11 +107,24 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
   return wholeText(text)
 }
 
-const prepareProse = (extracted: ProseRun): PreparedProse => {
+const isApprovedWordMode = (dictionary: DictionaryData | undefined): boolean =>
+  dictionary !== undefined && "approvedWords" in dictionary
+
+const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedProse => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
+  const lines = blankIdentifiers(markdown.lines)
+  const dictionaryLines = approvedWordMode
+    ? blankIdentifiers(
+        blankMarkdownDestinations(
+          markdown.lines,
+          markdown.contentStarts,
+          markdown.canStartDefinitions,
+        ),
+      )
+    : lines
   return {
-    lines: blankIdentifiers(markdown.lines),
-    dictionaryLines: blankIdentifiers(blankMarkdownDestinations(markdown.lines)),
+    lines,
+    dictionaryLines,
     structuralLines: blankIdentifiers(markdown.structuralLines),
     mechanicalLines: blankIdentifiers(
       extracted.lines.map((line, index) =>
@@ -235,8 +248,7 @@ const lintProse = (
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
-  const approvedWordMode =
-    options.dictionary !== undefined && "approvedWords" in options.dictionary
+  const approvedWordMode = isApprovedWordMode(options.dictionary)
   const dictionarySentenceIndex = approvedWordMode
     ? indexSentenceScopes(
         segmentSentences(
@@ -313,7 +325,12 @@ const lintProse = (
 }
 
 const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): ScopedViolation[] =>
-  lintProse(prepareProse(extracted), extracted.contentStarts, extracted.sourceOffset, options)
+  lintProse(
+    prepareProse(extracted, isApprovedWordMode(options.dictionary)),
+    extracted.contentStarts,
+    extracted.sourceOffset,
+    options,
+  )
 
 function configuredFinding(
   finding: ScopedViolation,

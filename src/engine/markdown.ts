@@ -2,6 +2,8 @@ const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 const INDENTED = /^(?: {4,}|\t)/
 const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*\r?$/
+const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})\r?$/
 const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])(?:([ \t]{1,4})(?![ \t])|[ \t])/
 
 const blankLine = (line: string): string => " ".repeat(line.length)
@@ -161,6 +163,8 @@ export interface MarkdownCodeResult {
   readonly lines: string[]
   readonly structuralLines: string[]
   readonly structuralBlanks: boolean[]
+  readonly contentStarts: number[]
+  readonly canStartDefinitions: boolean[]
 }
 
 export function blankMarkdownCodeWithStructure(
@@ -170,10 +174,14 @@ export function blankMarkdownCodeWithStructure(
   let fence: FenceState | null = null
   let activeList: Container | null = null
   let paragraphCanContinue = false
+  let definitionParagraphOpen = false
+  let definitionParagraphContainer: Container | null = null
   let inIndented = false
   const inlineEligible: boolean[] = []
   const structuralLines: string[] = []
   const structuralBlanks: boolean[] = []
+  const markdownContentStarts: number[] = []
+  const canStartDefinitions: boolean[] = []
   const lines = inputLines.map((line, index) => {
     const contentStart = contentStarts[index] ?? 0
 
@@ -188,15 +196,23 @@ export function blankMarkdownCodeWithStructure(
         inlineEligible.push(false)
         structuralLines.push(blankLine(line))
         structuralBlanks.push(true)
+        markdownContentStarts.push(line.length)
+        canStartDefinitions.push(false)
+        definitionParagraphOpen = false
+        definitionParagraphContainer = null
         return blankLine(line)
       }
       fence = null
       paragraphCanContinue = false
+      definitionParagraphOpen = false
+      definitionParagraphContainer = null
       inIndented = false
     }
 
     let content = markdownContent(line, contentStart)
-    if (content.container.listIndent > 0) {
+    const startsListItem = content.container.listIndent > 0
+    const explicitContainer = content.container
+    if (startsListItem) {
       activeList = content.container
     } else if (content.text.trim() !== "" && activeList !== null) {
       const continued = contentWithin(line, contentStart, activeList)
@@ -216,25 +232,54 @@ export function blankMarkdownCodeWithStructure(
       inlineEligible.push(false)
       structuralLines.push(blankLine(line))
       structuralBlanks.push(true)
+      markdownContentStarts.push(line.length)
+      canStartDefinitions.push(false)
+      definitionParagraphOpen = false
+      definitionParagraphContainer = null
       return blankLine(line)
     }
     if (content.text.trim() === "") {
       paragraphCanContinue = false
+      definitionParagraphOpen = false
+      definitionParagraphContainer = null
       inIndented = false
       inlineEligible.push(false)
       structuralLines.push(line)
       structuralBlanks.push(true)
+      markdownContentStarts.push(content.start)
+      canStartDefinitions.push(false)
       return visibleLine
     }
     if (INDENTED.test(content.text) && (!paragraphCanContinue || inIndented)) {
       paragraphCanContinue = false
+      definitionParagraphOpen = false
+      definitionParagraphContainer = null
       inIndented = true
       inlineEligible.push(false)
       structuralLines.push(blankLine(line))
       structuralBlanks.push(true)
+      markdownContentStarts.push(line.length)
+      canStartDefinitions.push(false)
       return blankLine(line)
     }
+
+    const blockBoundary =
+      ATX_HEADING.test(content.text) ||
+      SETEXT_UNDERLINE.test(content.text) ||
+      THEMATIC_BREAK.test(content.text)
+    const startsNewContainer =
+      startsListItem ||
+      (explicitContainer.quoteDepth > 0 &&
+        (definitionParagraphContainer === null ||
+          explicitContainer.quoteDepth !== definitionParagraphContainer.quoteDepth ||
+          explicitContainer.listIndent !== definitionParagraphContainer.listIndent))
+    markdownContentStarts.push(content.start)
+    canStartDefinitions.push(
+      !blockBoundary && (!definitionParagraphOpen || startsNewContainer),
+    )
     paragraphCanContinue = !ATX_HEADING.test(content.text)
+    definitionParagraphOpen = !blockBoundary
+    definitionParagraphContainer = blockBoundary ? null : content.container
     inIndented = false
     inlineEligible.push(true)
     structuralLines.push(line)
@@ -260,7 +305,13 @@ export function blankMarkdownCodeWithStructure(
   blankEligibleInlineCode(lines)
   blankEligibleInlineCode(structuralLines)
 
-  return { lines, structuralLines, structuralBlanks }
+  return {
+    lines,
+    structuralLines,
+    structuralBlanks,
+    contentStarts: markdownContentStarts,
+    canStartDefinitions,
+  }
 }
 
 export function blankMarkdownCode(
@@ -280,155 +331,484 @@ const blankTextRange = (text: string[], start: number, end: number): void => {
   }
 }
 
-const isMarkdownWhitespace = (character: string | undefined): boolean =>
-  character === " " || character === "\t" || character === "\n" || character === "\r"
-
-const markdownWhitespaceEnd = (text: string, start: number): number | undefined => {
-  let index = start
-  let lineEndings = 0
-  while (index < text.length) {
-    const character = text[index]
-    if (character === " " || character === "\t") {
-      index++
-      continue
-    }
-    if (character !== "\n" && character !== "\r") break
-    lineEndings++
-    if (lineEndings > 1) return undefined
-    index += character === "\r" && text[index + 1] === "\n" ? 2 : 1
-  }
-  return index
+interface DelimiterFrame {
+  readonly opening: number
+  nested: boolean
 }
 
-const markdownLinkTitleEnd = (text: string, start: number): number | undefined => {
-  const opening = text[start]
-  const closing = opening === "(" ? ")" : opening
-  if (closing !== ")" && closing !== '"' && closing !== "'") return undefined
-
-  for (let index = start + 1; index < text.length; index++) {
-    const character = text[index]
-    if (character === "\\") {
-      index++
-      continue
-    }
-    if (character === closing) return index + 1
-    if (opening === "(" && character === "(") return undefined
-  }
-  return undefined
+interface MarkdownSyntaxIndex {
+  readonly escaped: Uint8Array
+  readonly parenthesisEnds: Int32Array
+  readonly bracketEnds: Int32Array
+  readonly bracketStarts: Int32Array
+  readonly bracketParents: Int32Array
+  readonly bareDestinationEnds: Int32Array
+  readonly horizontalWhitespaceEnds: Int32Array
+  readonly nextAngleSpecials: Int32Array
+  readonly nextDoubleQuotes: Int32Array
+  readonly nextSingleQuotes: Int32Array
+  readonly blankLineStarts: readonly number[]
 }
 
-const markdownInlineLinkEnd = (text: string, opening: number): number | undefined => {
-  const destinationStart = markdownWhitespaceEnd(text, opening + 1)
-  if (destinationStart === undefined) return undefined
-  let index = destinationStart
-
-  if (text[index] === "<") {
-    let closed = false
-    for (index += 1; index < text.length; index++) {
-      const character = text[index]
-      if (character === "\\") {
-        index++
-        continue
-      }
-      if (character === "\n" || character === "<") return undefined
-      if (character === ">") {
-        index++
-        closed = true
-        break
-      }
-    }
-    if (!closed) return undefined
-  } else {
-    let depth = 0
-    while (index < text.length) {
-      const character = text[index]
-      if (character === "\\") {
-        index += 2
-        continue
-      }
-      if (character === "(") {
-        depth++
-        index++
-        continue
-      }
-      if (character === ")") {
-        if (depth === 0) return index
-        depth--
-        index++
-        continue
-      }
-      if (character === "<" || character === ">") return undefined
-      if (isMarkdownWhitespace(character)) break
-      index++
-    }
-    if (depth !== 0) return undefined
-  }
-
-  if (text[index] === ")") return index
-  const titleStart = markdownWhitespaceEnd(text, index)
-  if (titleStart === undefined || titleStart === index) return undefined
-  if (text[titleStart] === ")") return titleStart
-
-  const titleEnd = markdownLinkTitleEnd(text, titleStart)
-  if (titleEnd === undefined) return undefined
-  const linkEnd = markdownWhitespaceEnd(text, titleEnd)
-  return linkEnd !== undefined && text[linkEnd] === ")" ? linkEnd : undefined
+interface ReferenceDefinition {
+  readonly label: string
+  readonly start: number
+  readonly end: number
 }
 
-const markdownReferenceEnd = (text: string, opening: number): number | undefined => {
-  for (let index = opening + 1; index < text.length; index++) {
-    const character = text[index]
-    if (character === "\\") {
-      index++
-      continue
-    }
-    if (character === "[" || character === "\n") return undefined
-    if (character === "]") return index
-  }
-  return undefined
+const isAsciiPunctuation = (character: string | undefined): boolean => {
+  if (character === undefined) return false
+  const code = character.charCodeAt(0)
+  return (
+    (code >= 0x21 && code <= 0x2f) ||
+    (code >= 0x3a && code <= 0x40) ||
+    (code >= 0x5b && code <= 0x60) ||
+    (code >= 0x7b && code <= 0x7e)
+  )
 }
 
-export function blankMarkdownDestinations(lines: readonly string[]): string[] {
-  const source = lines.join("\n")
-  const blanked = source.split("")
+const encodedPairEnd = (value: number | undefined): number | undefined =>
+  value === undefined || value === 0 ? undefined : Math.abs(value) - 1
 
-  for (const match of source.matchAll(/^ {0,3}\[[^\]\n]+\]:[^\n]*$/gmu)) {
-    blankTextRange(blanked, match.index, match.index + match[0].length)
-  }
+const encodedDestinationEnd = (value: number | undefined): number | undefined =>
+  value === undefined || value === 0 ? undefined : value - 1
 
-  const labelOpeners: number[] = []
-  let lineStart = 0
+const indexMarkdownSyntax = (
+  source: string,
+  lines: readonly string[],
+): MarkdownSyntaxIndex => {
+  const escaped = new Uint8Array(source.length)
+  const parenthesisEnds = new Int32Array(source.length)
+  const bracketEnds = new Int32Array(source.length)
+  const bracketStarts = new Int32Array(source.length)
+  const bracketParents = new Int32Array(source.length)
+  const parenthesisStack: DelimiterFrame[] = []
+  const bracketStack: DelimiterFrame[] = []
+
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
-    if (character === "\\") {
-      index++
+    if (
+      character === "\\" &&
+      escaped[index] === 0 &&
+      isAsciiPunctuation(source[index + 1])
+    ) {
+      escaped[index + 1] = 1
+    }
+    if (escaped[index] !== 0) continue
+
+    if (character === "(") {
+      const parent = parenthesisStack.at(-1)
+      if (parent !== undefined) parent.nested = true
+      parenthesisStack.push({ opening: index, nested: false })
       continue
     }
-    if (character === "\n") {
-      if (source.slice(lineStart, index).trim() === "") labelOpeners.length = 0
-      lineStart = index + 1
+    if (character === ")") {
+      const frame = parenthesisStack.pop()
+      if (frame !== undefined) {
+        parenthesisEnds[frame.opening] = frame.nested ? -(index + 1) : index + 1
+      }
       continue
     }
     if (character === "[") {
-      labelOpeners.push(index)
+      const parent = bracketStack.at(-1)
+      if (parent !== undefined) {
+        parent.nested = true
+        bracketParents[index] = parent.opening + 1
+      }
+      bracketStack.push({ opening: index, nested: false })
       continue
     }
-    if (character !== "]" || labelOpeners.pop() === undefined) continue
+    if (character !== "]") continue
+
+    const frame = bracketStack.pop()
+    if (frame === undefined) continue
+    const label = source.slice(frame.opening + 1, index)
+    const validLabel =
+      !frame.nested && Array.from(label).length <= 999 && /[^ \t\n\r]/u.test(label)
+    bracketEnds[frame.opening] = validLabel ? index + 1 : -(index + 1)
+    bracketStarts[index] = frame.opening + 1
+  }
+
+  const bareDestinationEnds = new Int32Array(source.length + 1)
+  const horizontalWhitespaceEnds = new Int32Array(source.length + 1)
+  const nextAngleSpecials = new Int32Array(source.length + 1)
+  const nextDoubleQuotes = new Int32Array(source.length + 1)
+  const nextSingleQuotes = new Int32Array(source.length + 1)
+  horizontalWhitespaceEnds[source.length] = source.length
+  bareDestinationEnds[source.length] = source.length + 1
+  let nextAngleSpecial = 0
+  let nextDoubleQuote = 0
+  let nextSingleQuote = 0
+
+  for (let index = source.length - 1; index >= 0; index--) {
+    const character = source[index]
+    horizontalWhitespaceEnds[index] =
+      character === " " || character === "\t"
+        ? (horizontalWhitespaceEnds[index + 1] ?? source.length)
+        : index
+
+    if (escaped[index] === 0) {
+      if (
+        character === "<" ||
+        character === ">" ||
+        character === "\n" ||
+        character === "\r"
+      ) {
+        nextAngleSpecial = index + 1
+      }
+      if (character === '"') nextDoubleQuote = index + 1
+      if (character === "'") nextSingleQuote = index + 1
+    }
+    nextAngleSpecials[index] = nextAngleSpecial
+    nextDoubleQuotes[index] = nextDoubleQuote
+    nextSingleQuotes[index] = nextSingleQuote
+
+    if (escaped[index] !== 0) {
+      bareDestinationEnds[index] = bareDestinationEnds[index + 1] ?? 0
+      continue
+    }
+    if (character === "(") {
+      const closing = encodedPairEnd(parenthesisEnds[index])
+      const nestedEnd = encodedDestinationEnd(bareDestinationEnds[index + 1])
+      bareDestinationEnds[index] =
+        closing !== undefined && nestedEnd === closing
+          ? (bareDestinationEnds[closing + 1] ?? 0)
+          : 0
+      continue
+    }
+    if (
+      character === ")" ||
+      character === " " ||
+      character === "\t" ||
+      character === "\n" ||
+      character === "\r"
+    ) {
+      bareDestinationEnds[index] = index + 1
+      continue
+    }
+    const code = character?.charCodeAt(0) ?? 0
+    bareDestinationEnds[index] =
+      character === "<" || character === ">" || code <= 0x1f || code === 0x7f
+        ? 0
+        : (bareDestinationEnds[index + 1] ?? 0)
+  }
+
+  const blankLineStarts: number[] = []
+  let lineOffset = 0
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex] ?? ""
+    const content = line.endsWith("\r") ? line.slice(0, -1) : line
+    if (/^[ \t]*$/u.test(content)) blankLineStarts.push(lineOffset)
+    lineOffset += line.length + (lineIndex < lines.length - 1 ? 1 : 0)
+  }
+
+  return {
+    escaped,
+    parenthesisEnds,
+    bracketEnds,
+    bracketStarts,
+    bracketParents,
+    bareDestinationEnds,
+    horizontalWhitespaceEnds,
+    nextAngleSpecials,
+    nextDoubleQuotes,
+    nextSingleQuotes,
+    blankLineStarts,
+  }
+}
+
+const isLineEnding = (character: string | undefined): boolean =>
+  character === "\n" || character === "\r"
+
+const lineEndingEnd = (source: string, start: number): number =>
+  source[start] === "\r" && source[start + 1] === "\n" ? start + 2 : start + 1
+
+const firstOffsetAtOrAfter = (offsets: readonly number[], target: number): number => {
+  let low = 0
+  let high = offsets.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) < target) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+const hasBlankLine = (
+  syntax: MarkdownSyntaxIndex,
+  start: number,
+  end: number,
+): boolean => {
+  const blank = syntax.blankLineStarts[firstOffsetAtOrAfter(syntax.blankLineStarts, start)]
+  return blank !== undefined && blank < end
+}
+
+const markdownWhitespaceEnd = (
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  start: number,
+): number | undefined => {
+  let end = syntax.horizontalWhitespaceEnds[start] ?? start
+  if (!isLineEnding(source[end])) return end
+  end = lineEndingEnd(source, end)
+  end = syntax.horizontalWhitespaceEnds[end] ?? end
+  return isLineEnding(source[end]) ? undefined : end
+}
+
+const markdownAngleDestinationEnd = (
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  start: number,
+): number | undefined => {
+  if (source[start] !== "<") return undefined
+  const encoded = syntax.nextAngleSpecials[start + 1] ?? 0
+  if (encoded === 0) return undefined
+  const closing = encoded - 1
+  return source[closing] === ">" ? closing + 1 : undefined
+}
+
+const markdownLinkTitleEnd = (
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  start: number,
+): number | undefined => {
+  const opening = source[start]
+  let closing: number | undefined
+  if (opening === '"') {
+    const encoded = syntax.nextDoubleQuotes[start + 1] ?? 0
+    if (encoded !== 0) closing = encoded - 1
+  } else if (opening === "'") {
+    const encoded = syntax.nextSingleQuotes[start + 1] ?? 0
+    if (encoded !== 0) closing = encoded - 1
+  } else if (opening === "(") {
+    const encoded = syntax.parenthesisEnds[start] ?? 0
+    if (encoded > 0) closing = encoded - 1
+  }
+  if (closing === undefined || hasBlankLine(syntax, start + 1, closing)) return undefined
+  return closing + 1
+}
+
+const markdownInlineLinkEnd = (
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  opening: number,
+): number | undefined => {
+  const destinationStart = markdownWhitespaceEnd(source, syntax, opening + 1)
+  if (destinationStart === undefined) return undefined
+  if (source[destinationStart] === ")") return destinationStart
+
+  const destinationEnd =
+    source[destinationStart] === "<"
+      ? markdownAngleDestinationEnd(source, syntax, destinationStart)
+      : encodedDestinationEnd(syntax.bareDestinationEnds[destinationStart])
+  if (destinationEnd === undefined || destinationEnd === destinationStart) return undefined
+  if (source[destinationEnd] === ")") return destinationEnd
+
+  const titleStart = markdownWhitespaceEnd(source, syntax, destinationEnd)
+  if (titleStart === undefined || titleStart === destinationEnd) return undefined
+  if (source[titleStart] === ")") return titleStart
+
+  const titleEnd = markdownLinkTitleEnd(source, syntax, titleStart)
+  if (titleEnd === undefined) return undefined
+  const linkEnd = markdownWhitespaceEnd(source, syntax, titleEnd)
+  return linkEnd !== undefined && source[linkEnd] === ")" ? linkEnd : undefined
+}
+
+const markdownLabelEnd = (
+  syntax: MarkdownSyntaxIndex,
+  opening: number,
+): number | undefined => {
+  const encoded = syntax.bracketEnds[opening] ?? 0
+  if (encoded <= 0) return undefined
+  const closing = encoded - 1
+  return hasBlankLine(syntax, opening + 1, closing) ? undefined : closing
+}
+
+const normalizeReferenceLabel = (source: string, opening: number, closing: number): string =>
+  source
+    .slice(opening + 1, closing)
+    .replace(/[ \t\n\r]+/gu, " ")
+    .trim()
+    .toLowerCase()
+    .toUpperCase()
+    .toLowerCase()
+
+const markdownDefinitionTail = (
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  destinationEnd: number,
+): number | undefined => {
+  const sameLineEnd = syntax.horizontalWhitespaceEnds[destinationEnd] ?? destinationEnd
+  if (source[sameLineEnd] === undefined) return sameLineEnd
+
+  if (isLineEnding(source[sameLineEnd])) {
+    const baseEnd = sameLineEnd
+    const nextLineStart = syntax.horizontalWhitespaceEnds[
+      lineEndingEnd(source, sameLineEnd)
+    ]
+    if (nextLineStart === undefined) return baseEnd
+    const titleEnd = markdownLinkTitleEnd(source, syntax, nextLineStart)
+    if (titleEnd === undefined) return baseEnd
+    const trailingEnd = syntax.horizontalWhitespaceEnds[titleEnd] ?? titleEnd
+    return source[trailingEnd] === undefined || isLineEnding(source[trailingEnd])
+      ? trailingEnd
+      : baseEnd
+  }
+
+  if (sameLineEnd === destinationEnd) return undefined
+  const titleEnd = markdownLinkTitleEnd(source, syntax, sameLineEnd)
+  if (titleEnd === undefined) return undefined
+  const trailingEnd = syntax.horizontalWhitespaceEnds[titleEnd] ?? titleEnd
+  return source[trailingEnd] === undefined || isLineEnding(source[trailingEnd])
+    ? trailingEnd
+    : undefined
+}
+
+const markdownReferenceDefinition = (
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  start: number,
+): ReferenceDefinition | undefined => {
+  const labelEnd = markdownLabelEnd(syntax, start)
+  if (labelEnd === undefined || source[labelEnd + 1] !== ":") return undefined
+  const destinationStart = markdownWhitespaceEnd(source, syntax, labelEnd + 2)
+  if (destinationStart === undefined) return undefined
+
+  const destinationEnd =
+    source[destinationStart] === "<"
+      ? markdownAngleDestinationEnd(source, syntax, destinationStart)
+      : encodedDestinationEnd(syntax.bareDestinationEnds[destinationStart])
+  if (destinationEnd === undefined || destinationEnd === destinationStart) return undefined
+  const end = markdownDefinitionTail(source, syntax, destinationEnd)
+  if (end === undefined) return undefined
+
+  return {
+    label: normalizeReferenceLabel(source, start, labelEnd),
+    start,
+    end,
+  }
+}
+
+const markdownLineOffsets = (lines: readonly string[]): number[] => {
+  const offsets: number[] = []
+  let nextOffset = 0
+  for (let index = 0; index < lines.length; index++) {
+    offsets.push(nextOffset)
+    nextOffset += (lines[index]?.length ?? 0) + (index < lines.length - 1 ? 1 : 0)
+  }
+  return offsets
+}
+
+const lineIndexAtOffset = (offsets: readonly number[], offset: number): number => {
+  let low = 0
+  let high = offsets.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) <= offset) low = middle + 1
+    else high = middle
+  }
+  return Math.max(0, low - 1)
+}
+
+const markdownReferenceDefinitions = (
+  lines: readonly string[],
+  source: string,
+  syntax: MarkdownSyntaxIndex,
+  contentStarts: readonly number[],
+  canStartDefinitions: readonly boolean[],
+): readonly ReferenceDefinition[] => {
+  const definitions: ReferenceDefinition[] = []
+  const offsets = markdownLineOffsets(lines)
+  let continuationLine = -1
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const canStart = (canStartDefinitions[lineIndex] ?? true) || lineIndex === continuationLine
+    continuationLine = -1
+    if (!canStart) continue
+
+    const line = lines[lineIndex] ?? ""
+    const lineOffset = offsets[lineIndex] ?? 0
+    const contentStart = Math.min(contentStarts[lineIndex] ?? 0, line.length)
+    const start = syntax.horizontalWhitespaceEnds[lineOffset + contentStart] ?? source.length
+    const contentEnd = lineOffset + (line.endsWith("\r") ? line.length - 1 : line.length)
+    if (start >= contentEnd || source[start] !== "[") continue
+
+    const definition = markdownReferenceDefinition(source, syntax, start)
+    if (definition === undefined) continue
+    definitions.push(definition)
+    const endLine = lineIndexAtOffset(offsets, Math.max(definition.start, definition.end - 1))
+    continuationLine = endLine + 1
+    lineIndex = endLine
+  }
+
+  return definitions
+}
+
+export function blankMarkdownDestinations(
+  lines: readonly string[],
+  contentStarts: readonly number[] = lines.map(() => 0),
+  canStartDefinitions: readonly boolean[] = lines.map(() => true),
+): string[] {
+  const source = lines.join("\n")
+  const blanked = source.split("")
+  const syntax = indexMarkdownSyntax(source, lines)
+  const definitions = markdownReferenceDefinitions(
+    lines,
+    source,
+    syntax,
+    contentStarts,
+    canStartDefinitions,
+  )
+  const labels = new Set(definitions.map((definition) => definition.label))
+  const inactiveLinkOpeners = new Uint8Array(source.length)
+  const isImageOpener = (opening: number): boolean =>
+    source[opening - 1] === "!" && syntax.escaped[opening - 1] === 0
+  const deactivateParentLinks = (opening: number): void => {
+    if (isImageOpener(opening)) return
+    let encodedParent = syntax.bracketParents[opening] ?? 0
+    while (encodedParent !== 0) {
+      const parent = encodedParent - 1
+      if (!isImageOpener(parent)) inactiveLinkOpeners[parent] = 1
+      encodedParent = syntax.bracketParents[parent] ?? 0
+    }
+  }
+
+  for (const definition of definitions) {
+    blankTextRange(blanked, definition.start, definition.end)
+  }
+
+  for (let index = 0; index < source.length; index++) {
+    if (source[index] !== "]" || syntax.escaped[index] !== 0) continue
+    const encodedOpening = syntax.bracketStarts[index] ?? 0
+    if (encodedOpening === 0) continue
+    const opening = encodedOpening - 1
+    if (inactiveLinkOpeners[opening] !== 0 || hasBlankLine(syntax, opening + 1, index)) continue
 
     const suffixStart = index + 1
     if (source[suffixStart] === "(") {
-      const linkEnd = markdownInlineLinkEnd(source, suffixStart)
+      const linkEnd = markdownInlineLinkEnd(source, syntax, suffixStart)
       if (linkEnd === undefined) continue
-      blankTextRange(blanked, suffixStart + 1, linkEnd)
+      blankTextRange(blanked, suffixStart, linkEnd + 1)
+      deactivateParentLinks(opening)
       index = linkEnd
       continue
     }
-    if (source[suffixStart] === "[") {
-      const referenceEnd = markdownReferenceEnd(source, suffixStart)
-      if (referenceEnd === undefined) continue
-      blankTextRange(blanked, suffixStart, referenceEnd + 1)
-      index = referenceEnd
-    }
+    if (source[suffixStart] !== "[") continue
+
+    const referenceEnd = encodedPairEnd(syntax.bracketEnds[suffixStart])
+    if (referenceEnd === undefined) continue
+    const labelEnd = markdownLabelEnd(syntax, suffixStart)
+    const collapsed = referenceEnd === suffixStart + 1
+    const resolves = collapsed
+      ? markdownLabelEnd(syntax, opening) === index &&
+        labels.has(normalizeReferenceLabel(source, opening, index))
+      : labelEnd === referenceEnd &&
+        labels.has(normalizeReferenceLabel(source, suffixStart, referenceEnd))
+    if (!resolves) continue
+
+    blankTextRange(blanked, suffixStart, referenceEnd + 1)
+    deactivateParentLinks(opening)
+    index = referenceEnd
   }
 
   for (const pattern of [
