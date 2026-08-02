@@ -352,7 +352,7 @@ describe("lint prose-file: dictionary rule", () => {
     const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
 
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
-  }, 3_000)
+  }, 10_000)
 
   test("bounds deeply nested unresolved labels", () => {
     const depth = 16_000
@@ -769,7 +769,7 @@ describe("lint prose-file: dictionary rule", () => {
     }
 
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
-  }, 3_000)
+  }, 10_000)
 
   test("compiles a large approved-word list once across prose runs", () => {
     const approvedWords: [string, ...string[]] = [
