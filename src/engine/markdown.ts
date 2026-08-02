@@ -846,16 +846,9 @@ const prepareMarkdownSource = (
         if (candidate.valid) {
           candidate.identifier =
             frame.opening + 1 === index
-              ? normalizeIdentifierRange(
-                  source,
-                  candidate.imageLabelStart,
-                  candidate.imageLabelEnd,
-                )
+              ? normalizeIdentifierRange(source, candidate.imageLabelStart, candidate.imageLabelEnd)
               : normalizeIdentifierRange(source, frame.opening + 1, index)
-          if (
-            candidate.identifier !== undefined &&
-            definedIdentifiers?.has(candidate.identifier)
-          ) {
+          if (candidate.identifier !== undefined && definedIdentifiers?.has(candidate.identifier)) {
             blankTextRange(characters, candidate.sourceStart, candidate.sourceEnd)
             if (!candidate.image) linkEpoch++
           }
@@ -901,9 +894,7 @@ const prepareMarkdownSource = (
           !frame.image &&
           frame.linkEpoch === linkEpoch &&
           source[index + 1] !== "[" &&
-          definedIdentifiers?.has(
-            normalizeIdentifierRange(source, frame.opening + 1, index) ?? "",
-          )
+          definedIdentifiers?.has(normalizeIdentifierRange(source, frame.opening + 1, index) ?? "")
         ) {
           linkEpoch++
         }
@@ -1011,11 +1002,7 @@ const referenceIdentifier = (
 
     const identifier =
       index === contentStart
-        ? normalizeIdentifierRange(
-            source,
-            candidate.imageLabelStart,
-            candidate.imageLabelEnd,
-          )
+        ? normalizeIdentifierRange(source, candidate.imageLabelStart, candidate.imageLabelEnd)
         : normalizeIdentifierRange(source, contentStart, index)
     return identifier === undefined ? undefined : { identifier, end: index + 1 }
   }
@@ -1181,7 +1168,10 @@ export function blankMarkdownDestinations(
     tokenRanges(events, INLINE_BLOCK_TOKENS),
     definedIdentifiers,
   )
-  if (resolvedReferenceRanges.length > 0 || (preparedSource.deepFallback && definedIdentifiers.size > 0)) {
+  if (
+    resolvedReferenceRanges.length > 0 ||
+    (preparedSource.deepFallback && definedIdentifiers.size > 0)
+  ) {
     syntaxRanges = syntaxRangesFor(blankRanges(source, resolvedReferenceRanges))
     opaqueInlineRanges = syntaxRanges.opaqueInlineRanges
     preparedSource = prepareMarkdownSource(

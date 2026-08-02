@@ -56,10 +56,13 @@ The rule compares each prose token with the list without regard to case.
 
 The rule does not infer roots, lemmas, plurals, or other forms.
 Add each permitted word form as a separate item.
-The rule excludes identifiers, Markdown link destinations, and fenced or indented Markdown code before this check.
+A listed hyphenated form approves only that exact hyphenated token.
 
-Set `approvedWordsPath` in the Simple English config to select this mode.
-The configured list has precedence over the bundled not-approved sample and `SIMPLE_ENGLISH_DICTIONARY`.
+The rule checks visible Markdown prose, including link and image labels.
+It excludes identifiers, Markdown code, link destinations and reference definitions, autolinks, character references, and HTML syntax.
+It also excludes raw content in `pre`, `script`, `style`, and `textarea` HTML flow blocks.
+
+See the root [Configuration](../../README.md#configuration) section for list selection, precedence, and load errors.
 The pure engine receives validated dictionary data and does not read this file.
 
 See [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for the bundled data source, conversion scope, and license details.

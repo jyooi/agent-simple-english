@@ -267,7 +267,6 @@ The global fallback is `simple-english.json` in the pi agent config directory.
 The default pi agent config directory is `~/.pi/agent`.
 `PI_CODING_AGENT_DIR` can change that directory.
 
-The loader resolves a relative value from the working directory that requested the config.
 The loader reads a fallback file only when the new file at the same level is absent.
 
 This example contains every config key and every rule:
@@ -304,7 +303,11 @@ The `off` value disables that rule.
 
 `maxSentenceWords` must be a positive integer and has a default value of 25.
 `approvedWordsPath` selects a user-owned approved-word list.
-The loader resolves a relative path from the working directory.
+The loader resolves a relative path from the working directory that requested the config.
+This list replaces the bundled not-approved sample and any `SIMPLE_ENGLISH_DICTIONARY` replacement.
+A missing, unreadable, or invalid list causes lint exit code 2.
+The enabled pi Adapter gates fail closed after this error.
+Claude Code Hook mode reports a warning and allows the event, as it does for other load errors.
 Unknown keys, unknown rule IDs, and invalid values cause a config error.
 
 `ruleDataExtensions` maps each list-backed rule to more JSON data files.
@@ -327,12 +330,11 @@ It also reports unambiguous forms that end in `'s`.
 #### `dictionary-not-approved-word`
 
 Default: hard.
-Without `approvedWordsPath`, this rule reports forms from the bundled not-approved sample and supplies approved alternatives.
+Without an approved-word list, this rule reports forms from the bundled not-approved sample and supplies approved alternatives.
 Part-of-speech data limits applicable sample entries when that data exists.
-With `approvedWordsPath`, this rule reports each token that the approved-word list does not contain.
-The list must contain each permitted word form.
-Checks do not depend on letter case.
-The configured approved-word list replaces the bundled sample and any `SIMPLE_ENGLISH_DICTIONARY` replacement.
+With an approved-word list, this rule reports each prose token that the list does not contain.
+Matching uses exact surface forms without regard to case.
+See [Configuration](#configuration) for list selection, precedence, and load errors.
 
 #### `paragraph-length`
 
@@ -410,18 +412,13 @@ This project has no affiliation with or endorsement from ASD.
 The package dictionary format and token rules are in [`src/dictionary/README.md`](src/dictionary/README.md).
 
 To create an approved-word list, use your own licensed copy of the current ASD-STE100 specification.
-Extract the approved words and every permitted form that you want the rule to accept.
-Store only one word form in each `approvedWords` item.
+Extract the approved words into the [package approved-word list format](src/dictionary/README.md#approved-word-list).
+Follow that format's exact surface-form requirements.
 Add source metadata that identifies your licensed revision and extraction record.
+Repeat the extraction and update the metadata when you adopt a new licensed revision.
 Keep the list private unless your license lets you distribute it.
 This package does not extract, include, or distribute that data.
-
-Set `approvedWordsPath` in the config to select the list.
-A relative path starts at the working directory that requested the config.
-This option has precedence over the bundled sample and `SIMPLE_ENGLISH_DICTIONARY`.
-A missing, unreadable, or invalid list causes lint exit code 2.
-The enabled pi Adapter gates fail closed after this error.
-Claude Code Hook mode reports a warning and allows the event, as it does for other load errors.
+See [Configuration](#configuration) to select the list.
 
 Set `SIMPLE_ENGLISH_DICTIONARY` to replace only the bundled not-approved sample.
 Hook mode resolves a relative replacement path from the session working directory.

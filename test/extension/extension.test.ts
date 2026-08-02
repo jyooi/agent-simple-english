@@ -651,6 +651,7 @@ describe.sequential("pi extension wiring", () => {
   })
 
   test("uses a configured approved-word list for extension gates", async () => {
+    process.env.SIMPLE_ENGLISH_DICTIONARY = join(process.cwd(), "missing-dictionary.json")
     const { pi, context } = await startExtension({
       projectConfig: { approvedWordsPath: "approved-words.json" },
       approvedWords: ["alphaword"],
@@ -672,6 +673,23 @@ describe.sequential("pi extension wiring", () => {
         context,
       ),
     ).rejects.toThrow('"Betaword" is not in the approved-word list.')
+  })
+
+  test("fails extension gates closed when the configured approved-word list is missing", async () => {
+    const { cwd, pi, context, notifications } = await startExtension({
+      projectConfig: { approvedWordsPath: "missing-approved-words.json" },
+    })
+
+    expect(notifications.at(-1)?.message).toContain("missing-approved-words.json")
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-with-missing-list",
+        { path: "notes.md", content: "Alphaword." },
+        context,
+      ),
+    ).rejects.toThrow("STE check is unavailable")
+    await expect(readFile(join(cwd, "notes.md"), "utf8")).rejects.toThrow()
   })
 
   test("reports the mode, rule severity counts, and dictionary state", async () => {

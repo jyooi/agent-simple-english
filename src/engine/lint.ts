@@ -7,11 +7,7 @@ import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownCodeWithStructure, blankMarkdownDestinations } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
-import {
-  type CompiledDictionary,
-  compileDictionary,
-  dictionaryRule,
-} from "./rules/dictionary.ts"
+import { type CompiledDictionary, compileDictionary, dictionaryRule } from "./rules/dictionary.ts"
 import { hedging } from "./rules/hedging.ts"
 import { marketing } from "./rules/marketing.ts"
 import { paragraphLength } from "./rules/paragraph-length.ts"
