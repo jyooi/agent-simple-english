@@ -305,6 +305,26 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("resolves deep image resources before inline code spans", () => {
+    const text = `${"![x ".repeat(33)}Alphaword](target\`) Betaword \`${"](v)".repeat(32)}`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 153,
+      },
+    ])
+  })
+
   test("invalidates parent links around resolved shortcut references", () => {
     const text = "[Alphaword [word-form]](Betaword)\n\n[word-form]: /target"
     const report = lint("prose-file", text, { dictionary: approvedWordList })
@@ -502,6 +522,18 @@ describe("lint prose-file: dictionary rule", () => {
   test("bounds unmatched resources in deeply nested images", () => {
     const depth = 10_000
     const text = `${"![x ".repeat(depth)}x${"](".repeat(depth)}`
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
+
+  test("bounds overlapping resources in deeply nested images", () => {
+    const count = 2_000
+    const text = `${`${"![".repeat(33)}x](`.repeat(count)}u${")".repeat(count)}`
     const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
     const list = {
       ...approvedWordList,

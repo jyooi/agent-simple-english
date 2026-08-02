@@ -344,14 +344,19 @@ const isMarkdownWhitespace = (character: string | undefined): boolean =>
 interface ResourceScanIndex {
   readonly escaped: Uint8Array
   readonly nextNonWhitespace: Int32Array
+  readonly nextWhitespace: Int32Array
   readonly nextLineEnding: Int32Array
   readonly nextGreater: Int32Array
+  readonly nextLess: Int32Array
   readonly nextDoubleQuote: Int32Array
   readonly nextSingleQuote: Int32Array
   readonly nextClosingParenthesis: Int32Array
+  readonly nextAsciiControl: Int32Array
   readonly depthBefore: Int32Array
   readonly boundariesByDepth: ReadonlyMap<number, readonly number[]>
+  readonly openingsByDepth: ReadonlyMap<number, readonly number[]>
   readonly boundaryCursors: Map<number, number>
+  readonly openingCursors: Map<number, number>
 }
 
 const escapedCharacters = (source: string): Uint8Array => {
@@ -368,41 +373,55 @@ const escapedCharacters = (source: string): Uint8Array => {
   return escaped
 }
 
-const resourceScanIndex = (source: string, delimiterSource: string): ResourceScanIndex => {
+const resourceScanIndex = (source: string): ResourceScanIndex => {
   const escaped = escapedCharacters(source)
   const nextNonWhitespace = new Int32Array(source.length + 1).fill(source.length)
+  const nextWhitespace = new Int32Array(source.length + 1).fill(-1)
   const nextLineEnding = new Int32Array(source.length + 1).fill(-1)
   const nextGreater = new Int32Array(source.length + 1).fill(-1)
+  const nextLess = new Int32Array(source.length + 1).fill(-1)
   const nextDoubleQuote = new Int32Array(source.length + 1).fill(-1)
   const nextSingleQuote = new Int32Array(source.length + 1).fill(-1)
   const nextClosingParenthesis = new Int32Array(source.length + 1).fill(-1)
+  const nextAsciiControl = new Int32Array(source.length + 1).fill(-1)
   let nonWhitespace = source.length
+  let whitespace = -1
   let lineEnding = -1
   let greater = -1
+  let less = -1
   let doubleQuote = -1
   let singleQuote = -1
   let closingParenthesis = -1
+  let asciiControl = -1
 
   for (let index = source.length - 1; index >= 0; index--) {
     const character = source[index]
-    if (!isMarkdownWhitespace(character)) nonWhitespace = index
+    const code = source.charCodeAt(index)
+    if (isMarkdownWhitespace(character)) whitespace = index
+    else nonWhitespace = index
     if (character === "\n" || character === "\r") lineEnding = index
+    if ((code < 32 || code === 127) && !isMarkdownWhitespace(character)) asciiControl = index
     if (escaped[index] === 0) {
       if (character === ">") greater = index
+      if (character === "<") less = index
       if (character === '"') doubleQuote = index
       if (character === "'") singleQuote = index
       if (character === ")") closingParenthesis = index
     }
     nextNonWhitespace[index] = nonWhitespace
+    nextWhitespace[index] = whitespace
     nextLineEnding[index] = lineEnding
     nextGreater[index] = greater
+    nextLess[index] = less
     nextDoubleQuote[index] = doubleQuote
     nextSingleQuote[index] = singleQuote
     nextClosingParenthesis[index] = closingParenthesis
+    nextAsciiControl[index] = asciiControl
   }
 
   const depthBefore = new Int32Array(source.length)
   const boundariesByDepth = new Map<number, number[]>()
+  const openingsByDepth = new Map<number, number[]>()
   let depth = 0
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
@@ -412,22 +431,33 @@ const resourceScanIndex = (source: string, delimiterSource: string): ResourceSca
       boundaries.push(index)
       boundariesByDepth.set(depth, boundaries)
     }
-    if (delimiterSource[index] !== character || escaped[index] !== 0) continue
-    if (character === "(") depth++
-    else if (character === ")") depth--
+    if (escaped[index] !== 0) continue
+    if (character === "(") {
+      const openings = openingsByDepth.get(depth) ?? []
+      openings.push(index)
+      openingsByDepth.set(depth, openings)
+      depth++
+    } else if (character === ")") {
+      depth--
+    }
   }
 
   return {
     escaped,
     nextNonWhitespace,
+    nextWhitespace,
     nextLineEnding,
     nextGreater,
+    nextLess,
     nextDoubleQuote,
     nextSingleQuote,
     nextClosingParenthesis,
+    nextAsciiControl,
     depthBefore,
     boundariesByDepth,
+    openingsByDepth,
     boundaryCursors: new Map(),
+    openingCursors: new Map(),
   }
 }
 
@@ -440,30 +470,48 @@ const nextResourceBoundary = (index: ResourceScanIndex, start: number): number =
   return boundaries[cursor] ?? -1
 }
 
-const resourceOpaqueRanges = (
-  source: string,
-  opening: number,
-  scanIndex: ResourceScanIndex,
-): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
+const nextResourceOpening = (index: ResourceScanIndex, depth: number, start: number): number => {
+  const openings = index.openingsByDepth.get(depth) ?? []
+  let cursor = index.openingCursors.get(depth) ?? 0
+  while ((openings[cursor] ?? Number.POSITIVE_INFINITY) < start) cursor++
+  index.openingCursors.set(depth, cursor)
+  return openings[cursor] ?? -1
+}
+
+const resourceEnd = (source: string, opening: number, scanIndex: ResourceScanIndex): number => {
   let index = scanIndex.nextNonWhitespace[opening + 1] ?? source.length
+  if (source[index] === ")") return index + 1
 
   if (source[index] === "<") {
     const end = scanIndex.nextGreater[index + 1] ?? -1
+    const less = scanIndex.nextLess[index + 1] ?? -1
     const lineEnding = scanIndex.nextLineEnding[index + 1] ?? -1
-    if (end < 0 || (lineEnding >= 0 && lineEnding < end)) return ranges
-    ranges.push({ start: index, end: end + 1 })
+    if (end < 0 || (less >= 0 && less < end) || (lineEnding >= 0 && lineEnding < end)) {
+      return -1
+    }
     index = end + 1
   } else {
-    index = nextResourceBoundary(scanIndex, index)
-    if (index < 0) return ranges
+    const destinationStart = index
+    const destinationDepth = scanIndex.depthBefore[destinationStart] ?? 0
+    index = nextResourceBoundary(scanIndex, destinationStart)
+    if (index < 0) return -1
+    const whitespace = scanIndex.nextWhitespace[destinationStart] ?? -1
+    const asciiControl = scanIndex.nextAsciiControl[destinationStart] ?? -1
+    const excessiveOpening = nextResourceOpening(scanIndex, destinationDepth + 32, destinationStart)
+    if (
+      (whitespace >= 0 && whitespace < index) ||
+      (asciiControl >= 0 && asciiControl < index) ||
+      (excessiveOpening >= 0 && excessiveOpening < index)
+    ) {
+      return -1
+    }
   }
 
-  const separatorStart = index
-  index = scanIndex.nextNonWhitespace[index] ?? source.length
-  if (index === separatorStart) return ranges
+  if (!isMarkdownWhitespace(source[index])) return source[index] === ")" ? index + 1 : -1
 
+  index = scanIndex.nextNonWhitespace[index] ?? source.length
   const delimiter = source[index]
+  if (delimiter === ")") return index + 1
   const closing =
     delimiter === '"'
       ? scanIndex.nextDoubleQuote[index + 1]
@@ -472,9 +520,12 @@ const resourceOpaqueRanges = (
         : delimiter === "("
           ? scanIndex.nextClosingParenthesis[index + 1]
           : -1
-  if (closing === undefined || closing < 0) return ranges
-  ranges.push({ start: index, end: closing + 1 })
-  return ranges
+  if (closing === undefined || closing < 0) return -1
+  index = closing + 1
+  if (isMarkdownWhitespace(source[index])) {
+    index = scanIndex.nextNonWhitespace[index] ?? source.length
+  }
+  return source[index] === ")" ? index + 1 : -1
 }
 
 const markdownEvents = (source: string) =>
@@ -510,23 +561,16 @@ const prepareMarkdownSource = (
   opaqueInlineRanges: readonly SourceRange[],
 ): PreparedMarkdownSource => {
   const characters = source.split("")
-  const scanIndex = resourceScanIndex(source, delimiterSource)
+  const scanIndex = resourceScanIndex(source)
   const escaped = scanIndex.escaped
   const brackets: BracketFrame[] = []
-  const parentheses: number[] = []
   const candidateByOpening = new Map<number, ResourceCandidate>()
   const resourceCandidates: ResourceCandidate[] = []
-  const resourceOpaqueEnds = new Int32Array(source.length).fill(-1)
   let imageDepth = 0
   let opaqueRangeIndex = 0
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
-    const resourceOpaqueEnd = resourceOpaqueEnds[index] ?? -1
-    if (resourceOpaqueEnd >= 0) {
-      index = resourceOpaqueEnd - 1
-      continue
-    }
     while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
       opaqueRangeIndex++
     }
@@ -555,17 +599,14 @@ const prepareMarkdownSource = (
         imageDepth--
       }
     } else if (character === "(") {
-      parentheses.push(index)
-      if (candidateByOpening.has(index)) {
-        for (const range of resourceOpaqueRanges(source, index, scanIndex)) {
-          resourceOpaqueEnds[range.start] = range.end
+      const candidate = candidateByOpening.get(index)
+      if (candidate !== undefined) {
+        const end = resourceEnd(source, index, scanIndex)
+        if (end >= 0) {
+          candidate.sourceEnd = end
+          blankTextRange(characters, index, end)
+          index = end - 1
         }
-      }
-    } else if (character === ")") {
-      const opening = parentheses.pop()
-      if (opening !== undefined) {
-        const candidate = candidateByOpening.get(opening)
-        if (candidate !== undefined) candidate.sourceEnd = index + 1
       }
     }
   }
@@ -633,9 +674,10 @@ const fallbackResourceRanges = (
   const chunks: string[] = []
   const segments = new Map<number, { sourceStart: number; syntheticEnd: number }>()
   let syntheticOffset = 0
+  let acceptedEnd = -1
 
   for (const candidate of candidates) {
-    if (candidate.sourceEnd === undefined) continue
+    if (candidate.sourceEnd === undefined || candidate.sourceStart < acceptedEnd) continue
     const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
     if (
       inlineBlock === undefined ||
@@ -645,6 +687,7 @@ const fallbackResourceRanges = (
     ) {
       continue
     }
+    acceptedEnd = candidate.sourceEnd
     const resource = source.slice(candidate.sourceStart, candidate.sourceEnd)
     const syntheticStart = syntheticOffset + 3
     chunks.push(`[x]${resource}\n\n`)
