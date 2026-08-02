@@ -1,5 +1,5 @@
 import type { RuleData } from "../dictionary/rule-data.ts"
-import type { Dictionary } from "../dictionary/schema.ts"
+import type { DictionaryData } from "../dictionary/schema.ts"
 import type { RuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
 
@@ -24,7 +24,7 @@ export type SourceDialect = "general" | "shell"
 export interface LintOptions {
   readonly rules?: Partial<Record<RuleId, RuleSetting>>
   readonly maxSentenceWords?: number
-  readonly dictionary?: Dictionary
+  readonly dictionary?: DictionaryData
   readonly ruleData?: RuleData
   // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger

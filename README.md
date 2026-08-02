@@ -275,6 +275,7 @@ This example contains every config key and every rule:
 ```json
 {
   "maxSentenceWords": 25,
+  "approvedWordsPath": "./approved-words.json",
   "ruleDataExtensions": {
     "phrasal-verb": ["config/phrasal-verbs.json"],
     "hedging": ["config/hedging.json"],
@@ -302,6 +303,8 @@ A soft violation produces a report or warning but does not block the action.
 The `off` value disables that rule.
 
 `maxSentenceWords` must be a positive integer and has a default value of 25.
+`approvedWordsPath` selects a user-owned approved-word list.
+The loader resolves a relative path from the working directory.
 Unknown keys, unknown rule IDs, and invalid values cause a config error.
 
 `ruleDataExtensions` maps each list-backed rule to more JSON data files.
@@ -324,9 +327,12 @@ It also reports unambiguous forms that end in `'s`.
 #### `dictionary-not-approved-word`
 
 Default: hard.
-Reports an unapproved word or phrase from the bundled dictionary and supplies approved alternatives.
-Part-of-speech data limits applicable entries when that data exists.
-Matching does not depend on letter case.
+Without `approvedWordsPath`, this rule reports forms from the bundled not-approved sample and supplies approved alternatives.
+Part-of-speech data limits applicable sample entries when that data exists.
+With `approvedWordsPath`, this rule reports each token that the approved-word list does not contain.
+The list must contain each permitted word form.
+Checks do not depend on letter case.
+The configured approved-word list replaces the bundled sample and any `SIMPLE_ENGLISH_DICTIONARY` replacement.
 
 #### `paragraph-length`
 
@@ -401,8 +407,23 @@ This package does not include the official specification or the complete ASD dic
 Get the current official specification from the [ASD-STE100 site](https://www.asd-ste100.org/).
 This project has no affiliation with or endorsement from ASD.
 
-The package dictionary format and match rules are in [`src/dictionary/README.md`](src/dictionary/README.md).
-Set `SIMPLE_ENGLISH_DICTIONARY` to a replacement dictionary file if necessary.
+The package dictionary format and token rules are in [`src/dictionary/README.md`](src/dictionary/README.md).
+
+To create an approved-word list, use your own licensed copy of the current ASD-STE100 specification.
+Extract the approved words and every permitted form that you want the rule to accept.
+Store only one word form in each `approvedWords` item.
+Add source metadata that identifies your licensed revision and extraction record.
+Keep the list private unless your license lets you distribute it.
+This package does not extract, include, or distribute that data.
+
+Set `approvedWordsPath` in the config to select the list.
+A relative path starts at the working directory that requested the config.
+This option has precedence over the bundled sample and `SIMPLE_ENGLISH_DICTIONARY`.
+A missing, unreadable, or invalid list causes lint exit code 2.
+The enabled pi Adapter gates fail closed after this error.
+Claude Code Hook mode reports a warning and allows the event, as it does for other load errors.
+
+Set `SIMPLE_ENGLISH_DICTIONARY` to replace only the bundled not-approved sample.
 Hook mode resolves a relative replacement path from the session working directory.
 A lint command reports a replacement dictionary load error and continues with all other rules.
 The enabled pi Adapter fails closed after that error.

@@ -1,5 +1,10 @@
 import { DICTIONARY_TOKEN_SOURCE } from "../../dictionary/form.ts"
-import type { Dictionary, DictionaryEntry } from "../../dictionary/schema.ts"
+import type {
+  ApprovedWordList,
+  Dictionary,
+  DictionaryData,
+  DictionaryEntry,
+} from "../../dictionary/schema.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
 
@@ -212,12 +217,37 @@ const messageFor = (suggestions: readonly string[], found: string): string => {
   return `Use ${alternatives}, not "${found}".`
 }
 
+const approvedWordRule = (
+  lines: readonly string[],
+  approvedWordList: ApprovedWordList,
+): Violation[] => {
+  const approvedWords = new Set(approvedWordList.approvedWords.map((word) => word.toLowerCase()))
+  return tokenize(lines).flatMap((token) =>
+    approvedWords.has(token.lower)
+      ? []
+      : [
+          {
+            ruleId: "dictionary-not-approved-word" as const,
+            severity: "hard" as const,
+            message: `"${token.text}" is not in the approved-word list.`,
+            suggestions: [],
+            line: token.lineIndex + 1,
+            column: token.offset + 1,
+          },
+        ],
+  )
+}
+
 export function dictionaryRule(
   lines: readonly string[],
-  dictionary: Dictionary,
+  dictionary: DictionaryData,
   tagger?: Tagger,
   contentStarts: readonly number[] = lines.map(() => 0),
+  proseLines: readonly string[] = lines,
 ): Violation[] {
+  if ("approvedWords" in dictionary) {
+    return approvedWordRule(proseLines, dictionary)
+  }
   const forms = compileForms(dictionary)
   const violations: Violation[] = []
   const contexts = markdownContexts(lines, contentStarts)

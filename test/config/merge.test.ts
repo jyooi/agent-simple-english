@@ -2,10 +2,13 @@ import { describe, expect, test } from "vitest"
 import { mergeConfigs } from "../../src/config/merge.ts"
 
 describe("config merge", () => {
-  test("project scalar wins over global", () => {
-    const merged = mergeConfigs({ maxSentenceWords: 20 }, { maxSentenceWords: 15 })
+  test("project scalars win over global values", () => {
+    const merged = mergeConfigs(
+      { maxSentenceWords: 20, approvedWordsPath: "global.json" },
+      { maxSentenceWords: 15, approvedWordsPath: "project.json" },
+    )
 
-    expect(merged).toEqual({ maxSentenceWords: 15 })
+    expect(merged).toEqual({ maxSentenceWords: 15, approvedWordsPath: "project.json" })
   })
 
   test("rules deep-merge per key with project winning", () => {

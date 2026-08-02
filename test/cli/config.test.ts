@@ -16,6 +16,21 @@ const makeProject = async (config?: unknown): Promise<string> => {
   return cwd
 }
 
+const writeApprovedWordList = (
+  path: string,
+  approvedWords: readonly string[] = ["alphaword"],
+): Promise<void> =>
+  writeJson(path, {
+    formatVersion: 1,
+    source: {
+      name: "synthetic test fixture",
+      repository: "https://example.test/approved-words",
+      commit: "fixture",
+      path: "approved-words.json",
+    },
+    approvedWords,
+  })
+
 const writeLegacyProjectConfig = (cwd: string, config: unknown): Promise<void> =>
   writeJson(join(cwd, ".pi", "simple-english.json"), config)
 
@@ -29,6 +44,54 @@ const writeLegacyGlobalConfig = (home: string, config: unknown): Promise<void> =
   writeJson(join(home, ".pi", "agent", "simple-english.json"), config)
 
 describe("simple-english CLI config", () => {
+  test("a configured approved-word list permits listed words and flags absent words", async () => {
+    const cwd = await makeProject({ approvedWordsPath: "approved-words.json" })
+    await writeApprovedWordList(join(cwd, "approved-words.json"))
+
+    const approved = await runCli([], {
+      cwd,
+      stdin: "ALPHAWORD.",
+      dictionaryPath: "missing-replacement-dictionary.json",
+    })
+    const absent = await runCli([], {
+      cwd,
+      stdin: "Betaword.",
+      dictionaryPath: "missing-replacement-dictionary.json",
+    })
+
+    expect(approved.code).toBe(0)
+    expect(approved.stdout).toBe("")
+    expect(approved.stderr).toBe("")
+    expect(absent.code).toBe(1)
+    expect(absent.stdout).toContain("dictionary-not-approved-word")
+    expect(absent.stdout).toContain('"Betaword" is not in the approved-word list.')
+    expect(absent.stderr).toBe("")
+  })
+
+  test("an invalid approved-word list exits 2 and names the invalid item", async () => {
+    const cwd = await makeProject({ approvedWordsPath: "approved-words.json" })
+    await writeApprovedWordList(join(cwd, "approved-words.json"), ["two words"])
+
+    const result = await runCli([], { cwd, stdin: "Alphaword." })
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("approvedWords[0]")
+  })
+
+  test.each([
+    ["missing", "missing-approved-words.json"],
+    ["unreadable", "approved-words-directory"],
+  ])("a %s approved-word list exits 2 and names the path", async (kind, relativePath) => {
+    const cwd = await makeProject({ approvedWordsPath: relativePath })
+    if (kind === "unreadable") await mkdir(join(cwd, relativePath))
+
+    const result = await runCli([], { cwd, stdin: "Alphaword." })
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain(join(cwd, relativePath))
+    expect(result.stderr).toContain("cannot read file")
+  })
+
   test("project config changes the sentence word cap", async () => {
     const cwd = await makeProject({ maxSentenceWords: 5 })
     const result = await runCli([], { cwd, stdin: tenWords })

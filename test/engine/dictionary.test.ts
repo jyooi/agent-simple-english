@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import type { Dictionary } from "../../src/dictionary/schema.ts"
+import type { ApprovedWordList, Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 import type { Tagger } from "../../src/engine/tagger.ts"
 
@@ -19,6 +19,17 @@ const dictionary = {
     { unapproved: ["state-of-the-art"], suggestions: ["advanced"] },
   ],
 } as const satisfies Dictionary
+
+const approvedWordList = {
+  formatVersion: 1,
+  source: {
+    name: "synthetic test fixture",
+    repository: "https://example.test/approved-words",
+    commit: "fixture",
+    path: "approved-words.json",
+  },
+  approvedWords: ["alphaword", "word-form"],
+} as const satisfies ApprovedWordList
 
 const tagger: Tagger = (text) => {
   if (text === "Attempt the repair.") {
@@ -41,6 +52,59 @@ const tagger: Tagger = (text) => {
 }
 
 describe("lint prose-file: dictionary rule", () => {
+  test("allows listed words without regard to case in approved-word mode", () => {
+    expect(lint("prose-file", "ALPHAWORD.", { dictionary: approvedWordList }).violations).toEqual(
+      [],
+    )
+  })
+
+  test("ignores Markdown container markers in approved-word mode", () => {
+    expect(
+      lint("prose-file", "- ALPHAWORD.\n1. Alphaword.", { dictionary: approvedWordList })
+        .violations,
+    ).toEqual([])
+  })
+
+  test("ignores Markdown link destinations in approved-word mode", () => {
+    const text = [
+      "[Alphaword](https://example.test/private-path)",
+      "<https://example.test/private-path>",
+      "[target]: /private/path",
+      "[Alphaword][target]",
+    ].join("\n")
+
+    expect(lint("prose-file", text, { dictionary: approvedWordList }).violations).toEqual([])
+  })
+
+  test("flags a word that is absent from the approved-word list", () => {
+    const report = lint("prose-file", "Alphaword betaword.", { dictionary: approvedWordList })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 11,
+      },
+    ])
+  })
+
+  test("treats approved word forms and hyphenated words as exact tokens", () => {
+    expect(lint("prose-file", "Word-form.", { dictionary: approvedWordList }).violations).toEqual(
+      [],
+    )
+    expect(lint("prose-file", "Alphawords.", { dictionary: approvedWordList }).violations).toEqual([
+      expect.objectContaining({
+        ruleId: "dictionary-not-approved-word",
+        message: '"Alphawords" is not in the approved-word list.',
+        line: 1,
+        column: 1,
+      }),
+    ])
+  })
+
   test("flags an unapproved word as hard and suggests its approved alternative", () => {
     const report = lint("prose-file", "Attempt the repair.", { dictionary, tagger })
 

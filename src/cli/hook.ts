@@ -6,7 +6,8 @@ import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-me
 import { formatViolations } from "../adapter/feedback.ts"
 import { ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
-import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
+import { loadConfiguredDictionary } from "../dictionary/configured.ts"
+import { loadRuleData } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
@@ -511,28 +512,20 @@ const readSessionControl = (sessionId: string) =>
     catch: (cause) => new Error(`cannot read session state: ${cause}`),
   })
 
-const loadLintOptions = (cwd: string, tagger: Tagger) => {
-  const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
-  return loadConfig(undefined, cwd).pipe(
-    Effect.flatMap((config) =>
-      Effect.all({
-        dictionary: loadDictionary(
-          dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
-        ),
-        ruleData: loadRuleData(config.ruleDataExtensions, cwd),
-      }).pipe(
-        Effect.map(
-          ({ dictionary, ruleData }): LintOptions => ({
-            ...config,
-            dictionary,
-            ruleData,
-            tagger,
-          }),
-        ),
+const loadLintOptions = (cwd: string, tagger: Tagger) =>
+  Effect.gen(function* () {
+    const config = yield* loadConfig(undefined, cwd)
+    const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
+    const { dictionary, ruleData } = yield* Effect.all({
+      dictionary: loadConfiguredDictionary(
+        config,
+        cwd,
+        dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
       ),
-    ),
-  )
-}
+      ruleData: loadRuleData(config.ruleDataExtensions, cwd),
+    })
+    return { ...config, dictionary, ruleData, tagger } satisfies LintOptions
+  })
 
 function splitViolations(violations: readonly Violation[]): {
   readonly hard: Violation[]

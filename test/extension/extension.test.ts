@@ -216,6 +216,7 @@ afterEach(async () => {
 })
 
 async function startExtension(options?: {
+  readonly approvedWords?: readonly string[]
   readonly branch?: readonly Record<string, unknown>[]
   readonly globalConfig?: object | string
   readonly legacyGlobalConfig?: object | string
@@ -258,6 +259,21 @@ async function startExtension(options?: {
     await writeFile(
       join(projectDirectory, "simple-english.json"),
       JSON.stringify(options.legacyProjectConfig),
+    )
+  }
+  if (options?.approvedWords !== undefined) {
+    await writeFile(
+      join(cwd, "approved-words.json"),
+      JSON.stringify({
+        formatVersion: 1,
+        source: {
+          name: "synthetic test fixture",
+          repository: "https://example.test/approved-words",
+          commit: "fixture",
+          path: "approved-words.json",
+        },
+        approvedWords: options.approvedWords,
+      }),
     )
   }
 
@@ -632,6 +648,30 @@ describe.sequential("pi extension wiring", () => {
     ).toContain("[contraction]")
     await pi.finalizeAssistant(assistantMessage("This isn't permitted."), context)
     expect(widgets.get("simple-english-reply")).toEqual(["Writing-rule reply: 1 hard, 0 soft"])
+  })
+
+  test("uses a configured approved-word list for extension gates", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { approvedWordsPath: "approved-words.json" },
+      approvedWords: ["alphaword"],
+    })
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-approved-word",
+        { path: "approved.md", content: "ALPHAWORD." },
+        context,
+      ),
+    ).resolves.toBeDefined()
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-absent-word",
+        { path: "absent.md", content: "Betaword." },
+        context,
+      ),
+    ).rejects.toThrow('"Betaword" is not in the approved-word list.')
   })
 
   test("reports the mode, rule severity counts, and dictionary state", async () => {

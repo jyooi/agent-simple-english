@@ -3,7 +3,12 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, ParseResult, Schema } from "effect"
 import type { RuleData, RuleDataExtensions, RuleDataId } from "./rule-data.ts"
-import { type Dictionary, DictionarySchema } from "./schema.ts"
+import {
+  type ApprovedWordList,
+  ApprovedWordListSchema,
+  type Dictionary,
+  DictionarySchema,
+} from "./schema.ts"
 
 export const BUNDLED_DICTIONARY_PATH = fileURLToPath(new URL("./data/pi-ste.json", import.meta.url))
 
@@ -45,10 +50,15 @@ const decodeDictionary = Schema.decode(Schema.parseJson(DictionarySchema), {
   errors: "all",
 })
 
-const loadDictionaryData = (
+const decodeApprovedWordList = Schema.decode(Schema.parseJson(ApprovedWordListSchema), {
+  onExcessProperty: "error",
+  errors: "all",
+})
+
+const readDictionaryFile = (
   path: string,
   label: DictionaryLoadLabel,
-): Effect.Effect<Dictionary, DictionaryLoadError> =>
+): Effect.Effect<string, DictionaryLoadError> =>
   Effect.tryPromise({
     try: () => readFile(path, "utf8"),
     catch: (cause) =>
@@ -57,7 +67,13 @@ const loadDictionaryData = (
         `cannot read file: ${cause instanceof Error ? cause.message : String(cause)}`,
         label,
       ),
-  }).pipe(
+  })
+
+const loadDictionaryData = (
+  path: string,
+  label: DictionaryLoadLabel,
+): Effect.Effect<Dictionary, DictionaryLoadError> =>
+  readDictionaryFile(path, label).pipe(
     Effect.flatMap(decodeDictionary),
     Effect.mapError((cause) =>
       cause instanceof DictionaryLoadError
@@ -69,6 +85,18 @@ const loadDictionaryData = (
 export const loadDictionary = (
   path = BUNDLED_DICTIONARY_PATH,
 ): Effect.Effect<Dictionary, DictionaryLoadError> => loadDictionaryData(path, "STE dictionary")
+
+export const loadApprovedWordList = (
+  path: string,
+): Effect.Effect<ApprovedWordList, DictionaryLoadError> =>
+  readDictionaryFile(path, "STE dictionary").pipe(
+    Effect.flatMap(decodeApprovedWordList),
+    Effect.mapError((cause) =>
+      cause instanceof DictionaryLoadError
+        ? cause
+        : new DictionaryLoadError(path, formatParseError(cause)),
+    ),
+  )
 
 const loadExtendedRuleData = (
   id: RuleDataId,

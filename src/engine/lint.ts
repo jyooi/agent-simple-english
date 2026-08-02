@@ -1,11 +1,11 @@
 import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
-import type { Dictionary } from "../dictionary/schema.ts"
+import type { DictionaryData } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure } from "./markdown.ts"
+import { blankMarkdownCodeWithStructure, blankMarkdownDestinations } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { dictionaryRule } from "./rules/dictionary.ts"
@@ -24,7 +24,7 @@ export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
-  readonly dictionary?: Dictionary
+  readonly dictionary?: DictionaryData
   readonly ruleData?: RuleData
   readonly tagger?: Tagger
 }
@@ -43,6 +43,7 @@ interface ProseRun extends ExtractedProse {
 
 interface PreparedProse {
   readonly lines: readonly string[]
+  readonly dictionaryLines: readonly string[]
   readonly structuralLines: readonly string[]
   readonly mechanicalLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
@@ -110,6 +111,7 @@ const prepareProse = (extracted: ProseRun): PreparedProse => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
   return {
     lines: blankIdentifiers(markdown.lines),
+    dictionaryLines: blankIdentifiers(blankMarkdownDestinations(markdown.lines)),
     structuralLines: blankIdentifiers(markdown.structuralLines),
     mechanicalLines: blankIdentifiers(
       extracted.lines.map((line, index) =>
@@ -282,6 +284,7 @@ const lintProse = (
             options.dictionary,
             options.tagger,
             contentStarts,
+            prepared.dictionaryLines,
           ),
         )),
     ...(options.tagger === undefined

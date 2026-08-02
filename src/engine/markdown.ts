@@ -274,6 +274,55 @@ export function maskMarkdownCode(text: string): string {
   return blankMarkdownCode(text.split("\n")).join("\n")
 }
 
+const blankTextRange = (text: string[], start: number, end: number): void => {
+  for (let index = start; index < end; index++) {
+    if (text[index] !== "\n") text[index] = " "
+  }
+}
+
+export function blankMarkdownDestinations(lines: readonly string[]): string[] {
+  const source = lines.join("\n")
+  const blanked = source.split("")
+
+  for (const match of source.matchAll(/^ {0,3}\[[^\]\n]+\]:[^\n]*$/gmu)) {
+    blankTextRange(blanked, match.index, match.index + match[0].length)
+  }
+
+  for (const match of source.matchAll(/\]\[[^\]\n]*\]/gu)) {
+    blankTextRange(blanked, match.index + 1, match.index + match[0].length)
+  }
+
+  // Link destinations can contain escaped and nested parentheses.
+  let opener = source.indexOf("](")
+  while (opener !== -1) {
+    let depth = 1
+    let index = opener + 2
+    while (index < source.length && depth > 0) {
+      if (source[index] === "\\") {
+        index += 2
+        continue
+      }
+      if (source[index] === "(") depth++
+      if (source[index] === ")") depth--
+      index++
+    }
+    if (depth === 0) blankTextRange(blanked, opener + 2, index - 1)
+    const nextStart = depth === 0 ? index : opener + 2
+    opener = source.indexOf("](", nextStart)
+  }
+
+  for (const pattern of [
+    /<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s@]+)>/gu,
+    /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<]+/gu,
+  ]) {
+    for (const match of source.matchAll(pattern)) {
+      blankTextRange(blanked, match.index, match.index + match[0].length)
+    }
+  }
+
+  return blanked.join("").split("\n")
+}
+
 interface InlineBacktickRun {
   readonly start: number
   readonly length: number
