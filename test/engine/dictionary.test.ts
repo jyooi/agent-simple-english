@@ -113,6 +113,77 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("does not pair link delimiters across Markdown inline blocks", () => {
+    const report = lint("prose-file", "[Alphaword\n# word-form](Betaword)", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 14,
+      },
+    ])
+  })
+
+  test("resolves link destinations before inline code spans", () => {
+    const report = lint("prose-file", "[Alphaword](target`) Betaword `", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 22,
+      },
+    ])
+  })
+
+  test("invalidates parent links around resolved shortcut references", () => {
+    const text = "[Alphaword [word-form]](Betaword)\n\n[word-form]: /target"
+    const report = lint("prose-file", text, { dictionary: approvedWordList })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 25,
+      },
+    ])
+  })
+
+  test("validates Markdown email autolinks", () => {
+    expect(
+      lint("prose-file", "<Alphaword@example.test>", { dictionary: approvedWordList })
+        .violations,
+    ).toEqual([])
+
+    expect(
+      lint("prose-file", "<Alphaword@-Betaword>", { dictionary: approvedWordList })
+        .violations,
+    ).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: 13,
+      },
+    ])
+  })
+
   test("checks unresolved Markdown reference labels as prose", () => {
     const report = lint("prose-file", "[Alphaword][Betaword]", {
       dictionary: approvedWordList,
@@ -163,6 +234,62 @@ describe("lint prose-file: dictionary rule", () => {
     },
   )
 
+  test("requires horizontal separation before a next-line definition title", () => {
+    expect(
+      lint("prose-file", '[target]: /path\n "Betaword"', {
+        dictionary: approvedWordList,
+      }).violations,
+    ).toEqual([])
+
+    const report = lint("prose-file", '[target]: /path\n"Betaword"', {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 2,
+      },
+    ])
+  })
+
+  test("keeps noninterrupting ordered list markers in the paragraph", () => {
+    const report = lint("prose-file", "Alphaword\n2. [target]: Betaword", {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"2" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 1,
+      },
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"target" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 5,
+      },
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 14,
+      },
+    ])
+  })
+
   test("bounds malformed Markdown destination parsing", () => {
     const text = "[a](".repeat(50_000)
     const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
@@ -172,6 +299,18 @@ describe("lint prose-file: dictionary rule", () => {
     }
 
     expect(lint("prose-file", text, { rules }).violations).toEqual([])
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  }, 3_000)
+
+  test("bounds nested link parsing in image descriptions", () => {
+    const depth = 10_000
+    const text = `${"![x [a](u) ".repeat(depth)}x${"](v)".repeat(depth)}`
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "a", "x"],
+    }
+
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   }, 3_000)
 

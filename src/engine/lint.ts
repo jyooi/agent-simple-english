@@ -114,13 +114,7 @@ const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedP
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
   const lines = blankIdentifiers(markdown.lines)
   const dictionaryLines = approvedWordMode
-    ? blankIdentifiers(
-        blankMarkdownDestinations(
-          markdown.lines,
-          markdown.contentStarts,
-          markdown.canStartDefinitions,
-        ),
-      )
+    ? blankIdentifiers(blankMarkdownDestinations(extracted.lines, extracted.contentStarts))
     : lines
   return {
     lines,

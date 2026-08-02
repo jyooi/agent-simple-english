@@ -1,9 +1,9 @@
+import { parse, postprocess, preprocess } from "micromark"
+
 const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 const INDENTED = /^(?: {4,}|\t)/
 const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
-const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*\r?$/
-const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})\r?$/
 const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])(?:([ \t]{1,4})(?![ \t])|[ \t])/
 
 const blankLine = (line: string): string => " ".repeat(line.length)
@@ -163,8 +163,6 @@ export interface MarkdownCodeResult {
   readonly lines: string[]
   readonly structuralLines: string[]
   readonly structuralBlanks: boolean[]
-  readonly contentStarts: number[]
-  readonly canStartDefinitions: boolean[]
 }
 
 export function blankMarkdownCodeWithStructure(
@@ -174,14 +172,10 @@ export function blankMarkdownCodeWithStructure(
   let fence: FenceState | null = null
   let activeList: Container | null = null
   let paragraphCanContinue = false
-  let definitionParagraphOpen = false
-  let definitionParagraphContainer: Container | null = null
   let inIndented = false
   const inlineEligible: boolean[] = []
   const structuralLines: string[] = []
   const structuralBlanks: boolean[] = []
-  const markdownContentStarts: number[] = []
-  const canStartDefinitions: boolean[] = []
   const lines = inputLines.map((line, index) => {
     const contentStart = contentStarts[index] ?? 0
 
@@ -196,23 +190,15 @@ export function blankMarkdownCodeWithStructure(
         inlineEligible.push(false)
         structuralLines.push(blankLine(line))
         structuralBlanks.push(true)
-        markdownContentStarts.push(line.length)
-        canStartDefinitions.push(false)
-        definitionParagraphOpen = false
-        definitionParagraphContainer = null
         return blankLine(line)
       }
       fence = null
       paragraphCanContinue = false
-      definitionParagraphOpen = false
-      definitionParagraphContainer = null
       inIndented = false
     }
 
     let content = markdownContent(line, contentStart)
-    const startsListItem = content.container.listIndent > 0
-    const explicitContainer = content.container
-    if (startsListItem) {
+    if (content.container.listIndent > 0) {
       activeList = content.container
     } else if (content.text.trim() !== "" && activeList !== null) {
       const continued = contentWithin(line, contentStart, activeList)
@@ -232,54 +218,25 @@ export function blankMarkdownCodeWithStructure(
       inlineEligible.push(false)
       structuralLines.push(blankLine(line))
       structuralBlanks.push(true)
-      markdownContentStarts.push(line.length)
-      canStartDefinitions.push(false)
-      definitionParagraphOpen = false
-      definitionParagraphContainer = null
       return blankLine(line)
     }
     if (content.text.trim() === "") {
       paragraphCanContinue = false
-      definitionParagraphOpen = false
-      definitionParagraphContainer = null
       inIndented = false
       inlineEligible.push(false)
       structuralLines.push(line)
       structuralBlanks.push(true)
-      markdownContentStarts.push(content.start)
-      canStartDefinitions.push(false)
       return visibleLine
     }
     if (INDENTED.test(content.text) && (!paragraphCanContinue || inIndented)) {
       paragraphCanContinue = false
-      definitionParagraphOpen = false
-      definitionParagraphContainer = null
       inIndented = true
       inlineEligible.push(false)
       structuralLines.push(blankLine(line))
       structuralBlanks.push(true)
-      markdownContentStarts.push(line.length)
-      canStartDefinitions.push(false)
       return blankLine(line)
     }
-
-    const blockBoundary =
-      ATX_HEADING.test(content.text) ||
-      SETEXT_UNDERLINE.test(content.text) ||
-      THEMATIC_BREAK.test(content.text)
-    const startsNewContainer =
-      startsListItem ||
-      (explicitContainer.quoteDepth > 0 &&
-        (definitionParagraphContainer === null ||
-          explicitContainer.quoteDepth !== definitionParagraphContainer.quoteDepth ||
-          explicitContainer.listIndent !== definitionParagraphContainer.listIndent))
-    markdownContentStarts.push(content.start)
-    canStartDefinitions.push(
-      !blockBoundary && (!definitionParagraphOpen || startsNewContainer),
-    )
     paragraphCanContinue = !ATX_HEADING.test(content.text)
-    definitionParagraphOpen = !blockBoundary
-    definitionParagraphContainer = blockBoundary ? null : content.container
     inIndented = false
     inlineEligible.push(true)
     structuralLines.push(line)
@@ -305,13 +262,7 @@ export function blankMarkdownCodeWithStructure(
   blankEligibleInlineCode(lines)
   blankEligibleInlineCode(structuralLines)
 
-  return {
-    lines,
-    structuralLines,
-    structuralBlanks,
-    contentStarts: markdownContentStarts,
-    canStartDefinitions,
-  }
+  return { lines, structuralLines, structuralBlanks }
 }
 
 export function blankMarkdownCode(
@@ -325,376 +276,23 @@ export function maskMarkdownCode(text: string): string {
   return blankMarkdownCode(text.split("\n")).join("\n")
 }
 
-const blankTextRange = (text: string[], start: number, end: number): void => {
-  for (let index = start; index < end; index++) {
-    if (text[index] !== "\n") text[index] = " "
-  }
-}
+const MASKED_MARKDOWN_TOKENS = new Set([
+  "autolink",
+  "blockQuotePrefix",
+  "codeFenced",
+  "codeIndented",
+  "codeText",
+  "listItemPrefix",
+  "reference",
+  "resource",
+])
 
-interface DelimiterFrame {
-  readonly opening: number
-  nested: boolean
-}
-
-interface MarkdownSyntaxIndex {
-  readonly escaped: Uint8Array
-  readonly parenthesisEnds: Int32Array
-  readonly bracketEnds: Int32Array
-  readonly bracketStarts: Int32Array
-  readonly bracketParents: Int32Array
-  readonly bareDestinationEnds: Int32Array
-  readonly horizontalWhitespaceEnds: Int32Array
-  readonly nextAngleSpecials: Int32Array
-  readonly nextDoubleQuotes: Int32Array
-  readonly nextSingleQuotes: Int32Array
-  readonly blankLineStarts: readonly number[]
-}
-
-interface ReferenceDefinition {
-  readonly label: string
-  readonly start: number
-  readonly end: number
-}
-
-const isAsciiPunctuation = (character: string | undefined): boolean => {
-  if (character === undefined) return false
-  const code = character.charCodeAt(0)
-  return (
-    (code >= 0x21 && code <= 0x2f) ||
-    (code >= 0x3a && code <= 0x40) ||
-    (code >= 0x5b && code <= 0x60) ||
-    (code >= 0x7b && code <= 0x7e)
-  )
-}
-
-const encodedPairEnd = (value: number | undefined): number | undefined =>
-  value === undefined || value === 0 ? undefined : Math.abs(value) - 1
-
-const encodedDestinationEnd = (value: number | undefined): number | undefined =>
-  value === undefined || value === 0 ? undefined : value - 1
-
-const indexMarkdownSyntax = (
-  source: string,
-  lines: readonly string[],
-): MarkdownSyntaxIndex => {
-  const escaped = new Uint8Array(source.length)
-  const parenthesisEnds = new Int32Array(source.length)
-  const bracketEnds = new Int32Array(source.length)
-  const bracketStarts = new Int32Array(source.length)
-  const bracketParents = new Int32Array(source.length)
-  const parenthesisStack: DelimiterFrame[] = []
-  const bracketStack: DelimiterFrame[] = []
-
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index]
-    if (
-      character === "\\" &&
-      escaped[index] === 0 &&
-      isAsciiPunctuation(source[index + 1])
-    ) {
-      escaped[index + 1] = 1
-    }
-    if (escaped[index] !== 0) continue
-
-    if (character === "(") {
-      const parent = parenthesisStack.at(-1)
-      if (parent !== undefined) parent.nested = true
-      parenthesisStack.push({ opening: index, nested: false })
-      continue
-    }
-    if (character === ")") {
-      const frame = parenthesisStack.pop()
-      if (frame !== undefined) {
-        parenthesisEnds[frame.opening] = frame.nested ? -(index + 1) : index + 1
-      }
-      continue
-    }
-    if (character === "[") {
-      const parent = bracketStack.at(-1)
-      if (parent !== undefined) {
-        parent.nested = true
-        bracketParents[index] = parent.opening + 1
-      }
-      bracketStack.push({ opening: index, nested: false })
-      continue
-    }
-    if (character !== "]") continue
-
-    const frame = bracketStack.pop()
-    if (frame === undefined) continue
-    const label = source.slice(frame.opening + 1, index)
-    const validLabel =
-      !frame.nested && Array.from(label).length <= 999 && /[^ \t\n\r]/u.test(label)
-    bracketEnds[frame.opening] = validLabel ? index + 1 : -(index + 1)
-    bracketStarts[index] = frame.opening + 1
-  }
-
-  const bareDestinationEnds = new Int32Array(source.length + 1)
-  const horizontalWhitespaceEnds = new Int32Array(source.length + 1)
-  const nextAngleSpecials = new Int32Array(source.length + 1)
-  const nextDoubleQuotes = new Int32Array(source.length + 1)
-  const nextSingleQuotes = new Int32Array(source.length + 1)
-  horizontalWhitespaceEnds[source.length] = source.length
-  bareDestinationEnds[source.length] = source.length + 1
-  let nextAngleSpecial = 0
-  let nextDoubleQuote = 0
-  let nextSingleQuote = 0
-
-  for (let index = source.length - 1; index >= 0; index--) {
-    const character = source[index]
-    horizontalWhitespaceEnds[index] =
-      character === " " || character === "\t"
-        ? (horizontalWhitespaceEnds[index + 1] ?? source.length)
-        : index
-
-    if (escaped[index] === 0) {
-      if (
-        character === "<" ||
-        character === ">" ||
-        character === "\n" ||
-        character === "\r"
-      ) {
-        nextAngleSpecial = index + 1
-      }
-      if (character === '"') nextDoubleQuote = index + 1
-      if (character === "'") nextSingleQuote = index + 1
-    }
-    nextAngleSpecials[index] = nextAngleSpecial
-    nextDoubleQuotes[index] = nextDoubleQuote
-    nextSingleQuotes[index] = nextSingleQuote
-
-    if (escaped[index] !== 0) {
-      bareDestinationEnds[index] = bareDestinationEnds[index + 1] ?? 0
-      continue
-    }
-    if (character === "(") {
-      const closing = encodedPairEnd(parenthesisEnds[index])
-      const nestedEnd = encodedDestinationEnd(bareDestinationEnds[index + 1])
-      bareDestinationEnds[index] =
-        closing !== undefined && nestedEnd === closing
-          ? (bareDestinationEnds[closing + 1] ?? 0)
-          : 0
-      continue
-    }
-    if (
-      character === ")" ||
-      character === " " ||
-      character === "\t" ||
-      character === "\n" ||
-      character === "\r"
-    ) {
-      bareDestinationEnds[index] = index + 1
-      continue
-    }
-    const code = character?.charCodeAt(0) ?? 0
-    bareDestinationEnds[index] =
-      character === "<" || character === ">" || code <= 0x1f || code === 0x7f
-        ? 0
-        : (bareDestinationEnds[index + 1] ?? 0)
-  }
-
-  const blankLineStarts: number[] = []
-  let lineOffset = 0
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex] ?? ""
-    const content = line.endsWith("\r") ? line.slice(0, -1) : line
-    if (/^[ \t]*$/u.test(content)) blankLineStarts.push(lineOffset)
-    lineOffset += line.length + (lineIndex < lines.length - 1 ? 1 : 0)
-  }
-
-  return {
-    escaped,
-    parenthesisEnds,
-    bracketEnds,
-    bracketStarts,
-    bracketParents,
-    bareDestinationEnds,
-    horizontalWhitespaceEnds,
-    nextAngleSpecials,
-    nextDoubleQuotes,
-    nextSingleQuotes,
-    blankLineStarts,
-  }
-}
-
-const isLineEnding = (character: string | undefined): boolean =>
-  character === "\n" || character === "\r"
-
-const lineEndingEnd = (source: string, start: number): number =>
-  source[start] === "\r" && source[start + 1] === "\n" ? start + 2 : start + 1
-
-const firstOffsetAtOrAfter = (offsets: readonly number[], target: number): number => {
-  let low = 0
-  let high = offsets.length
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) < target) low = middle + 1
-    else high = middle
-  }
-  return low
-}
-
-const hasBlankLine = (
-  syntax: MarkdownSyntaxIndex,
-  start: number,
-  end: number,
-): boolean => {
-  const blank = syntax.blankLineStarts[firstOffsetAtOrAfter(syntax.blankLineStarts, start)]
-  return blank !== undefined && blank < end
-}
-
-const markdownWhitespaceEnd = (
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  start: number,
-): number | undefined => {
-  let end = syntax.horizontalWhitespaceEnds[start] ?? start
-  if (!isLineEnding(source[end])) return end
-  end = lineEndingEnd(source, end)
-  end = syntax.horizontalWhitespaceEnds[end] ?? end
-  return isLineEnding(source[end]) ? undefined : end
-}
-
-const markdownAngleDestinationEnd = (
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  start: number,
-): number | undefined => {
-  if (source[start] !== "<") return undefined
-  const encoded = syntax.nextAngleSpecials[start + 1] ?? 0
-  if (encoded === 0) return undefined
-  const closing = encoded - 1
-  return source[closing] === ">" ? closing + 1 : undefined
-}
-
-const markdownLinkTitleEnd = (
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  start: number,
-): number | undefined => {
-  const opening = source[start]
-  let closing: number | undefined
-  if (opening === '"') {
-    const encoded = syntax.nextDoubleQuotes[start + 1] ?? 0
-    if (encoded !== 0) closing = encoded - 1
-  } else if (opening === "'") {
-    const encoded = syntax.nextSingleQuotes[start + 1] ?? 0
-    if (encoded !== 0) closing = encoded - 1
-  } else if (opening === "(") {
-    const encoded = syntax.parenthesisEnds[start] ?? 0
-    if (encoded > 0) closing = encoded - 1
-  }
-  if (closing === undefined || hasBlankLine(syntax, start + 1, closing)) return undefined
-  return closing + 1
-}
-
-const markdownInlineLinkEnd = (
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  opening: number,
-): number | undefined => {
-  const destinationStart = markdownWhitespaceEnd(source, syntax, opening + 1)
-  if (destinationStart === undefined) return undefined
-  if (source[destinationStart] === ")") return destinationStart
-
-  const destinationEnd =
-    source[destinationStart] === "<"
-      ? markdownAngleDestinationEnd(source, syntax, destinationStart)
-      : encodedDestinationEnd(syntax.bareDestinationEnds[destinationStart])
-  if (destinationEnd === undefined || destinationEnd === destinationStart) return undefined
-  if (source[destinationEnd] === ")") return destinationEnd
-
-  const titleStart = markdownWhitespaceEnd(source, syntax, destinationEnd)
-  if (titleStart === undefined || titleStart === destinationEnd) return undefined
-  if (source[titleStart] === ")") return titleStart
-
-  const titleEnd = markdownLinkTitleEnd(source, syntax, titleStart)
-  if (titleEnd === undefined) return undefined
-  const linkEnd = markdownWhitespaceEnd(source, syntax, titleEnd)
-  return linkEnd !== undefined && source[linkEnd] === ")" ? linkEnd : undefined
-}
-
-const markdownLabelEnd = (
-  syntax: MarkdownSyntaxIndex,
-  opening: number,
-): number | undefined => {
-  const encoded = syntax.bracketEnds[opening] ?? 0
-  if (encoded <= 0) return undefined
-  const closing = encoded - 1
-  return hasBlankLine(syntax, opening + 1, closing) ? undefined : closing
-}
-
-const normalizeReferenceLabel = (source: string, opening: number, closing: number): string =>
-  source
-    .slice(opening + 1, closing)
-    .replace(/[ \t\n\r]+/gu, " ")
-    .trim()
-    .toLowerCase()
-    .toUpperCase()
-    .toLowerCase()
-
-const markdownDefinitionTail = (
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  destinationEnd: number,
-): number | undefined => {
-  const sameLineEnd = syntax.horizontalWhitespaceEnds[destinationEnd] ?? destinationEnd
-  if (source[sameLineEnd] === undefined) return sameLineEnd
-
-  if (isLineEnding(source[sameLineEnd])) {
-    const baseEnd = sameLineEnd
-    const nextLineStart = syntax.horizontalWhitespaceEnds[
-      lineEndingEnd(source, sameLineEnd)
-    ]
-    if (nextLineStart === undefined) return baseEnd
-    const titleEnd = markdownLinkTitleEnd(source, syntax, nextLineStart)
-    if (titleEnd === undefined) return baseEnd
-    const trailingEnd = syntax.horizontalWhitespaceEnds[titleEnd] ?? titleEnd
-    return source[trailingEnd] === undefined || isLineEnding(source[trailingEnd])
-      ? trailingEnd
-      : baseEnd
-  }
-
-  if (sameLineEnd === destinationEnd) return undefined
-  const titleEnd = markdownLinkTitleEnd(source, syntax, sameLineEnd)
-  if (titleEnd === undefined) return undefined
-  const trailingEnd = syntax.horizontalWhitespaceEnds[titleEnd] ?? titleEnd
-  return source[trailingEnd] === undefined || isLineEnding(source[trailingEnd])
-    ? trailingEnd
-    : undefined
-}
-
-const markdownReferenceDefinition = (
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  start: number,
-): ReferenceDefinition | undefined => {
-  const labelEnd = markdownLabelEnd(syntax, start)
-  if (labelEnd === undefined || source[labelEnd + 1] !== ":") return undefined
-  const destinationStart = markdownWhitespaceEnd(source, syntax, labelEnd + 2)
-  if (destinationStart === undefined) return undefined
-
-  const destinationEnd =
-    source[destinationStart] === "<"
-      ? markdownAngleDestinationEnd(source, syntax, destinationStart)
-      : encodedDestinationEnd(syntax.bareDestinationEnds[destinationStart])
-  if (destinationEnd === undefined || destinationEnd === destinationStart) return undefined
-  const end = markdownDefinitionTail(source, syntax, destinationEnd)
-  if (end === undefined) return undefined
-
-  return {
-    label: normalizeReferenceLabel(source, start, labelEnd),
-    start,
-    end,
-  }
-}
-
-const markdownLineOffsets = (lines: readonly string[]): number[] => {
+const lineStartOffsets = (lines: readonly string[]): readonly number[] => {
   const offsets: number[] = []
-  let nextOffset = 0
+  let offset = 0
   for (let index = 0; index < lines.length; index++) {
-    offsets.push(nextOffset)
-    nextOffset += (lines[index]?.length ?? 0) + (index < lines.length - 1 ? 1 : 0)
+    offsets.push(offset)
+    offset += (lines[index]?.length ?? 0) + (index < lines.length - 1 ? 1 : 0)
   }
   return offsets
 }
@@ -710,114 +308,192 @@ const lineIndexAtOffset = (offsets: readonly number[], offset: number): number =
   return Math.max(0, low - 1)
 }
 
-const markdownReferenceDefinitions = (
-  lines: readonly string[],
-  source: string,
-  syntax: MarkdownSyntaxIndex,
-  contentStarts: readonly number[],
-  canStartDefinitions: readonly boolean[],
-): readonly ReferenceDefinition[] => {
-  const definitions: ReferenceDefinition[] = []
-  const offsets = markdownLineOffsets(lines)
-  let continuationLine = -1
+const blankTextRange = (text: string[], start: number, end: number): void => {
+  for (let index = start; index < end; index++) {
+    if (text[index] !== "\n") text[index] = " "
+  }
+}
 
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const canStart = (canStartDefinitions[lineIndex] ?? true) || lineIndex === continuationLine
-    continuationLine = -1
-    if (!canStart) continue
+interface BracketFrame {
+  readonly opening: number
+  readonly image: boolean
+  readonly imageDepth: number
+}
 
-    const line = lines[lineIndex] ?? ""
-    const lineOffset = offsets[lineIndex] ?? 0
-    const contentStart = Math.min(contentStarts[lineIndex] ?? 0, line.length)
-    const start = syntax.horizontalWhitespaceEnds[lineOffset + contentStart] ?? source.length
-    const contentEnd = lineOffset + (line.endsWith("\r") ? line.length - 1 : line.length)
-    if (start >= contentEnd || source[start] !== "[") continue
+interface ResourceCandidate {
+  readonly sourceStart: number
+  sourceEnd?: number
+}
 
-    const definition = markdownReferenceDefinition(source, syntax, start)
-    if (definition === undefined) continue
-    definitions.push(definition)
-    const endLine = lineIndexAtOffset(offsets, Math.max(definition.start, definition.end - 1))
-    continuationLine = endLine + 1
-    lineIndex = endLine
+interface PreparedMarkdownSource {
+  readonly value: string
+  readonly resourceCandidates: readonly ResourceCandidate[]
+}
+
+const markdownEvents = (source: string) =>
+  postprocess(parse().document().write(preprocess()(source, "utf8", true)))
+
+const prepareMarkdownSource = (source: string): PreparedMarkdownSource => {
+  const characters = source.split("")
+  const escaped = new Uint8Array(source.length)
+  const brackets: BracketFrame[] = []
+  const parentheses: number[] = []
+  const candidateByOpening = new Map<number, ResourceCandidate>()
+  const resourceCandidates: ResourceCandidate[] = []
+  let imageDepth = 0
+  let backslashRun = 0
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]
+    if (character === "\\") {
+      backslashRun++
+      continue
+    }
+    if (backslashRun % 2 !== 0) escaped[index] = 1
+    backslashRun = 0
+    if (escaped[index] !== 0) continue
+
+    if (character === "[") {
+      const image = source[index - 1] === "!" && escaped[index - 1] === 0
+      if (image) imageDepth++
+      brackets.push({ opening: index, image, imageDepth })
+    } else if (character === "]") {
+      const frame = brackets.pop()
+      if (frame?.image) {
+        if (frame.imageDepth > 32 && source[index + 1] === "(") {
+          characters[frame.opening] = "x"
+          characters[index] = "x"
+          const candidate = { sourceStart: index + 1 }
+          candidateByOpening.set(index + 1, candidate)
+          resourceCandidates.push(candidate)
+        }
+        imageDepth--
+      }
+    } else if (character === "(") {
+      parentheses.push(index)
+    } else if (character === ")") {
+      const opening = parentheses.pop()
+      if (opening !== undefined) {
+        const candidate = candidateByOpening.get(opening)
+        if (candidate !== undefined) candidate.sourceEnd = index + 1
+      }
+    }
   }
 
-  return definitions
+  for (const opening of parentheses) characters[opening] = "x"
+  return { value: characters.join(""), resourceCandidates }
+}
+
+const fallbackResourceRanges = (
+  source: string,
+  candidates: readonly ResourceCandidate[],
+): readonly { start: number; end: number }[] => {
+  const chunks: string[] = []
+  const segments = new Map<number, { sourceStart: number; syntheticEnd: number }>()
+  let syntheticOffset = 0
+
+  for (const candidate of candidates) {
+    if (candidate.sourceEnd === undefined) continue
+    const resource = source.slice(candidate.sourceStart, candidate.sourceEnd)
+    const syntheticStart = syntheticOffset + 3
+    chunks.push(`[x]${resource}\n\n`)
+    syntheticOffset += resource.length + 5
+    segments.set(syntheticStart, {
+      sourceStart: candidate.sourceStart,
+      syntheticEnd: syntheticStart + resource.length,
+    })
+  }
+
+  if (chunks.length === 0) return []
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const [phase, token] of markdownEvents(chunks.join(""))) {
+    if (phase !== "enter" || token.type !== "resource") continue
+    const segment = segments.get(token.start.offset)
+    if (segment === undefined || token.end.offset > segment.syntheticEnd) continue
+    ranges.push({
+      start: segment.sourceStart,
+      end: segment.sourceStart + token.end.offset - token.start.offset,
+    })
+  }
+  return ranges
 }
 
 export function blankMarkdownDestinations(
   lines: readonly string[],
   contentStarts: readonly number[] = lines.map(() => 0),
-  canStartDefinitions: readonly boolean[] = lines.map(() => true),
 ): string[] {
-  const source = lines.join("\n")
-  const blanked = source.split("")
-  const syntax = indexMarkdownSyntax(source, lines)
-  const definitions = markdownReferenceDefinitions(
-    lines,
-    source,
-    syntax,
-    contentStarts,
-    canStartDefinitions,
+  if (lines.length === 0) return []
+
+  const parseLines = lines.map((line, index) =>
+    line.slice(Math.min(contentStarts[index] ?? 0, line.length)),
   )
-  const labels = new Set(definitions.map((definition) => definition.label))
-  const inactiveLinkOpeners = new Uint8Array(source.length)
-  const isImageOpener = (opening: number): boolean =>
-    source[opening - 1] === "!" && syntax.escaped[opening - 1] === 0
-  const deactivateParentLinks = (opening: number): void => {
-    if (isImageOpener(opening)) return
-    let encodedParent = syntax.bracketParents[opening] ?? 0
-    while (encodedParent !== 0) {
-      const parent = encodedParent - 1
-      if (!isImageOpener(parent)) inactiveLinkOpeners[parent] = 1
-      encodedParent = syntax.bracketParents[parent] ?? 0
+  const source = parseLines.join("\n")
+  const sourceLineStarts = lineStartOffsets(parseLines)
+  const outputLineStarts = lineStartOffsets(lines)
+  const blanked = lines.join("\n").split("")
+  const outputOffset = (sourceOffset: number): number => {
+    const lineIndex = lineIndexAtOffset(sourceLineStarts, sourceOffset)
+    const line = lines[lineIndex] ?? ""
+    const contentStart = Math.min(contentStarts[lineIndex] ?? 0, line.length)
+    return (
+      (outputLineStarts[lineIndex] ?? 0) +
+      contentStart +
+      sourceOffset -
+      (sourceLineStarts[lineIndex] ?? 0)
+    )
+  }
+  const blankSourceRange = (start: number, end: number): void => {
+    blankTextRange(blanked, outputOffset(start), outputOffset(end))
+  }
+
+  const preparedSource = prepareMarkdownSource(source)
+  const events = markdownEvents(preparedSource.value)
+  const definitionMaskEnds = new Map<number, number>()
+  let activeDefinitionStart: number | undefined
+  let activeDefinitionLine = 0
+  let indentedDefinitionLine = 0
+  for (const [phase, token] of events) {
+    if (phase === "enter" && token.type === "definition") {
+      activeDefinitionStart = token.start.offset
+      activeDefinitionLine = token.start.line
+      indentedDefinitionLine = 0
+    } else if (
+      phase === "enter" &&
+      token.type === "linePrefix" &&
+      activeDefinitionStart !== undefined
+    ) {
+      indentedDefinitionLine = token.start.line
+    } else if (
+      phase === "enter" &&
+      token.type === "definitionTitle" &&
+      activeDefinitionStart !== undefined &&
+      token.start.line > activeDefinitionLine &&
+      indentedDefinitionLine !== token.start.line
+    ) {
+      definitionMaskEnds.set(activeDefinitionStart, token.start.offset)
+    } else if (phase === "exit" && token.type === "definition") {
+      activeDefinitionStart = undefined
     }
   }
 
-  for (const definition of definitions) {
-    blankTextRange(blanked, definition.start, definition.end)
+  for (const [phase, token] of events) {
+    if (phase !== "enter") continue
+    if (token.type === "definition") {
+      blankSourceRange(
+        token.start.offset,
+        definitionMaskEnds.get(token.start.offset) ?? token.end.offset,
+      )
+    } else if (MASKED_MARKDOWN_TOKENS.has(token.type)) {
+      blankSourceRange(token.start.offset, token.end.offset)
+    }
   }
 
-  for (let index = 0; index < source.length; index++) {
-    if (source[index] !== "]" || syntax.escaped[index] !== 0) continue
-    const encodedOpening = syntax.bracketStarts[index] ?? 0
-    if (encodedOpening === 0) continue
-    const opening = encodedOpening - 1
-    if (inactiveLinkOpeners[opening] !== 0 || hasBlankLine(syntax, opening + 1, index)) continue
-
-    const suffixStart = index + 1
-    if (source[suffixStart] === "(") {
-      const linkEnd = markdownInlineLinkEnd(source, syntax, suffixStart)
-      if (linkEnd === undefined) continue
-      blankTextRange(blanked, suffixStart, linkEnd + 1)
-      deactivateParentLinks(opening)
-      index = linkEnd
-      continue
-    }
-    if (source[suffixStart] !== "[") continue
-
-    const referenceEnd = encodedPairEnd(syntax.bracketEnds[suffixStart])
-    if (referenceEnd === undefined) continue
-    const labelEnd = markdownLabelEnd(syntax, suffixStart)
-    const collapsed = referenceEnd === suffixStart + 1
-    const resolves = collapsed
-      ? markdownLabelEnd(syntax, opening) === index &&
-        labels.has(normalizeReferenceLabel(source, opening, index))
-      : labelEnd === referenceEnd &&
-        labels.has(normalizeReferenceLabel(source, suffixStart, referenceEnd))
-    if (!resolves) continue
-
-    blankTextRange(blanked, suffixStart, referenceEnd + 1)
-    deactivateParentLinks(opening)
-    index = referenceEnd
+  for (const range of fallbackResourceRanges(source, preparedSource.resourceCandidates)) {
+    blankSourceRange(range.start, range.end)
   }
 
-  for (const pattern of [
-    /<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s@]+)>/gu,
-    /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<]+/gu,
-  ]) {
-    for (const match of source.matchAll(pattern)) {
-      blankTextRange(blanked, match.index, match.index + match[0].length)
-    }
+  for (const match of source.matchAll(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<]+/gu)) {
+    blankSourceRange(match.index, match.index + match[0].length)
   }
 
   return blanked.join("").split("\n")
