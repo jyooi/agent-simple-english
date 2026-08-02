@@ -282,6 +282,8 @@ const MASKED_MARKDOWN_TOKENS = new Set([
   "codeFenced",
   "codeIndented",
   "codeText",
+  "characterReference",
+  "htmlText",
   "listItemPrefix",
   "reference",
   "resource",
@@ -339,9 +341,24 @@ interface PreparedMarkdownSource {
 const markdownEvents = (source: string) =>
   postprocess(parse().document().write(preprocess()(source, "utf8", true)))
 
+const opaqueInlineProbe = (source: string): string => {
+  const characters = source.split("")
+  for (let index = 1; index < source.length; index++) {
+    if (
+      source[index] === "[" &&
+      source[index - 1] === "!" &&
+      !source.startsWith("<![CDATA[", index - 2)
+    ) {
+      characters[index] = "x"
+    }
+  }
+  return characters.join("")
+}
+
 const prepareMarkdownSource = (
   source: string,
   delimiterSource: string,
+  opaqueInlineRanges: readonly SourceRange[],
 ): PreparedMarkdownSource => {
   const characters = source.split("")
   const escaped = new Uint8Array(source.length)
@@ -351,9 +368,19 @@ const prepareMarkdownSource = (
   const resourceCandidates: ResourceCandidate[] = []
   let imageDepth = 0
   let backslashRun = 0
+  let opaqueRangeIndex = 0
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
+    while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
+      opaqueRangeIndex++
+    }
+    const opaqueRange = opaqueInlineRanges[opaqueRangeIndex]
+    if (opaqueRange !== undefined && index >= opaqueRange.start) {
+      backslashRun = 0
+      index = opaqueRange.end - 1
+      continue
+    }
     if (delimiterSource[index] !== character && "[]()".includes(character ?? "")) continue
     if (character === "\\") {
       backslashRun++
@@ -497,7 +524,11 @@ export function blankMarkdownDestinations(
   const delimiterSource = blankMarkdownCode(lines, contentStarts)
     .map((line, index) => line.slice(Math.min(contentStarts[index] ?? 0, line.length)))
     .join("\n")
-  const preparedSource = prepareMarkdownSource(source, delimiterSource)
+  const opaqueInlineRanges = tokenRanges(
+    markdownEvents(opaqueInlineProbe(delimiterSource)),
+    OPAQUE_INLINE_TOKENS,
+  )
+  const preparedSource = prepareMarkdownSource(source, delimiterSource, opaqueInlineRanges)
   const events = markdownEvents(preparedSource.value)
   const definitionMaskEnds = new Map<number, number>()
   let activeDefinitionStart: number | undefined
@@ -543,7 +574,7 @@ export function blankMarkdownDestinations(
     source,
     preparedSource.resourceCandidates,
     tokenRanges(events, INLINE_BLOCK_TOKENS),
-    tokenRanges(events, OPAQUE_INLINE_TOKENS),
+    opaqueInlineRanges,
   )) {
     blankSourceRange(range.start, range.end)
   }

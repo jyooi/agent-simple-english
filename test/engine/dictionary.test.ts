@@ -130,6 +130,16 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("ignores Markdown HTML and character reference syntax", () => {
+    expect(
+      lint(
+        "prose-file",
+        '<span class="betaword">Alphaword</span> &copy; <![CDATA[betaword]]>',
+        { dictionary: approvedWordList, rules: { semicolon: "off" } },
+      ).violations,
+    ).toEqual([])
+  })
+
   test("does not pair link delimiters across Markdown inline blocks", () => {
     const report = lint("prose-file", "[Alphaword\n# word-form](Betaword)", {
       dictionary: approvedWordList,
@@ -191,6 +201,28 @@ describe("lint prose-file: dictionary rule", () => {
       const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
 
       expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+    },
+    3_000,
+  )
+
+  test(
+    "bounds deep image parsing around opaque inline syntax",
+    () => {
+      const depth = 5_000
+      const opaqueSegments = [
+        `<http:${"[".repeat(depth)}>`,
+        `<span data-value="${"[".repeat(depth)}">`,
+      ]
+      const list = {
+        ...approvedWordList,
+        approvedWords: [...approvedWordList.approvedWords, "x"],
+      }
+      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+      for (const opaqueSegment of opaqueSegments) {
+        const text = `${"![x ".repeat(depth)}${opaqueSegment}${"](v)".repeat(depth)}`
+        expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+      }
     },
     3_000,
   )
