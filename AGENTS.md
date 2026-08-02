@@ -14,7 +14,8 @@ Parent spec lives in Linear HUF-130.
 - Pure functional core: `src/engine/` is synchronous, and `src/engine/lint.ts` orchestrates it.
   Effect stays at boundaries such as CLI IO, config loading, and schema validation and loading.
 - New rules must register their id in `src/engine/rules/registry.ts`; the config schema derives valid rule names from it, so unregistered ids are rejected in user config.
-- Three test seams only: pure engine API (~90% of suite, `test/engine/`), CLI E2E via spawned `bun src/cli/main.ts` (`test/cli/`), extension wiring via stubbed ExtensionAPI double. Never run pi itself in tests.
+- Three primary test seams cover product behavior: pure engine API (`test/engine/`), CLI E2E via spawned `bun src/cli/main.ts` (`test/cli/`), and extension wiring via a stubbed ExtensionAPI double. Never run pi itself in tests.
+- Rule-accuracy tests grow first at the pure engine seam. Each lint rule must have direct finding, clean, and boundary cases listed in `test/engine/README.md`.
 - Severity model: violations carry `hard`/`soft`; hard violations drive CLI exit code 1.
 - TDD per rule: failing engine-seam test first, then implement.
 - pi installs extension deps with `npm install --omit=dev` from the package.json next to the entry point, so runtime deps (e.g. `effect`, `wink-nlp`) must stay in `dependencies`, never `devDependencies`.
