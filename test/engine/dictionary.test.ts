@@ -208,6 +208,18 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("parses angle-bracket destinations in deeply nested images", () => {
+    const text = `${"![x ".repeat(33)}Alphaword](<Betaword(foo>)${"](v)".repeat(32)}`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  })
+
   test(
     "bounds deep image parsing when code spans contain brackets",
     () => {
@@ -387,6 +399,28 @@ describe("lint prose-file: dictionary rule", () => {
         column: 2,
       },
     ])
+  })
+
+  test("measures definition title indentation from list content", () => {
+    const report = lint("prose-file", '- [target]: /path\n "Betaword"', {
+      dictionary: approvedWordList,
+    })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 2,
+        column: 3,
+      },
+    ])
+    expect(
+      lint("prose-file", '- [target]: /path\n   "Betaword"', {
+        dictionary: approvedWordList,
+      }).violations,
+    ).toEqual([])
   })
 
   test("keeps noninterrupting ordered list markers in the paragraph", () => {

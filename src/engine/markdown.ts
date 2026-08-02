@@ -338,6 +338,33 @@ interface PreparedMarkdownSource {
   readonly resourceCandidates: readonly ResourceCandidate[]
 }
 
+const angleDestinationEnds = (source: string): Int32Array => {
+  const ends = new Int32Array(source.length).fill(-1)
+  let opening = -1
+  let backslashRun = 0
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]
+    if (character === "\\") {
+      backslashRun++
+      continue
+    }
+    const escaped = backslashRun % 2 !== 0
+    backslashRun = 0
+
+    if (character === "\n" || character === "\r") {
+      opening = -1
+    } else if (!escaped && character === "<") {
+      opening = index
+    } else if (!escaped && character === ">" && opening >= 0) {
+      ends[opening] = index + 1
+      opening = -1
+    }
+  }
+
+  return ends
+}
+
 const markdownEvents = (source: string) =>
   postprocess(parse().document().write(preprocess()(source, "utf8", true)))
 
@@ -368,12 +395,18 @@ const prepareMarkdownSource = (
   const parentheses: number[] = []
   const candidateByOpening = new Map<number, ResourceCandidate>()
   const resourceCandidates: ResourceCandidate[] = []
+  const angleEnds = angleDestinationEnds(source)
   let imageDepth = 0
   let backslashRun = 0
   let opaqueRangeIndex = 0
+  let resourceAngleEnd = -1
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
+    if (index < resourceAngleEnd) {
+      backslashRun = 0
+      continue
+    }
     while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
       opaqueRangeIndex++
     }
@@ -410,6 +443,18 @@ const prepareMarkdownSource = (
       }
     } else if (character === "(") {
       parentheses.push(index)
+      if (candidateByOpening.has(index)) {
+        let destinationStart = index + 1
+        while (
+          source[destinationStart] === " " ||
+          source[destinationStart] === "\t" ||
+          source[destinationStart] === "\n" ||
+          source[destinationStart] === "\r"
+        ) {
+          destinationStart++
+        }
+        resourceAngleEnd = angleEnds[destinationStart] ?? -1
+      }
     } else if (character === ")") {
       const opening = parentheses.pop()
       if (opening !== undefined) {
@@ -555,24 +600,18 @@ export function blankMarkdownDestinations(
   const definitionMaskEnds = new Map<number, number>()
   let activeDefinitionStart: number | undefined
   let activeDefinitionLine = 0
-  let indentedDefinitionLine = 0
+  let activeDefinitionColumn = 0
   for (const [phase, token] of events) {
     if (phase === "enter" && token.type === "definition") {
       activeDefinitionStart = token.start.offset
       activeDefinitionLine = token.start.line
-      indentedDefinitionLine = 0
-    } else if (
-      phase === "enter" &&
-      token.type === "linePrefix" &&
-      activeDefinitionStart !== undefined
-    ) {
-      indentedDefinitionLine = token.start.line
+      activeDefinitionColumn = token.start.column
     } else if (
       phase === "enter" &&
       token.type === "definitionTitle" &&
       activeDefinitionStart !== undefined &&
       token.start.line > activeDefinitionLine &&
-      indentedDefinitionLine !== token.start.line
+      token.start.column <= activeDefinitionColumn
     ) {
       definitionMaskEnds.set(activeDefinitionStart, token.start.offset)
     } else if (phase === "exit" && token.type === "definition") {
