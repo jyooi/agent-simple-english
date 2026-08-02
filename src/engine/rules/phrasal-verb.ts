@@ -10,12 +10,23 @@ interface PhrasalVerbPattern {
 
 const patternsByDictionary = new WeakMap<Dictionary, readonly PhrasalVerbPattern[]>()
 
+const normalizeWhitespace = (form: string): string => form.replace(/[\t ]+/gu, " ")
+
 const compilePatterns = (dictionary: Dictionary): readonly PhrasalVerbPattern[] => {
+  const canonicalForms: Array<{ readonly form: string; readonly pattern: RegExp }> = []
   const seenPairs = new Set<string>()
   return dictionary.entries.flatMap((entry) => {
     const suggestion = entry.suggestions[0]
     const forms = entry.unapproved.filter((form) => {
-      const pair = JSON.stringify([form, suggestion])
+      const normalized = normalizeWhitespace(form)
+      const pattern = new RegExp(`^(?:${normalized})$`, "iu")
+      const equivalent = canonicalForms.find(
+        (candidate) => candidate.pattern.test(normalized) && pattern.test(candidate.form),
+      )
+      const canonical = equivalent?.form ?? normalized
+      if (equivalent === undefined) canonicalForms.push({ form: canonical, pattern })
+
+      const pair = JSON.stringify([canonical, suggestion])
       if (seenPairs.has(pair)) return false
       seenPairs.add(pair)
       return true

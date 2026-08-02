@@ -47,7 +47,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
     }
   })
 
-  test("deduplicates repeated extension entries", () => {
+  test("deduplicates case and whitespace variants of extension entries", () => {
     const extension = {
       formatVersion: 1,
       source: {
@@ -57,12 +57,12 @@ describe("lint prose-file: phrasal-verb rule", () => {
         path: "phrasal-verbs.json",
       },
       entries: [
-        { unapproved: ["carry out"], suggestions: ["do"] },
+        { unapproved: ["Carry\tout"], suggestions: ["do"] },
         { unapproved: ["carry out"], suggestions: ["do"] },
       ],
     } as const satisfies Dictionary
 
-    const report = lint("prose-file", "Carry out the test.", {
+    const report = lint("prose-file", "CARRY   OUT the test.", {
       ruleData: { "phrasal-verb": extension },
     })
 
