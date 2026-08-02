@@ -13,12 +13,15 @@ export const BUNDLED_RULE_DATA_PATHS: Readonly<Record<RuleDataId, string>> = {
   marketing: fileURLToPath(new URL("./data/marketing.json", import.meta.url)),
 }
 
+type DictionaryLoadLabel = "STE dictionary" | "rule data"
+
 export class DictionaryLoadError extends Error {
   constructor(
     readonly path: string,
     readonly reason: string,
+    label: DictionaryLoadLabel = "STE dictionary",
   ) {
-    super(`Cannot load STE dictionary from ${path}: ${reason}`)
+    super(`Cannot load ${label} from ${path}: ${reason}`)
     this.name = "DictionaryLoadError"
   }
 }
@@ -42,8 +45,9 @@ const decodeDictionary = Schema.decode(Schema.parseJson(DictionarySchema), {
   errors: "all",
 })
 
-export const loadDictionary = (
-  path = BUNDLED_DICTIONARY_PATH,
+const loadDictionaryData = (
+  path: string,
+  label: DictionaryLoadLabel,
 ): Effect.Effect<Dictionary, DictionaryLoadError> =>
   Effect.tryPromise({
     try: () => readFile(path, "utf8"),
@@ -51,15 +55,20 @@ export const loadDictionary = (
       new DictionaryLoadError(
         path,
         `cannot read file: ${cause instanceof Error ? cause.message : String(cause)}`,
+        label,
       ),
   }).pipe(
     Effect.flatMap(decodeDictionary),
     Effect.mapError((cause) =>
       cause instanceof DictionaryLoadError
         ? cause
-        : new DictionaryLoadError(path, formatParseError(cause)),
+        : new DictionaryLoadError(path, formatParseError(cause), label),
     ),
   )
+
+export const loadDictionary = (
+  path = BUNDLED_DICTIONARY_PATH,
+): Effect.Effect<Dictionary, DictionaryLoadError> => loadDictionaryData(path, "STE dictionary")
 
 const loadExtendedRuleData = (
   id: RuleDataId,
@@ -67,8 +76,8 @@ const loadExtendedRuleData = (
   cwd: string,
 ): Effect.Effect<Dictionary, DictionaryLoadError> =>
   Effect.all([
-    loadDictionary(BUNDLED_RULE_DATA_PATHS[id]),
-    ...extensionPaths.map((path) => loadDictionary(resolve(cwd, path))),
+    loadDictionaryData(BUNDLED_RULE_DATA_PATHS[id], "rule data"),
+    ...extensionPaths.map((path) => loadDictionaryData(resolve(cwd, path), "rule data")),
   ]).pipe(
     Effect.map(([bundled, ...extensions]) => ({
       ...bundled,

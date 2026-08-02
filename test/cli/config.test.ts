@@ -151,6 +151,16 @@ describe("simple-english CLI config", () => {
     ])
   })
 
+  test("reports extension failures as rule data", async () => {
+    const cwd = await makeProject({
+      ruleDataExtensions: { marketing: ["missing-marketing.json"] },
+    })
+    const result = await runCli([], { cwd, stdin: "A short sentence." })
+
+    expect(result.stderr).toContain("Cannot load rule data")
+    expect(result.stderr).not.toContain("Cannot load STE dictionary")
+  })
+
   test("--config points at an explicit file and ignores discovered configs", async () => {
     const cwd = await makeProject({ maxSentenceWords: 5 })
     const explicit = join(await makeTempDir(), "custom.json")

@@ -108,6 +108,32 @@ describe("lint prose-file: marketing rule", () => {
     ])
   })
 
+  test("matches Unicode case variants with different lowercase forms", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "marketing.json",
+      },
+      entries: [{ unapproved: ["σ"], suggestions: ["plain"] }],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "A ς platform.", {
+      ruleData: { marketing: extension },
+    })
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({
+        ruleId: "marketing",
+        line: 1,
+        column: 3,
+        message: expect.stringContaining("ς"),
+      }),
+    ])
+  })
+
   test("preserves source columns when Unicode lowercase expands", () => {
     const extension = {
       formatVersion: 1,

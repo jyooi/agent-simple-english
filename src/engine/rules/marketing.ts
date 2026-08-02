@@ -4,7 +4,7 @@ import type { Violation } from "../types.ts"
 
 interface MarketingToken {
   readonly text: string
-  readonly lower: string
+  readonly key: string
   readonly offset: number
 }
 
@@ -25,17 +25,20 @@ interface MarketingMatch {
 
 const compiledDataByDictionary = new WeakMap<Dictionary, CompiledMarketingData>()
 
+const caseFoldKey = (text: string): string =>
+  text.toLowerCase().toUpperCase().toLowerCase()
+
 const tokenize = (line: string): readonly MarketingToken[] =>
   Array.from(line.matchAll(TOKEN_RUN_PATTERN), (match) => ({
     text: match[0],
-    lower: match[0].toLowerCase(),
+    key: caseFoldKey(match[0]),
     offset: match.index,
   }))
 
 const compileMarketingData = (dictionary: Dictionary): CompiledMarketingData => {
   const forms = dictionary.entries
     .flatMap((entry) => entry.unapproved)
-    .map((form) => ({ words: form.toLowerCase().split(/[\t ]+/u) }))
+    .map((form) => ({ words: form.split(/[\t ]+/u).map(caseFoldKey) }))
     .sort((left, right) => right.words.length - left.words.length)
   const formsByFirstWord = new Map<string, MarketingForm[]>()
   const componentWords = new Set<string>()
@@ -73,7 +76,7 @@ function matchesForm(
 ): boolean {
   return form.words.every((word, wordIndex) => {
     const token = tokens[start + wordIndex]
-    if (token === undefined || token.lower !== word) return false
+    if (token === undefined || token.key !== word) return false
     if (wordIndex === 0) return true
 
     const previous = tokens[start + wordIndex - 1]
@@ -91,7 +94,7 @@ function findCompleteForm(
   const first = tokens[start]
   if (first === undefined) return undefined
 
-  for (const form of data.formsByFirstWord.get(first.lower) ?? []) {
+  for (const form of data.formsByFirstWord.get(first.key) ?? []) {
     if (!matchesForm(line, tokens, start, form)) continue
 
     const last = tokens[start + form.words.length - 1]
@@ -110,9 +113,8 @@ function findMarketingComponent(
 ): MarketingMatch | undefined {
   let partOffset = 0
   for (const part of token.text.split(/[-‐‑]/u)) {
-    const lower = part.toLowerCase()
-    if (componentWords.has(lower)) {
-      return { found: lower, offset: token.offset + partOffset, tokenCount: 1 }
+    if (componentWords.has(caseFoldKey(part))) {
+      return { found: part.toLowerCase(), offset: token.offset + partOffset, tokenCount: 1 }
     }
     partOffset += part.length + 1
   }
