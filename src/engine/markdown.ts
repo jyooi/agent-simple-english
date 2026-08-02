@@ -350,6 +350,7 @@ interface PreparedMarkdownSource {
   readonly value: string
   readonly resourceCandidates: readonly ResourceCandidate[]
   readonly referenceCandidates: readonly ReferenceCandidate[]
+  readonly deepFallback: boolean
 }
 
 const isMarkdownWhitespace = (character: string | undefined): boolean =>
@@ -573,6 +574,70 @@ const resourceEnd = (source: string, opening: number, scanIndex: ResourceScanInd
   return source[index] === ")" ? index + 1 : -1
 }
 
+const linearResourceEnd = (source: string, opening: number): number => {
+  let index = opening + 1
+  while (isMarkdownWhitespace(source[index])) index++
+  if (source[index] === ")") return index + 1
+
+  if (source[index] === "<") {
+    index++
+    for (; index < source.length; index++) {
+      if (source[index] === "\\") {
+        index++
+        continue
+      }
+      if (source[index] === ">") {
+        index++
+        break
+      }
+      if (source[index] === "<" || source[index] === "\n" || source[index] === "\r") return -1
+    }
+    if (source[index - 1] !== ">") return -1
+  } else {
+    let depth = 0
+    for (; index < source.length; index++) {
+      const character = source[index]
+      if (character === "\\") {
+        index++
+        continue
+      }
+      if (isMarkdownWhitespace(character)) break
+      const code = source.charCodeAt(index)
+      if (code < 32 || code === 127) return -1
+      if (character === "(") {
+        depth++
+        if (depth > 32) return -1
+      } else if (character === ")") {
+        if (depth === 0) return index + 1
+        depth--
+      }
+    }
+    if (index >= source.length) return -1
+  }
+
+  if (!isMarkdownWhitespace(source[index])) return source[index] === ")" ? index + 1 : -1
+  while (isMarkdownWhitespace(source[index])) index++
+  if (source[index] === ")") return index + 1
+
+  const delimiter = source[index]
+  const closingDelimiter = delimiter === "(" ? ")" : delimiter
+  if (delimiter !== '"' && delimiter !== "'" && delimiter !== "(") return -1
+  index++
+  for (; index < source.length; index++) {
+    if (source[index] === "\\") {
+      index++
+      continue
+    }
+    if (source[index] === closingDelimiter) {
+      index++
+      break
+    }
+  }
+  if (source[index - 1] !== closingDelimiter) return -1
+  while (isMarkdownWhitespace(source[index])) index++
+  return source[index] === ")" ? index + 1 : -1
+}
+
 const markdownEvents = (source: string) =>
   postprocess(
     parse()
@@ -636,15 +701,35 @@ const prepareMarkdownSource = (
   source: string,
   delimiterSource: string,
   opaqueInlineRanges: readonly SourceRange[],
+  inlineBlocks: readonly SourceRange[],
   definedIdentifiers?: ReadonlySet<string>,
 ): PreparedMarkdownSource => {
   const brackets: BracketFrame[] = []
+  const potentialResources: Array<{ opening: number; bracketDepth: number }> = []
   let opaqueRangeIndex = 0
+  let inlineBlockIndex = 0
+  let activeInlineBlockStart = -1
   let backslashRun = 0
   let needsDeepLabelFallback = false
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
+    while ((inlineBlocks[inlineBlockIndex]?.end ?? source.length + 1) <= index) {
+      inlineBlockIndex++
+    }
+    const inlineBlock = inlineBlocks[inlineBlockIndex]
+    if (inlineBlock === undefined || index < inlineBlock.start) {
+      brackets.length = 0
+      potentialResources.length = 0
+      activeInlineBlockStart = -1
+      continue
+    }
+    if (inlineBlock.start !== activeInlineBlockStart) {
+      brackets.length = 0
+      potentialResources.length = 0
+      activeInlineBlockStart = inlineBlock.start
+    }
+
     while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
       opaqueRangeIndex++
     }
@@ -673,16 +758,34 @@ const prepareMarkdownSource = (
       const image = source[index - 1] === "!" && precedingBackslashes % 2 === 0
       brackets.push({ opening: index, image, labelDepth: brackets.length + 1, linkEpoch: 0 })
       if (brackets.length > 32) {
+        const resource = potentialResources.at(-1)
+        if (resource !== undefined) {
+          const end = linearResourceEnd(source, resource.opening)
+          if (end > index && end <= inlineBlock.end) {
+            brackets.length = resource.bracketDepth
+            potentialResources.length = 0
+            index = end - 1
+            continue
+          }
+        }
         needsDeepLabelFallback = true
         break
       }
     } else if (character === "]") {
       brackets.pop()
+      if (source[index + 1] === "(") {
+        potentialResources.push({ opening: index + 1, bracketDepth: brackets.length })
+      }
     }
   }
 
   if (!needsDeepLabelFallback) {
-    return { value: boundCdataMarkers(source), resourceCandidates: [], referenceCandidates: [] }
+    return {
+      value: boundCdataMarkers(source),
+      resourceCandidates: [],
+      referenceCandidates: [],
+      deepFallback: false,
+    }
   }
 
   const characters = boundCdataMarkers(source).split("")
@@ -694,9 +797,25 @@ const prepareMarkdownSource = (
   const referenceCandidates: ReferenceCandidate[] = []
   brackets.length = 0
   opaqueRangeIndex = 0
+  inlineBlockIndex = 0
+  activeInlineBlockStart = -1
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
+    while ((inlineBlocks[inlineBlockIndex]?.end ?? source.length + 1) <= index) {
+      inlineBlockIndex++
+    }
+    const inlineBlock = inlineBlocks[inlineBlockIndex]
+    if (inlineBlock === undefined || index < inlineBlock.start) {
+      brackets.length = 0
+      activeInlineBlockStart = -1
+      continue
+    }
+    if (inlineBlock.start !== activeInlineBlockStart) {
+      brackets.length = 0
+      activeInlineBlockStart = inlineBlock.start
+    }
+
     while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
       opaqueRangeIndex++
     }
@@ -778,12 +897,26 @@ const prepareMarkdownSource = (
           } else if (needsFallback) {
             resourceCandidates.push({ labelStart: frame.opening, sourceStart: index + 1 })
           }
+        } else if (
+          !frame.image &&
+          frame.linkEpoch === linkEpoch &&
+          source[index + 1] !== "[" &&
+          definedIdentifiers?.has(
+            normalizeIdentifierRange(source, frame.opening + 1, index) ?? "",
+          )
+        ) {
+          linkEpoch++
         }
       }
     }
   }
 
-  return { value: characters.join(""), resourceCandidates, referenceCandidates }
+  return {
+    value: characters.join(""),
+    resourceCandidates,
+    referenceCandidates,
+    deepFallback: true,
+  }
 }
 
 const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
@@ -1021,15 +1154,24 @@ export function blankMarkdownDestinations(
     blankTextRange(blanked, outputOffset(start), outputOffset(end))
   }
 
-  const opaqueRangesFor = (probe: string): readonly SourceRange[] =>
-    tokenRanges(markdownEvents(opaqueInlineProbe(probe)), OPAQUE_INLINE_TOKENS)
+  const syntaxRangesFor = (
+    probe: string,
+  ): { opaqueInlineRanges: readonly SourceRange[]; inlineBlocks: readonly SourceRange[] } => {
+    const probeEvents = markdownEvents(opaqueInlineProbe(probe))
+    return {
+      opaqueInlineRanges: tokenRanges(probeEvents, OPAQUE_INLINE_TOKENS),
+      inlineBlocks: tokenRanges(probeEvents, INLINE_BLOCK_TOKENS),
+    }
+  }
   const delimiterSourceFor = (ranges: readonly SourceRange[]): string => blankRanges(source, ranges)
 
-  let opaqueInlineRanges = opaqueRangesFor(source)
+  let syntaxRanges = syntaxRangesFor(source)
+  let opaqueInlineRanges = syntaxRanges.opaqueInlineRanges
   let preparedSource = prepareMarkdownSource(
     source,
     delimiterSourceFor(opaqueInlineRanges),
     opaqueInlineRanges,
+    syntaxRanges.inlineBlocks,
   )
   let events = markdownEvents(preparedSource.value)
   let definedIdentifiers = definitionIdentifiers(source, events)
@@ -1039,12 +1181,14 @@ export function blankMarkdownDestinations(
     tokenRanges(events, INLINE_BLOCK_TOKENS),
     definedIdentifiers,
   )
-  if (resolvedReferenceRanges.length > 0) {
-    opaqueInlineRanges = opaqueRangesFor(blankRanges(source, resolvedReferenceRanges))
+  if (resolvedReferenceRanges.length > 0 || (preparedSource.deepFallback && definedIdentifiers.size > 0)) {
+    syntaxRanges = syntaxRangesFor(blankRanges(source, resolvedReferenceRanges))
+    opaqueInlineRanges = syntaxRanges.opaqueInlineRanges
     preparedSource = prepareMarkdownSource(
       source,
       delimiterSourceFor(opaqueInlineRanges),
       opaqueInlineRanges,
+      syntaxRanges.inlineBlocks,
       definedIdentifiers,
     )
     events = markdownEvents(preparedSource.value)

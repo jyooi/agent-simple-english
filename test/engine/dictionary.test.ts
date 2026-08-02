@@ -234,6 +234,12 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test("resets deep label fallback across Markdown inline blocks", () => {
+    const text = `${"[".repeat(33)}Alphaword\n\n[target]: /Betaword`
+
+    expect(lint("prose-file", text, { dictionary: approvedWordList }).violations).toEqual([])
+  })
+
   test("does not use deep image delimiters from code spans", () => {
     const text = `\`${"![".repeat(33)}\`](Betaword)`
     const report = lint("prose-file", text, { dictionary: approvedWordList })
@@ -389,6 +395,7 @@ describe("lint prose-file: dictionary rule", () => {
   test.each([
     ["large plain prose", "Alphaword ".repeat(100_000)],
     ["many shallow images", "![Alphaword](target) ".repeat(10_000)],
+    ["brackets in a shallow resource", `[Alphaword](path${"[".repeat(33)})`],
   ])("does not build deep-resource indexes for %s", (_name, text) => {
     const OriginalInt32Array = globalThis.Int32Array
     let fullDocumentAllocations = 0
@@ -522,6 +529,23 @@ describe("lint prose-file: dictionary rule", () => {
         suggestions: [],
         line: 1,
         column: 25,
+      },
+    ])
+  })
+
+  test("invalidates deep parent links around resolved shortcut references", () => {
+    const text = `${"[Alphaword ".repeat(33)}[word-form]](Betaword)${"]".repeat(32)}\n\n[word-form]: /target`
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+    const report = lint("prose-file", text, { dictionary: approvedWordList, rules })
+
+    expect(report.violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: text.indexOf("Betaword") + 1,
       },
     ])
   })
