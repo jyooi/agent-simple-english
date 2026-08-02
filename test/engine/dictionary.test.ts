@@ -179,6 +179,22 @@ describe("lint prose-file: dictionary rule", () => {
     ])
   })
 
+  test(
+    "bounds deep image parsing when code spans contain brackets",
+    () => {
+      const depth = 10_000
+      const text = `${"![x ".repeat(depth)}\`${"[".repeat(depth)}\`${"](v)".repeat(depth)}`
+      const list = {
+        ...approvedWordList,
+        approvedWords: [...approvedWordList.approvedWords, "x"],
+      }
+      const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+      expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+    },
+    3_000,
+  )
+
   test("resolves link destinations before inline code spans", () => {
     const report = lint("prose-file", "[Alphaword](target`) Betaword `", {
       dictionary: approvedWordList,
@@ -379,6 +395,22 @@ describe("lint prose-file: dictionary rule", () => {
 
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   }, 3_000)
+
+  test(
+    "compiles a large approved-word list once across prose runs",
+    () => {
+      const approvedWords = Array.from({ length: 100_000 }, (_, index) => `synthetic-${index}`)
+      approvedWords[0] = "alphaword"
+      const text = Array.from(
+        { length: 500 },
+        (_, index) => `// ALPHAWORD.\nconst separator${index} = 0;`,
+      ).join("\n")
+      const list = { ...approvedWordList, approvedWords }
+
+      expect(lint("slash-source", text, { dictionary: list }).violations).toEqual([])
+    },
+    3_000,
+  )
 
   test("flags a word that is absent from the approved-word list", () => {
     const report = lint("prose-file", "Alphaword betaword.", { dictionary: approvedWordList })

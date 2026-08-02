@@ -1,6 +1,5 @@
 import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
-import type { DictionaryData } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
@@ -8,7 +7,11 @@ import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownCodeWithStructure, blankMarkdownDestinations } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
-import { dictionaryRule } from "./rules/dictionary.ts"
+import {
+  type CompiledDictionary,
+  compileDictionary,
+  dictionaryRule,
+} from "./rules/dictionary.ts"
 import { hedging } from "./rules/hedging.ts"
 import { marketing } from "./rules/marketing.ts"
 import { paragraphLength } from "./rules/paragraph-length.ts"
@@ -24,7 +27,7 @@ export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
-  readonly dictionary?: DictionaryData
+  readonly dictionary?: CompiledDictionary
   readonly ruleData?: RuleData
   readonly tagger?: Tagger
 }
@@ -107,8 +110,8 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
   return wholeText(text)
 }
 
-const isApprovedWordMode = (dictionary: DictionaryData | undefined): boolean =>
-  dictionary !== undefined && "approvedWords" in dictionary
+const isApprovedWordMode = (dictionary: CompiledDictionary | undefined): boolean =>
+  dictionary?.mode === "approved-words"
 
 const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedProse => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
@@ -336,13 +339,12 @@ function configuredFinding(
   return { ...finding, violation: { ...finding.violation, severity: setting } }
 }
 
-function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedViolation[] {
-  const resolved: ResolvedOptions = {
-    maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
-    dictionary: options.dictionary,
-    ruleData: options.ruleData ?? BUNDLED_RULE_DATA,
-    tagger: options.tagger,
-  }
+function evaluate(
+  kind: LintKind,
+  text: string,
+  options: LintOptions,
+  resolved: ResolvedOptions,
+): ScopedViolation[] {
   return splitProseRuns(extract(kind, text, options))
     .flatMap((run) =>
       lintExtracted(run, resolved).map((finding) => ({
@@ -367,12 +369,19 @@ function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedVio
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const current = evaluate(kind, text, options)
+  const resolved: ResolvedOptions = {
+    maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
+    dictionary:
+      options.dictionary === undefined ? undefined : compileDictionary(options.dictionary),
+    ruleData: options.ruleData ?? BUNDLED_RULE_DATA,
+    tagger: options.tagger,
+  }
+  const current = evaluate(kind, text, options, resolved)
   const findings =
     options.previousText === undefined
       ? current
       : newFindings(
-          evaluate(kind, options.previousText, options),
+          evaluate(kind, options.previousText, options, resolved),
           current,
           changedText(options.previousText, text).retained,
         )

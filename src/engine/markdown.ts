@@ -339,7 +339,10 @@ interface PreparedMarkdownSource {
 const markdownEvents = (source: string) =>
   postprocess(parse().document().write(preprocess()(source, "utf8", true)))
 
-const prepareMarkdownSource = (source: string): PreparedMarkdownSource => {
+const prepareMarkdownSource = (
+  source: string,
+  delimiterSource: string,
+): PreparedMarkdownSource => {
   const characters = source.split("")
   const escaped = new Uint8Array(source.length)
   const brackets: BracketFrame[] = []
@@ -351,6 +354,7 @@ const prepareMarkdownSource = (source: string): PreparedMarkdownSource => {
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
+    if (delimiterSource[index] !== character && "[]()".includes(character ?? "")) continue
     if (character === "\\") {
       backslashRun++
       continue
@@ -490,7 +494,10 @@ export function blankMarkdownDestinations(
     blankTextRange(blanked, outputOffset(start), outputOffset(end))
   }
 
-  const preparedSource = prepareMarkdownSource(source)
+  const delimiterSource = blankMarkdownCode(lines, contentStarts)
+    .map((line, index) => line.slice(Math.min(contentStarts[index] ?? 0, line.length)))
+    .join("\n")
+  const preparedSource = prepareMarkdownSource(source, delimiterSource)
   const events = markdownEvents(preparedSource.value)
   const definitionMaskEnds = new Map<number, number>()
   let activeDefinitionStart: number | undefined
