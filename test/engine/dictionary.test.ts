@@ -267,6 +267,27 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   })
 
+  test("resolves deep reference suffixes before inline code spans", () => {
+    const depth = 33
+    const text = `${"![x ".repeat(depth)}Alphaword][r\`] Betaword \`${"](v)".repeat(depth - 1)}\n\n[r\`]: /u`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([
+      {
+        ruleId: "dictionary-not-approved-word",
+        severity: "hard",
+        message: '"Betaword" is not in the approved-word list.',
+        suggestions: [],
+        line: 1,
+        column: text.indexOf("Betaword") + 1,
+      },
+    ])
+  })
+
   test("keeps unresolved deep image reference labels visible", () => {
     const text = `${"![x ".repeat(33)}Alphaword${"][r]".repeat(33)}`
     const list = {
@@ -285,7 +306,7 @@ describe("lint prose-file: dictionary rule", () => {
   })
 
   test("bounds valid nested full reference images", () => {
-    const depth = 5_000
+    const depth = 16_000
     const text = `${"![x ".repeat(depth)}x${"][r]".repeat(depth)}\n\n[r]: /u`
     const list = {
       ...approvedWordList,

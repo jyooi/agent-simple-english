@@ -317,7 +317,8 @@ const blankTextRange = (text: string[], start: number, end: number): void => {
 }
 
 interface ReferenceCandidate {
-  readonly imageIdentifier: string
+  readonly imageLabelStart: number
+  readonly imageLabelEnd: number
   readonly labelStart: number
   readonly sourceStart: number
   sourceEnd?: number
@@ -359,11 +360,29 @@ const normalizeIdentifier = (value: string): string =>
     .toLowerCase()
     .toUpperCase()
 
-const markdownLabelSize = (value: string): number =>
-  Array.from(value).reduce(
-    (size, character) => size + (character === "\n" || character === "\r" ? 0 : 1),
-    0,
-  )
+const MAX_MARKDOWN_LABEL_SIZE = 999
+const MAX_MARKDOWN_LABEL_SOURCE_SIZE = MAX_MARKDOWN_LABEL_SIZE * 4 + 2
+
+const normalizeIdentifierRange = (
+  source: string,
+  start: number,
+  end: number,
+): string | undefined => {
+  if (end - start > MAX_MARKDOWN_LABEL_SOURCE_SIZE) return undefined
+
+  let size = 0
+  for (let index = start; index < end; ) {
+    const codePoint = source.codePointAt(index)
+    if (codePoint === undefined) break
+    const character = String.fromCodePoint(codePoint)
+    if (character !== "\n" && character !== "\r") size++
+    if (size > MAX_MARKDOWN_LABEL_SIZE) return undefined
+    index += character.length
+  }
+
+  const identifier = normalizeIdentifier(source.slice(start, end))
+  return identifier === "" ? undefined : identifier
+}
 
 interface ResourceScanIndex {
   readonly escaped: Uint8Array
@@ -615,6 +634,7 @@ const prepareMarkdownSource = (
   source: string,
   delimiterSource: string,
   opaqueInlineRanges: readonly SourceRange[],
+  definedIdentifiers?: ReadonlySet<string>,
 ): PreparedMarkdownSource => {
   const brackets: BracketFrame[] = []
   let imageDepth = 0
@@ -707,16 +727,22 @@ const prepareMarkdownSource = (
       const frame = brackets.pop()
       if (frame?.referenceCandidate !== undefined) {
         const candidate = frame.referenceCandidate
-        const identifierSource = source.slice(frame.opening + 1, index)
         candidate.sourceEnd = index + 1
-        if (identifierSource === "") {
-          candidate.identifier = candidate.imageIdentifier
-        } else if (
-          candidate.valid &&
-          markdownLabelSize(identifierSource) <= 999 &&
-          identifierSource.trim() !== ""
-        ) {
-          candidate.identifier = normalizeIdentifier(identifierSource)
+        if (candidate.valid) {
+          candidate.identifier =
+            frame.opening + 1 === index
+              ? normalizeIdentifierRange(
+                  source,
+                  candidate.imageLabelStart,
+                  candidate.imageLabelEnd,
+                )
+              : normalizeIdentifierRange(source, frame.opening + 1, index)
+          if (
+            candidate.identifier !== undefined &&
+            definedIdentifiers?.has(candidate.identifier)
+          ) {
+            blankTextRange(characters, candidate.sourceStart, candidate.sourceEnd)
+          }
         }
       } else if (frame?.image) {
         if (frame.imageDepth > 32) {
@@ -728,7 +754,8 @@ const prepareMarkdownSource = (
             resourceCandidates.push(candidate)
           } else if (source[index + 1] === "[") {
             const candidate = {
-              imageIdentifier: normalizeIdentifier(source.slice(frame.opening + 1, index)),
+              imageLabelStart: frame.opening + 1,
+              imageLabelEnd: index,
               labelStart: frame.opening,
               sourceStart: index + 1,
               valid: true,
@@ -811,6 +838,80 @@ const rangeContaining = (
   }
   const range = ranges[low - 1]
   return range !== undefined && offset < range.end ? range : undefined
+}
+
+const definitionIdentifiers = (
+  source: string,
+  events: ReturnType<typeof markdownEvents>,
+): ReadonlySet<string> => {
+  const identifiers = new Set<string>()
+  for (const [phase, token] of events) {
+    if (phase === "enter" && token.type === "definitionLabelString") {
+      identifiers.add(normalizeIdentifier(source.slice(token.start.offset, token.end.offset)))
+    }
+  }
+  return identifiers
+}
+
+const referenceIdentifier = (
+  source: string,
+  candidate: ReferenceCandidate,
+): { identifier: string; end: number } | undefined => {
+  let backslashRun = 0
+  const contentStart = candidate.sourceStart + 1
+  const scanEnd = Math.min(source.length, contentStart + MAX_MARKDOWN_LABEL_SOURCE_SIZE + 1)
+
+  for (let index = contentStart; index < scanEnd; index++) {
+    const character = source[index]
+    if (character === "\\") {
+      backslashRun++
+      continue
+    }
+    const escaped = backslashRun % 2 !== 0
+    backslashRun = 0
+    if (escaped) continue
+    if (character === "[") return undefined
+    if (character !== "]") continue
+
+    const identifier =
+      index === contentStart
+        ? normalizeIdentifierRange(
+            source,
+            candidate.imageLabelStart,
+            candidate.imageLabelEnd,
+          )
+        : normalizeIdentifierRange(source, contentStart, index)
+    return identifier === undefined ? undefined : { identifier, end: index + 1 }
+  }
+  return undefined
+}
+
+const resolvedReferenceSyntaxRanges = (
+  source: string,
+  candidates: readonly ReferenceCandidate[],
+  inlineBlocks: readonly SourceRange[],
+  definedIdentifiers: ReadonlySet<string>,
+): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  for (const candidate of candidates) {
+    const reference = referenceIdentifier(source, candidate)
+    if (reference === undefined || !definedIdentifiers.has(reference.identifier)) continue
+    const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
+    if (
+      inlineBlock !== undefined &&
+      candidate.sourceStart >= inlineBlock.start &&
+      reference.end <= inlineBlock.end
+    ) {
+      ranges.push({ start: candidate.sourceStart, end: reference.end })
+    }
+  }
+  return ranges
+}
+
+const blankRanges = (source: string, ranges: readonly SourceRange[]): string => {
+  const characters = source.split("")
+  for (const range of ranges) blankTextRange(characters, range.start, range.end)
+  return characters.join("")
 }
 
 const fallbackReferenceRanges = (
@@ -917,15 +1018,36 @@ export function blankMarkdownDestinations(
     blankTextRange(blanked, outputOffset(start), outputOffset(end))
   }
 
-  const delimiterEvents = markdownEvents(opaqueInlineProbe(source))
-  const opaqueInlineRanges = tokenRanges(delimiterEvents, OPAQUE_INLINE_TOKENS)
-  const delimiterCharacters = source.split("")
-  for (const range of opaqueInlineRanges) {
-    blankTextRange(delimiterCharacters, range.start, range.end)
+  const opaqueRangesFor = (probe: string): readonly SourceRange[] =>
+    tokenRanges(markdownEvents(opaqueInlineProbe(probe)), OPAQUE_INLINE_TOKENS)
+  const delimiterSourceFor = (ranges: readonly SourceRange[]): string => blankRanges(source, ranges)
+
+  let opaqueInlineRanges = opaqueRangesFor(source)
+  let preparedSource = prepareMarkdownSource(
+    source,
+    delimiterSourceFor(opaqueInlineRanges),
+    opaqueInlineRanges,
+  )
+  let events = markdownEvents(preparedSource.value)
+  let definedIdentifiers = definitionIdentifiers(source, events)
+  const resolvedReferenceRanges = resolvedReferenceSyntaxRanges(
+    source,
+    preparedSource.referenceCandidates,
+    tokenRanges(events, INLINE_BLOCK_TOKENS),
+    definedIdentifiers,
+  )
+  if (resolvedReferenceRanges.length > 0) {
+    opaqueInlineRanges = opaqueRangesFor(blankRanges(source, resolvedReferenceRanges))
+    preparedSource = prepareMarkdownSource(
+      source,
+      delimiterSourceFor(opaqueInlineRanges),
+      opaqueInlineRanges,
+      definedIdentifiers,
+    )
+    events = markdownEvents(preparedSource.value)
+    definedIdentifiers = definitionIdentifiers(source, events)
   }
-  const delimiterSource = delimiterCharacters.join("")
-  const preparedSource = prepareMarkdownSource(source, delimiterSource, opaqueInlineRanges)
-  const events = markdownEvents(preparedSource.value)
+
   const contentColumns = new Int32Array(parseLines.length).fill(1)
   for (const [phase, token] of events) {
     if (
@@ -979,14 +1101,6 @@ export function blankMarkdownDestinations(
   }
 
   const inlineBlocks = tokenRanges(events, INLINE_BLOCK_TOKENS)
-  const definedIdentifiers = new Set<string>()
-  for (const [phase, token] of events) {
-    if (phase === "enter" && token.type === "definitionLabelString") {
-      definedIdentifiers.add(
-        normalizeIdentifier(source.slice(token.start.offset, token.end.offset)),
-      )
-    }
-  }
 
   for (const range of fallbackReferenceRanges(
     preparedSource.referenceCandidates,
