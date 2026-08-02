@@ -338,31 +338,62 @@ interface PreparedMarkdownSource {
   readonly resourceCandidates: readonly ResourceCandidate[]
 }
 
-const angleDestinationEnds = (source: string): Int32Array => {
-  const ends = new Int32Array(source.length).fill(-1)
-  let opening = -1
-  let backslashRun = 0
+const isMarkdownWhitespace = (character: string | undefined): boolean =>
+  character === " " || character === "\t" || character === "\n" || character === "\r"
 
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index]
-    if (character === "\\") {
-      backslashRun++
-      continue
+const resourceOpaqueRanges = (source: string, opening: number): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  let index = opening + 1
+  while (isMarkdownWhitespace(source[index])) index++
+
+  if (source[index] === "<") {
+    const start = index
+    for (index++; index < source.length; index++) {
+      if (source[index] === "\\") {
+        index++
+      } else if (source[index] === "\n" || source[index] === "\r") {
+        return ranges
+      } else if (source[index] === ">") {
+        index++
+        ranges.push({ start, end: index })
+        break
+      }
     }
-    const escaped = backslashRun % 2 !== 0
-    backslashRun = 0
-
-    if (character === "\n" || character === "\r") {
-      opening = -1
-    } else if (!escaped && character === "<") {
-      opening = index
-    } else if (!escaped && character === ">" && opening >= 0) {
-      ends[opening] = index + 1
-      opening = -1
+  } else {
+    let depth = 0
+    for (; index < source.length; index++) {
+      const character = source[index]
+      if (character === "\\") {
+        index++
+      } else if (character === "(") {
+        depth++
+      } else if (character === ")") {
+        if (depth === 0) return ranges
+        depth--
+      } else if (depth === 0 && isMarkdownWhitespace(character)) {
+        break
+      }
     }
   }
 
-  return ends
+  const separatorStart = index
+  while (isMarkdownWhitespace(source[index])) index++
+  if (index === separatorStart) return ranges
+
+  const delimiter = source[index]
+  const closing = delimiter === "(" ? ")" : delimiter
+  if (delimiter !== '"' && delimiter !== "'" && delimiter !== "(") return ranges
+
+  const start = index
+  for (index++; index < source.length; index++) {
+    if (source[index] === "\\") {
+      index++
+    } else if (source[index] === closing) {
+      ranges.push({ start, end: index + 1 })
+      return ranges
+    }
+  }
+  return ranges
 }
 
 const markdownEvents = (source: string) =>
@@ -395,16 +426,17 @@ const prepareMarkdownSource = (
   const parentheses: number[] = []
   const candidateByOpening = new Map<number, ResourceCandidate>()
   const resourceCandidates: ResourceCandidate[] = []
-  const angleEnds = angleDestinationEnds(source)
+  const resourceOpaqueEnds = new Int32Array(source.length).fill(-1)
   let imageDepth = 0
   let backslashRun = 0
   let opaqueRangeIndex = 0
-  let resourceAngleEnd = -1
 
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
-    if (index < resourceAngleEnd) {
+    const resourceOpaqueEnd = resourceOpaqueEnds[index] ?? -1
+    if (resourceOpaqueEnd >= 0) {
       backslashRun = 0
+      index = resourceOpaqueEnd - 1
       continue
     }
     while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
@@ -444,16 +476,9 @@ const prepareMarkdownSource = (
     } else if (character === "(") {
       parentheses.push(index)
       if (candidateByOpening.has(index)) {
-        let destinationStart = index + 1
-        while (
-          source[destinationStart] === " " ||
-          source[destinationStart] === "\t" ||
-          source[destinationStart] === "\n" ||
-          source[destinationStart] === "\r"
-        ) {
-          destinationStart++
+        for (const range of resourceOpaqueRanges(source, index)) {
+          resourceOpaqueEnds[range.start] = range.end
         }
-        resourceAngleEnd = angleEnds[destinationStart] ?? -1
       }
     } else if (character === ")") {
       const opening = parentheses.pop()
@@ -597,21 +622,38 @@ export function blankMarkdownDestinations(
   const delimiterSource = delimiterCharacters.join("")
   const preparedSource = prepareMarkdownSource(source, delimiterSource, opaqueInlineRanges)
   const events = markdownEvents(preparedSource.value)
+  const contentColumns = new Int32Array(parseLines.length).fill(1)
+  for (const [phase, token] of events) {
+    if (
+      phase === "enter" &&
+      (token.type === "blockQuotePrefix" ||
+        token.type === "listItemPrefix" ||
+        token.type === "listItemIndent")
+    ) {
+      const lineIndex = token.start.line - 1
+      contentColumns[lineIndex] = Math.max(
+        contentColumns[lineIndex] ?? 1,
+        token.end.column,
+      )
+    }
+  }
+
   const definitionMaskEnds = new Map<number, number>()
   let activeDefinitionStart: number | undefined
   let activeDefinitionLine = 0
-  let activeDefinitionColumn = 0
+  let activeDefinitionContentColumn = 1
   for (const [phase, token] of events) {
     if (phase === "enter" && token.type === "definition") {
       activeDefinitionStart = token.start.offset
       activeDefinitionLine = token.start.line
-      activeDefinitionColumn = token.start.column
+      activeDefinitionContentColumn = contentColumns[token.start.line - 1] ?? 1
     } else if (
       phase === "enter" &&
       token.type === "definitionTitle" &&
       activeDefinitionStart !== undefined &&
       token.start.line > activeDefinitionLine &&
-      token.start.column <= activeDefinitionColumn
+      token.start.column <=
+        Math.max(activeDefinitionContentColumn, contentColumns[token.start.line - 1] ?? 1)
     ) {
       definitionMaskEnds.set(activeDefinitionStart, token.start.offset)
     } else if (phase === "exit" && token.type === "definition") {

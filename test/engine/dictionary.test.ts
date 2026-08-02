@@ -220,6 +220,21 @@ describe("lint prose-file: dictionary rule", () => {
     expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
   })
 
+  test.each([
+    'target "Betaword(foo"',
+    "target 'Betaword(foo'",
+    String.raw`target (Betaword\)foo)`,
+  ])("parses %s titles in deeply nested images", (resource) => {
+    const text = `${"![x ".repeat(33)}Alphaword](${resource})${"](v)".repeat(32)}`
+    const list = {
+      ...approvedWordList,
+      approvedWords: [...approvedWordList.approvedWords, "x"],
+    }
+    const rules = { "sentence-length": "off", "paragraph-length": "off" } as const
+
+    expect(lint("prose-file", text, { dictionary: list, rules }).violations).toEqual([])
+  })
+
   test(
     "bounds deep image parsing when code spans contain brackets",
     () => {
@@ -381,6 +396,11 @@ describe("lint prose-file: dictionary rule", () => {
   test("requires horizontal separation before a next-line definition title", () => {
     expect(
       lint("prose-file", '[target]: /path\n "Betaword"', {
+        dictionary: approvedWordList,
+      }).violations,
+    ).toEqual([])
+    expect(
+      lint("prose-file", ' [target]: /path\n "Betaword"', {
         dictionary: approvedWordList,
       }).violations,
     ).toEqual([])
