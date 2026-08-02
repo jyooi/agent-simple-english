@@ -24,5 +24,10 @@ export const DictionarySchema = Schema.Struct({
   entries: Schema.Array(DictionaryEntrySchema),
 })
 
+export const decodeDictionaryData = Schema.decodeUnknownSync(DictionarySchema, {
+  onExcessProperty: "error",
+  errors: "all",
+})
+
 export type Dictionary = typeof DictionarySchema.Type
 export type DictionaryEntry = typeof DictionaryEntrySchema.Type

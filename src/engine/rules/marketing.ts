@@ -17,7 +17,7 @@ function findMarketingLanguage(
   }
 
   let offset = 0
-  for (const part of normalized.split("-")) {
+  for (const part of normalized.split(/[-‐‑]/u)) {
     if (marketingWords.has(part)) {
       return { found: part, offset }
     }

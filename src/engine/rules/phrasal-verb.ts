@@ -10,7 +10,7 @@ const compilePatterns = (dictionary: Dictionary) =>
       `(?<!${TOKEN_CHARACTER_PATTERN})(?:${entry.unapproved
         .map((form) => form.replace(/[\t ]+/g, "\\s+"))
         .join("|")})(?!${TOKEN_CHARACTER_PATTERN})`,
-      "gi",
+      "giu",
     ),
   }))
 

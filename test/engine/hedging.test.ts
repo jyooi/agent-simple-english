@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import type { Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const idsFor = (text: string) => lint("prose-file", text).violations.map((v) => v.ruleId)
@@ -40,6 +41,25 @@ describe("lint prose-file: hedging rule", () => {
     "Do not use as mentioned’s wording.",
   ])("does not match within a token in %s", (text) => {
     expect(idsFor(text)).not.toContain("hedging")
+  })
+
+  test("returns no violations for an empty dictionary", () => {
+    const emptyDictionary = {
+      formatVersion: 1,
+      source: {
+        name: "empty test dictionary",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "hedging.json",
+      },
+      entries: [],
+    } as const satisfies Dictionary
+
+    const report = lint("prose-file", "Plain text.", {
+      ruleData: { hedging: emptyDictionary },
+    })
+
+    expect(report.violations).toEqual([])
   })
 
   test("does not flag plain prose that mentions notes", () => {
