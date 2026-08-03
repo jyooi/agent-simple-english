@@ -31,10 +31,10 @@ interface SourceRange {
   readonly end: number
 }
 
-const parserInput = (source: string): { readonly source: string; readonly offset: number } =>
-  source.charCodeAt(0) === 0xfeff
-    ? { source: source.slice(1), offset: 1 }
-    : { source, offset: 0 }
+const parserInput = (source: string): { readonly source: string; readonly offset: number } => ({
+  source,
+  offset: source.charCodeAt(0) === 0xfeff ? 1 : 0,
+})
 
 const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
   events: Events,

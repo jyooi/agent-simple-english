@@ -162,6 +162,12 @@ describe("Markdown parser masking", () => {
     expect(blankMarkdownCode(["\ufeff`Betaword`"])).toEqual([`\ufeff${" ".repeat(10)}`])
   })
 
+  test("keeps parser offsets aligned after consecutive byte order marks", () => {
+    expect(blankMarkdownCode(["\ufeff\ufeff`Betaword`"])).toEqual([
+      `\ufeff\ufeff${" ".repeat(10)}`,
+    ])
+  })
+
   test("masks self-closing syntax in a parser-classified raw-content block", () => {
     const input = '<script data=">"/>\nBetaword'
 
