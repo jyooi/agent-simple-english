@@ -1,162 +1,14 @@
+import { parser as htmlParser } from "@lezer/html"
+import { parser as commonMarkParser } from "@lezer/markdown"
 import { parse, postprocess, preprocess } from "micromark"
+import { normalizeIdentifier } from "micromark-util-normalize-identifier"
+import { markdownSyntaxExtension } from "./markdown-syntax.ts"
 
-const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
-const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
-const INDENTED = /^(?: {4,}|\t)/
-const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/
-const LIST_MARKER = /^( {0,3})(?:[-+*]|\d{1,9}[.)])(?:([ \t]{1,4})(?![ \t])|[ \t])/
-
-const blankLine = (line: string): string => " ".repeat(line.length)
-
-interface Container {
-  readonly quoteDepth: number
-  readonly listIndent: number
-}
-
-interface MarkdownContent {
-  readonly text: string
-  readonly start: number
-  readonly container: Container
-}
-
-const consumeBlockquotes = (
-  line: string,
-  initial: number,
-  requiredDepth?: number,
-): { index: number; depth: number } => {
-  let index = initial
-  let depth = 0
-  while (index < line.length && (requiredDepth === undefined || depth < requiredDepth)) {
-    let marker = index
-    let spaces = 0
-    while (spaces < 3 && line[marker] === " ") {
-      marker++
-      spaces++
-    }
-    if (line[marker] !== ">") break
-    depth++
-    index = marker + 1
-    if (line[index] === " " || line[index] === "\t") index++
-  }
-  return { index, depth }
-}
-
-const markdownContent = (line: string, contentStart: number): MarkdownContent => {
-  const base = Math.min(contentStart, line.length)
-  const blockquotes = consumeBlockquotes(line, base)
-  let index = blockquotes.index
-  let listIndent = 0
-
-  while (index < line.length) {
-    const match = line.slice(index).match(LIST_MARKER)
-    if (match === null) break
-    const width = match[0].length
-    listIndent += width
-    index += width
-  }
-
-  return {
-    text: line.slice(index),
-    start: index,
-    container: { quoteDepth: blockquotes.depth, listIndent },
-  }
-}
-
-const contentWithin = (
-  line: string,
-  contentStart: number,
-  container: Container,
-): MarkdownContent | null => {
-  const base = Math.min(contentStart, line.length)
-  if (container.quoteDepth === 0 && container.listIndent === 0) {
-    return { text: line.slice(base), start: base, container }
-  }
-
-  const blockquotes = consumeBlockquotes(line, base, container.quoteDepth)
-  if (blockquotes.depth !== container.quoteDepth) return null
-
-  let index = blockquotes.index
-  if (line.slice(index).trim() === "") {
-    return { text: "", start: line.length, container }
-  }
-  let remaining = container.listIndent
-  while (remaining > 0 && (line[index] === " " || line[index] === "\t")) {
-    index++
-    remaining--
-  }
-  if (remaining > 0) return null
-
-  return { text: line.slice(index), start: index, container }
-}
-
-const fenceLine = (line: string): string => (line.endsWith("\r") ? line.slice(0, -1) : line)
-
-const openingFence = (line: string): string | null => {
-  const match = fenceLine(line).match(OPENING_FENCE)
-  if (match === null) return null
-  const marker = match[1] as string
-  const info = match[2] as string
-  return marker[0] === "`" && info.includes("`") ? null : marker
-}
-
-const closesFence = (line: string, fence: string): boolean => {
-  const marker = fenceLine(line).match(CLOSING_FENCE)?.[1]
-  return marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length
-}
-
-interface BacktickRun {
-  readonly start: number
-  readonly end: number
-  readonly length: number
-  readonly escaped: boolean
-}
-
-const blankInlineCodeSpans = (text: string): string => {
-  const output = text.split("")
-  const runs: BacktickRun[] = []
-
-  for (let i = 0; i < text.length; ) {
-    if (text[i] !== "`") {
-      i++
-      continue
-    }
-    let end = i + 1
-    while (text[end] === "`") end++
-    let backslashes = 0
-    for (let j = i - 1; j >= 0 && text[j] === "\\"; j--) backslashes++
-    runs.push({ start: i, end, length: end - i, escaped: backslashes % 2 !== 0 })
-    i = end
-  }
-
-  const nextMatchingRun = new Array<number | undefined>(runs.length)
-  const previousByLength = new Map<number, number>()
-  for (let i = 0; i < runs.length; i++) {
-    const run = runs[i] as BacktickRun
-    const previous = previousByLength.get(run.length)
-    if (previous !== undefined) nextMatchingRun[previous] = i
-    previousByLength.set(run.length, i)
-  }
-
-  for (let i = 0; i < runs.length; ) {
-    const opener = runs[i] as BacktickRun
-    const closerIndex = nextMatchingRun[i]
-    if (opener.escaped || closerIndex === undefined) {
-      i++
-      continue
-    }
-    const closer = runs[closerIndex] as BacktickRun
-    for (let j = opener.start; j < closer.end; j++) {
-      if (output[j] !== "\n") output[j] = " "
-    }
-    i = closerIndex + 1
-  }
-
-  return output.join("")
-}
-
-interface FenceState {
-  readonly marker: string
-  readonly container: Container
+interface MarkdownAnalysis {
+  readonly lines: string[]
+  readonly structuralLines: string[]
+  readonly dictionaryLines: string[]
+  readonly structuralBlanks: boolean[]
 }
 
 export interface MarkdownCodeResult {
@@ -165,180 +17,16 @@ export interface MarkdownCodeResult {
   readonly structuralBlanks: boolean[]
 }
 
-export function blankMarkdownCodeWithStructure(
-  inputLines: readonly string[],
-  contentStarts: readonly number[] = inputLines.map(() => 0),
-): MarkdownCodeResult {
-  let fence: FenceState | null = null
-  let activeList: Container | null = null
-  let paragraphCanContinue = false
-  let inIndented = false
-  const inlineEligible: boolean[] = []
-  const structuralLines: string[] = []
-  const structuralBlanks: boolean[] = []
-  const lines = inputLines.map((line, index) => {
-    const contentStart = contentStarts[index] ?? 0
-
-    if (fence !== null) {
-      const contained = contentWithin(line, contentStart, fence.container)
-      if (contained !== null) {
-        if (closesFence(contained.text, fence.marker)) {
-          fence = null
-          paragraphCanContinue = false
-          inIndented = false
-        }
-        inlineEligible.push(false)
-        structuralLines.push(blankLine(line))
-        structuralBlanks.push(true)
-        return blankLine(line)
-      }
-      fence = null
-      paragraphCanContinue = false
-      inIndented = false
-    }
-
-    let content = markdownContent(line, contentStart)
-    if (content.container.listIndent > 0) {
-      activeList = content.container
-    } else if (content.text.trim() !== "" && activeList !== null) {
-      const continued = contentWithin(line, contentStart, activeList)
-      if (continued === null) {
-        activeList = null
-      } else {
-        content = continued
-      }
-    }
-
-    const visibleLine = `${" ".repeat(content.start)}${line.slice(content.start)}`
-    const marker = openingFence(content.text)
-    if (marker !== null) {
-      fence = { marker, container: content.container }
-      paragraphCanContinue = false
-      inIndented = false
-      inlineEligible.push(false)
-      structuralLines.push(blankLine(line))
-      structuralBlanks.push(true)
-      return blankLine(line)
-    }
-    if (content.text.trim() === "") {
-      paragraphCanContinue = false
-      inIndented = false
-      inlineEligible.push(false)
-      structuralLines.push(line)
-      structuralBlanks.push(true)
-      return visibleLine
-    }
-    if (INDENTED.test(content.text) && (!paragraphCanContinue || inIndented)) {
-      paragraphCanContinue = false
-      inIndented = true
-      inlineEligible.push(false)
-      structuralLines.push(blankLine(line))
-      structuralBlanks.push(true)
-      return blankLine(line)
-    }
-    paragraphCanContinue = !ATX_HEADING.test(content.text)
-    inIndented = false
-    inlineEligible.push(true)
-    structuralLines.push(line)
-    structuralBlanks.push(false)
-    return visibleLine
-  })
-
-  const blankEligibleInlineCode = (target: string[]) => {
-    let start = 0
-    while (start < target.length) {
-      if (!inlineEligible[start]) {
-        start++
-        continue
-      }
-      let end = start + 1
-      while (end < target.length && inlineEligible[end]) end++
-      const blanked = blankInlineCodeSpans(target.slice(start, end).join("\n")).split("\n")
-      for (let i = start; i < end; i++) target[i] = blanked[i - start] as string
-      start = end
-    }
-  }
-
-  blankEligibleInlineCode(lines)
-  blankEligibleInlineCode(structuralLines)
-
-  return { lines, structuralLines, structuralBlanks }
-}
-
-export function blankMarkdownCode(
-  inputLines: readonly string[],
-  contentStarts: readonly number[] = inputLines.map(() => 0),
-): string[] {
-  return blankMarkdownCodeWithStructure(inputLines, contentStarts).lines
-}
-
-export function maskMarkdownCode(text: string): string {
-  return blankMarkdownCode(text.split("\n")).join("\n")
-}
-
-const MASKED_MARKDOWN_TOKENS = new Set([
-  "autolink",
-  "blockQuotePrefix",
-  "codeFenced",
-  "codeIndented",
-  "codeText",
-  "characterReference",
-  "htmlText",
-  "listItemPrefix",
-  "reference",
-  "resource",
-])
-
-const lineStartOffsets = (lines: readonly string[]): readonly number[] => {
-  const offsets: number[] = []
-  let offset = 0
-  for (let index = 0; index < lines.length; index++) {
-    offsets.push(offset)
-    offset += (lines[index]?.length ?? 0) + (index < lines.length - 1 ? 1 : 0)
-  }
-  return offsets
-}
-
-const lineIndexAtOffset = (offsets: readonly number[], offset: number): number => {
-  let low = 0
-  let high = offsets.length
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) <= offset) low = middle + 1
-    else high = middle
-  }
-  return Math.max(0, low - 1)
-}
-
-const blankTextRange = (text: string[], start: number, end: number): void => {
-  for (let index = start; index < end; index++) {
-    if (text[index] !== "\n") text[index] = " "
-  }
-}
-
-interface ReferenceCandidate {
-  readonly image: boolean
-  readonly imageLabelStart: number
-  readonly imageLabelEnd: number
-  readonly labelStart: number
-  readonly sourceStart: number
-  sourceEnd?: number
-  identifier?: string
-  valid: boolean
-}
-
-interface BracketFrame {
-  readonly opening: number
-  readonly image: boolean
-  readonly labelDepth: number
-  readonly linkEpoch: number
-  readonly referenceCandidate?: ReferenceCandidate
-}
-
-interface ResourceCandidate {
-  readonly labelStart: number
-  readonly sourceStart: number
-  sourceEnd?: number
+interface AnalysisState {
+  readonly source: string
+  readonly parseLines: readonly string[]
+  readonly sourceLineStarts: readonly number[]
+  readonly lineAtOffset: Int32Array
+  readonly proseMask: Uint8Array
+  readonly structuralMask: Uint8Array
+  readonly dictionaryMask: Uint8Array
+  readonly containerMask: Uint8Array
+  readonly structuralBlanks: boolean[]
 }
 
 interface SourceRange {
@@ -346,971 +34,460 @@ interface SourceRange {
   readonly end: number
 }
 
-interface PreparedMarkdownSource {
-  readonly value: string
-  readonly resourceCandidates: readonly ResourceCandidate[]
-  readonly referenceCandidates: readonly ReferenceCandidate[]
-  readonly deepFallback: boolean
-}
+const parserInput = (source: string): { readonly source: string; readonly offset: number } => ({
+  source,
+  offset: source.charCodeAt(0) === 0xfeff ? 1 : 0,
+})
 
-const isMarkdownWhitespace = (character: string | undefined): boolean =>
-  character === " " || character === "\t" || character === "\n" || character === "\r"
-
-const normalizeIdentifier = (value: string): string =>
-  value
-    .replace(/[\t\n\r ]+/g, " ")
-    .replace(/^ | $/g, "")
-    .toLowerCase()
-    .toUpperCase()
-
-const MAX_MARKDOWN_LABEL_SIZE = 999
-const MAX_MARKDOWN_LABEL_SOURCE_SIZE = MAX_MARKDOWN_LABEL_SIZE * 4 + 2
-
-const normalizeIdentifierRange = (
-  source: string,
-  start: number,
-  end: number,
-): string | undefined => {
-  if (end - start > MAX_MARKDOWN_LABEL_SOURCE_SIZE) return undefined
-
-  let size = 0
-  for (let index = start; index < end; ) {
-    const codePoint = source.codePointAt(index)
-    if (codePoint === undefined) break
-    const character = String.fromCodePoint(codePoint)
-    if (character !== "\n" && character !== "\r") size++
-    if (size > MAX_MARKDOWN_LABEL_SIZE) return undefined
-    index += character.length
-  }
-
-  const identifier = normalizeIdentifier(source.slice(start, end))
-  return identifier === "" ? undefined : identifier
-}
-
-interface ResourceScanIndex {
-  readonly escaped: Uint8Array
-  readonly nextNonWhitespace: Int32Array
-  readonly nextWhitespace: Int32Array
-  readonly nextLineEnding: Int32Array
-  readonly nextGreater: Int32Array
-  readonly nextLess: Int32Array
-  readonly nextDoubleQuote: Int32Array
-  readonly nextSingleQuote: Int32Array
-  readonly nextClosingParenthesis: Int32Array
-  readonly nextAsciiControl: Int32Array
-  readonly depthBefore: Int32Array
-  readonly boundariesByDepth: ReadonlyMap<number, readonly number[]>
-  readonly openingsByDepth: ReadonlyMap<number, readonly number[]>
-  readonly boundaryCursors: Map<number, number>
-  readonly openingCursors: Map<number, number>
-}
-
-const escapedCharacters = (source: string): Uint8Array => {
-  const escaped = new Uint8Array(source.length)
-  let backslashRun = 0
-  for (let index = 0; index < source.length; index++) {
-    if (source[index] === "\\") {
-      backslashRun++
-      continue
-    }
-    if (backslashRun % 2 !== 0) escaped[index] = 1
-    backslashRun = 0
-  }
-  return escaped
-}
-
-const resourceScanIndex = (source: string): ResourceScanIndex => {
-  const escaped = escapedCharacters(source)
-  const nextNonWhitespace = new Int32Array(source.length + 1).fill(source.length)
-  const nextWhitespace = new Int32Array(source.length + 1).fill(-1)
-  const nextLineEnding = new Int32Array(source.length + 1).fill(-1)
-  const nextGreater = new Int32Array(source.length + 1).fill(-1)
-  const nextLess = new Int32Array(source.length + 1).fill(-1)
-  const nextDoubleQuote = new Int32Array(source.length + 1).fill(-1)
-  const nextSingleQuote = new Int32Array(source.length + 1).fill(-1)
-  const nextClosingParenthesis = new Int32Array(source.length + 1).fill(-1)
-  const nextAsciiControl = new Int32Array(source.length + 1).fill(-1)
-  let nonWhitespace = source.length
-  let whitespace = -1
-  let lineEnding = -1
-  let greater = -1
-  let less = -1
-  let doubleQuote = -1
-  let singleQuote = -1
-  let closingParenthesis = -1
-  let asciiControl = -1
-
-  for (let index = source.length - 1; index >= 0; index--) {
-    const character = source[index]
-    const code = source.charCodeAt(index)
-    if (isMarkdownWhitespace(character)) whitespace = index
-    else nonWhitespace = index
-    if (character === "\n" || character === "\r") lineEnding = index
-    if ((code < 32 || code === 127) && !isMarkdownWhitespace(character)) asciiControl = index
-    if (escaped[index] === 0) {
-      if (character === ">") greater = index
-      if (character === "<") less = index
-      if (character === '"') doubleQuote = index
-      if (character === "'") singleQuote = index
-      if (character === ")") closingParenthesis = index
-    }
-    nextNonWhitespace[index] = nonWhitespace
-    nextWhitespace[index] = whitespace
-    nextLineEnding[index] = lineEnding
-    nextGreater[index] = greater
-    nextLess[index] = less
-    nextDoubleQuote[index] = doubleQuote
-    nextSingleQuote[index] = singleQuote
-    nextClosingParenthesis[index] = closingParenthesis
-    nextAsciiControl[index] = asciiControl
-  }
-
-  const depthBefore = new Int32Array(source.length)
-  const boundariesByDepth = new Map<number, number[]>()
-  const openingsByDepth = new Map<number, number[]>()
-  let depth = 0
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index]
-    depthBefore[index] = depth
-    if (isMarkdownWhitespace(character) || (character === ")" && escaped[index] === 0)) {
-      const boundaries = boundariesByDepth.get(depth) ?? []
-      boundaries.push(index)
-      boundariesByDepth.set(depth, boundaries)
-    }
-    if (escaped[index] !== 0) continue
-    if (character === "(") {
-      const openings = openingsByDepth.get(depth) ?? []
-      openings.push(index)
-      openingsByDepth.set(depth, openings)
-      depth++
-    } else if (character === ")") {
-      depth--
-    }
-  }
-
-  return {
-    escaped,
-    nextNonWhitespace,
-    nextWhitespace,
-    nextLineEnding,
-    nextGreater,
-    nextLess,
-    nextDoubleQuote,
-    nextSingleQuote,
-    nextClosingParenthesis,
-    nextAsciiControl,
-    depthBefore,
-    boundariesByDepth,
-    openingsByDepth,
-    boundaryCursors: new Map(),
-    openingCursors: new Map(),
-  }
-}
-
-const nextResourceBoundary = (index: ResourceScanIndex, start: number): number => {
-  const depth = index.depthBefore[start] ?? 0
-  const boundaries = index.boundariesByDepth.get(depth) ?? []
-  let cursor = index.boundaryCursors.get(depth) ?? 0
-  while ((boundaries[cursor] ?? Number.POSITIVE_INFINITY) < start) cursor++
-  index.boundaryCursors.set(depth, cursor)
-  return boundaries[cursor] ?? -1
-}
-
-const nextResourceOpening = (index: ResourceScanIndex, depth: number, start: number): number => {
-  const openings = index.openingsByDepth.get(depth) ?? []
-  let cursor = index.openingCursors.get(depth) ?? 0
-  while ((openings[cursor] ?? Number.POSITIVE_INFINITY) < start) cursor++
-  index.openingCursors.set(depth, cursor)
-  return openings[cursor] ?? -1
-}
-
-const resourceEnd = (source: string, opening: number, scanIndex: ResourceScanIndex): number => {
-  let index = scanIndex.nextNonWhitespace[opening + 1] ?? source.length
-  if (source[index] === ")") return index + 1
-
-  if (source[index] === "<") {
-    const end = scanIndex.nextGreater[index + 1] ?? -1
-    const less = scanIndex.nextLess[index + 1] ?? -1
-    const lineEnding = scanIndex.nextLineEnding[index + 1] ?? -1
-    if (end < 0 || (less >= 0 && less < end) || (lineEnding >= 0 && lineEnding < end)) {
-      return -1
-    }
-    index = end + 1
-  } else {
-    const destinationStart = index
-    const destinationDepth = scanIndex.depthBefore[destinationStart] ?? 0
-    index = nextResourceBoundary(scanIndex, destinationStart)
-    if (index < 0) return -1
-    const whitespace = scanIndex.nextWhitespace[destinationStart] ?? -1
-    const asciiControl = scanIndex.nextAsciiControl[destinationStart] ?? -1
-    const excessiveOpening = nextResourceOpening(scanIndex, destinationDepth + 32, destinationStart)
-    if (
-      (whitespace >= 0 && whitespace < index) ||
-      (asciiControl >= 0 && asciiControl < index) ||
-      (excessiveOpening >= 0 && excessiveOpening < index)
-    ) {
-      return -1
-    }
-  }
-
-  if (!isMarkdownWhitespace(source[index])) return source[index] === ")" ? index + 1 : -1
-
-  index = scanIndex.nextNonWhitespace[index] ?? source.length
-  const delimiter = source[index]
-  if (delimiter === ")") return index + 1
-  const closing =
-    delimiter === '"'
-      ? scanIndex.nextDoubleQuote[index + 1]
-      : delimiter === "'"
-        ? scanIndex.nextSingleQuote[index + 1]
-        : delimiter === "("
-          ? scanIndex.nextClosingParenthesis[index + 1]
-          : -1
-  if (closing === undefined || closing < 0) return -1
-  index = closing + 1
-  if (isMarkdownWhitespace(source[index])) {
-    index = scanIndex.nextNonWhitespace[index] ?? source.length
-  }
-  return source[index] === ")" ? index + 1 : -1
-}
-
-const linearResourceEnd = (source: string, opening: number): number => {
-  let index = opening + 1
-  while (isMarkdownWhitespace(source[index])) index++
-  if (source[index] === ")") return index + 1
-
-  if (source[index] === "<") {
-    index++
-    for (; index < source.length; index++) {
-      if (source[index] === "\\") {
-        index++
-        continue
-      }
-      if (source[index] === ">") {
-        index++
-        break
-      }
-      if (source[index] === "<" || source[index] === "\n" || source[index] === "\r") return -1
-    }
-    if (source[index - 1] !== ">") return -1
-  } else {
-    let depth = 0
-    for (; index < source.length; index++) {
-      const character = source[index]
-      if (character === "\\") {
-        index++
-        continue
-      }
-      if (isMarkdownWhitespace(character)) break
-      const code = source.charCodeAt(index)
-      if (code < 32 || code === 127) return -1
-      if (character === "(") {
-        depth++
-        if (depth > 32) return -1
-      } else if (character === ")") {
-        if (depth === 0) return index + 1
-        depth--
-      }
-    }
-    if (index >= source.length) return -1
-  }
-
-  if (!isMarkdownWhitespace(source[index])) return source[index] === ")" ? index + 1 : -1
-  while (isMarkdownWhitespace(source[index])) index++
-  if (source[index] === ")") return index + 1
-
-  const delimiter = source[index]
-  const closingDelimiter = delimiter === "(" ? ")" : delimiter
-  if (delimiter !== '"' && delimiter !== "'" && delimiter !== "(") return -1
-  index++
-  for (; index < source.length; index++) {
-    if (source[index] === "\\") {
-      index++
-      continue
-    }
-    if (source[index] === closingDelimiter) {
-      index++
-      break
-    }
-  }
-  if (source[index - 1] !== closingDelimiter) return -1
-  while (isMarkdownWhitespace(source[index])) index++
-  return source[index] === ")" ? index + 1 : -1
-}
-
-const markdownEvents = (source: string) =>
-  postprocess(
-    parse()
-      .document()
-      .write(preprocess()(source, "utf8", true)),
-  )
-
-const markdownTextEvents = (source: string) =>
-  postprocess(
-    parse()
-      .text()
-      .write(preprocess()(source, "utf8", true)),
-  )
-
-const boundCdataMarkers = (source: string): string => {
-  if (!source.includes("<![CDATA[")) return source
-
-  const characters = source.split("")
-  let protectedEnd = -1
-
-  for (let index = 0; index < source.length; index++) {
-    if (!source.startsWith("<![CDATA[", index)) continue
-    if (index <= protectedEnd) {
-      characters[index] = " "
-      continue
-    }
-    const end = source.indexOf("]]>", index + 9)
-    protectedEnd = end < 0 ? source.length : end + 2
-  }
-
-  return characters.join("")
-}
-
-const opaqueInlineProbe = (source: string): string => {
-  const boundedSource = boundCdataMarkers(source)
-  const characters = boundedSource.split("")
-  const nextGreater = new Int32Array(boundedSource.length + 1).fill(-1)
-  let greater = -1
-  for (let index = boundedSource.length - 1; index >= 0; index--) {
-    if (boundedSource[index] === ">") greater = index
-    nextGreater[index] = greater
-  }
-
-  let protectedEnd = -1
-  for (let index = 0; index < boundedSource.length; index++) {
-    if (index <= protectedEnd) continue
-    if (boundedSource.startsWith("<![CDATA[", index)) {
-      const end = boundedSource.indexOf("]]>", index + 9)
-      if (end < 0) break
-      protectedEnd = end + 2
-    } else if (boundedSource[index] === "<") {
-      protectedEnd = nextGreater[index + 1] ?? -1
-      let keptOpening = false
-      let keptClosing = false
-      for (let delimiter = index + 1; delimiter < protectedEnd; delimiter++) {
-        if (boundedSource[delimiter] === "[") {
-          if (keptOpening) characters[delimiter] = "^"
-          keptOpening = true
-        } else if (boundedSource[delimiter] === "]") {
-          if (keptClosing) characters[delimiter] = "^"
-          keptClosing = true
-        }
-      }
-    } else if (boundedSource[index] === "[" || boundedSource[index] === "]") {
-      characters[index] = "^"
-    }
-  }
-  return characters.join("")
-}
-
-const prepareMarkdownSource = (
-  source: string,
-  delimiterSource: string,
-  opaqueInlineRanges: readonly SourceRange[],
-  inlineBlocks: readonly SourceRange[],
-  definedIdentifiers?: ReadonlySet<string>,
-): PreparedMarkdownSource => {
-  const brackets: BracketFrame[] = []
-  const potentialResources: Array<{ opening: number; bracketDepth: number }> = []
-  let opaqueRangeIndex = 0
-  let inlineBlockIndex = 0
-  let activeInlineBlockStart = -1
-  let backslashRun = 0
-  let needsDeepLabelFallback = false
-
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index]
-    while ((inlineBlocks[inlineBlockIndex]?.end ?? source.length + 1) <= index) {
-      inlineBlockIndex++
-    }
-    const inlineBlock = inlineBlocks[inlineBlockIndex]
-    if (inlineBlock === undefined || index < inlineBlock.start) {
-      brackets.length = 0
-      potentialResources.length = 0
-      activeInlineBlockStart = -1
-      continue
-    }
-    if (inlineBlock.start !== activeInlineBlockStart) {
-      brackets.length = 0
-      potentialResources.length = 0
-      activeInlineBlockStart = inlineBlock.start
-    }
-
-    while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
-      opaqueRangeIndex++
-    }
-    const opaqueRange = opaqueInlineRanges[opaqueRangeIndex]
-    if (opaqueRange !== undefined && index >= opaqueRange.start) {
-      index = opaqueRange.end - 1
-      backslashRun = 0
-      continue
-    }
-
-    const escaped = backslashRun % 2 !== 0
-    if (character === "\\") {
-      backslashRun++
-      continue
-    }
-    backslashRun = 0
-
-    if (delimiterSource[index] !== character && "[]()".includes(character ?? "")) continue
-    if (escaped) continue
-
-    if (character === "[") {
-      let precedingBackslashes = 0
-      for (let previous = index - 2; previous >= 0 && source[previous] === "\\"; previous--) {
-        precedingBackslashes++
-      }
-      const image = source[index - 1] === "!" && precedingBackslashes % 2 === 0
-      brackets.push({ opening: index, image, labelDepth: brackets.length + 1, linkEpoch: 0 })
-      if (brackets.length > 32) {
-        const resource = potentialResources.at(-1)
-        if (resource !== undefined) {
-          const end = linearResourceEnd(source, resource.opening)
-          if (end > index && end <= inlineBlock.end) {
-            brackets.length = resource.bracketDepth
-            potentialResources.length = 0
-            index = end - 1
-            continue
-          }
-        }
-        needsDeepLabelFallback = true
-        break
-      }
-    } else if (character === "]") {
-      brackets.pop()
-      if (source[index + 1] === "(") {
-        potentialResources.push({ opening: index + 1, bracketDepth: brackets.length })
-      }
-    }
-  }
-
-  if (!needsDeepLabelFallback) {
-    return {
-      value: boundCdataMarkers(source),
-      resourceCandidates: [],
-      referenceCandidates: [],
-      deepFallback: false,
-    }
-  }
-
-  const characters = boundCdataMarkers(source).split("")
-  const escaped = escapedCharacters(source)
-  let scanIndex: ResourceScanIndex | undefined
-  let linkEpoch = 0
-  const referenceCandidateByOpening = new Map<number, ReferenceCandidate>()
-  const resourceCandidates: ResourceCandidate[] = []
-  const referenceCandidates: ReferenceCandidate[] = []
-  brackets.length = 0
-  opaqueRangeIndex = 0
-  inlineBlockIndex = 0
-  activeInlineBlockStart = -1
-
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index]
-    while ((inlineBlocks[inlineBlockIndex]?.end ?? source.length + 1) <= index) {
-      inlineBlockIndex++
-    }
-    const inlineBlock = inlineBlocks[inlineBlockIndex]
-    if (inlineBlock === undefined || index < inlineBlock.start) {
-      brackets.length = 0
-      activeInlineBlockStart = -1
-      continue
-    }
-    if (inlineBlock.start !== activeInlineBlockStart) {
-      brackets.length = 0
-      activeInlineBlockStart = inlineBlock.start
-    }
-
-    while ((opaqueInlineRanges[opaqueRangeIndex]?.end ?? source.length + 1) <= index) {
-      opaqueRangeIndex++
-    }
-    const opaqueRange = opaqueInlineRanges[opaqueRangeIndex]
-    if (opaqueRange !== undefined && index >= opaqueRange.start) {
-      index = opaqueRange.end - 1
-      continue
-    }
-    if (delimiterSource[index] !== character && "[]()".includes(character ?? "")) continue
-    if (character === "\\" || escaped[index] !== 0) continue
-
-    if (character === "[") {
-      const parentReference = brackets.at(-1)?.referenceCandidate
-      if (parentReference !== undefined) parentReference.valid = false
-      const image = source[index - 1] === "!" && escaped[index - 1] === 0
-      brackets.push({
-        opening: index,
-        image,
-        labelDepth: brackets.length + 1,
-        linkEpoch,
-        referenceCandidate: referenceCandidateByOpening.get(index),
-      })
-    } else if (character === "]") {
-      const frame = brackets.pop()
-      if (frame?.referenceCandidate !== undefined) {
-        const candidate = frame.referenceCandidate
-        candidate.sourceEnd = index + 1
-        if (candidate.valid) {
-          candidate.identifier =
-            frame.opening + 1 === index
-              ? normalizeIdentifierRange(source, candidate.imageLabelStart, candidate.imageLabelEnd)
-              : normalizeIdentifierRange(source, frame.opening + 1, index)
-          if (candidate.identifier !== undefined && definedIdentifiers?.has(candidate.identifier)) {
-            blankTextRange(characters, candidate.sourceStart, candidate.sourceEnd)
-            if (!candidate.image) linkEpoch++
-          }
-        }
-      } else if (frame !== undefined) {
-        const needsFallback = frame.labelDepth > 32
-        if (needsFallback) {
-          characters[frame.opening] = "^"
-          characters[index] = "^"
-          if (source[index + 1] === "[") {
-            const candidate = {
-              image: frame.image,
-              imageLabelStart: frame.opening + 1,
-              imageLabelEnd: index,
-              labelStart: frame.opening,
-              sourceStart: index + 1,
-              valid: true,
-            }
-            referenceCandidateByOpening.set(index + 1, candidate)
-            referenceCandidates.push(candidate)
-          }
-        }
-
-        if (source[index + 1] === "(" && (frame.image || frame.linkEpoch === linkEpoch)) {
-          scanIndex ??= resourceScanIndex(source)
-          const end = resourceEnd(source, index + 1, scanIndex)
-          if (end >= 0) {
-            if (needsFallback) {
-              const candidate = {
-                labelStart: frame.opening,
-                sourceStart: index + 1,
-                sourceEnd: end,
-              }
-              resourceCandidates.push(candidate)
-              blankTextRange(characters, index + 1, end)
-            }
-            if (!frame.image) linkEpoch++
-            index = end - 1
-          } else if (needsFallback) {
-            resourceCandidates.push({ labelStart: frame.opening, sourceStart: index + 1 })
-          }
-        } else if (
-          !frame.image &&
-          frame.linkEpoch === linkEpoch &&
-          source[index + 1] !== "[" &&
-          definedIdentifiers?.has(normalizeIdentifierRange(source, frame.opening + 1, index) ?? "")
-        ) {
-          linkEpoch++
-        }
-      }
-    }
-  }
-
-  return {
-    value: characters.join(""),
-    resourceCandidates,
-    referenceCandidates,
-    deepFallback: true,
-  }
-}
-
-const INLINE_BLOCK_TOKENS = new Set(["paragraph", "atxHeadingText", "setextHeadingText"])
-const OPAQUE_INLINE_TOKENS = new Set(["autolink", "codeText", "htmlText"])
-const HTML_FLOW_SYNTAX_TOKENS = new Set(["characterReference", "htmlText"])
-const RAW_HTML_FLOW_START = /^ {0,3}<(?:pre|script|style|textarea)(?:[\t\n\r\f >]|$)/iu
-
-const tokenRanges = (
-  events: ReturnType<typeof markdownEvents>,
-  tokenTypes: ReadonlySet<string>,
-): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
-  for (const [phase, token] of events) {
-    if (phase === "enter" && tokenTypes.has(token.type)) {
-      ranges.push({ start: token.start.offset, end: token.end.offset })
-    }
-  }
-  return ranges
-}
-
-const htmlFlowSyntaxRanges = (
-  source: string,
-  events: ReturnType<typeof markdownEvents>,
-): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
-  for (const [phase, token] of events) {
-    if (phase !== "enter" || token.type !== "htmlFlow") continue
-    const start = token.start.offset
-    const end = token.end.offset
-    const flowSource = source.slice(start, end)
-    if (RAW_HTML_FLOW_START.test(flowSource)) {
-      ranges.push({ start, end })
-      continue
-    }
-    for (const range of tokenRanges(
-      markdownTextEvents(opaqueInlineProbe(flowSource)),
-      HTML_FLOW_SYNTAX_TOKENS,
-    )) {
-      ranges.push({ start: start + range.start, end: start + range.end })
-    }
-  }
-  return ranges
-}
-
-const rangeContaining = (
-  ranges: readonly SourceRange[],
+const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
+  events: Events,
   offset: number,
-): SourceRange | undefined => {
-  let low = 0
-  let high = ranges.length
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if ((ranges[middle]?.start ?? Number.POSITIVE_INFINITY) <= offset) low = middle + 1
-    else high = middle
+): Events => {
+  if (offset === 0) return events
+
+  const points = new Set<object>()
+  for (const [, token] of events) {
+    for (const point of [token.start, token.end]) {
+      if (points.has(point)) continue
+      points.add(point)
+      point.offset += offset
+    }
   }
-  const range = ranges[low - 1]
-  return range !== undefined && offset < range.end ? range : undefined
+  return events
 }
 
-const definitionIdentifiers = (
-  source: string,
-  events: ReturnType<typeof markdownEvents>,
-): ReadonlySet<string> => {
-  const identifiers = new Set<string>()
+const markdownEvents = (source: string) => {
+  const input = parserInput(source)
+  const events = postprocess(
+    parse({ extensions: [markdownSyntaxExtension] })
+      .document()
+      .write(preprocess()(input.source, undefined, true)),
+  )
+  return translateParserOffsets(events, input.offset)
+}
+
+type MarkdownEvents = ReturnType<typeof markdownEvents>
+type MarkdownToken = MarkdownEvents[number][1]
+
+const CODE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented"])
+const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
+const DICTIONARY_TOKENS = new Set([
+  "atxHeadingSequence",
+  "autolink",
+  "characterReference",
+  "emphasisSequence",
+  "escapeMarker",
+  "hardBreakEscape",
+  "hardBreakTrailing",
+  "htmlText",
+  "labelEnd",
+  "labelImage",
+  "labelImageMarker",
+  "labelLink",
+  "labelMarker",
+  "reference",
+  "resource",
+  "setextHeadingLine",
+  "strongSequence",
+  "thematicBreak",
+])
+const codeOnlyInlineParser = commonMarkParser.configure({ remove: ["Image", "Link"] })
+
+const HTML_SYNTAX_NODES = new Set(["Comment", "Entity", "HTMLTag", "ProcessingInstruction"])
+const HTML_FLOW_NODES = new Set([
+  "CloseTag",
+  "Comment",
+  "DoctypeDecl",
+  "EntityReference",
+  "MismatchedCloseTag",
+  "OpenTag",
+  "ProcessingInst",
+])
+const INLINE_CONTENT_TOKENS = new Set(["atxHeadingText", "paragraph", "setextHeadingText"])
+const LINK_SYNTAX_NODES = new Set(["LinkMark", "URL", "LinkTitle"])
+
+const markRange = (mask: Uint8Array, start: number, end: number): void => {
+  mask.fill(1, Math.max(0, start), Math.min(mask.length, end))
+}
+
+const createAnalysisState = (source: string, parseLines: readonly string[]): AnalysisState => {
+  const sourceLineStarts: number[] = []
+  const lineAtOffset = new Int32Array(source.length + 1)
+  let offset = 0
+
+  for (let lineIndex = 0; lineIndex < parseLines.length; lineIndex++) {
+    sourceLineStarts.push(offset)
+    const end = offset + (parseLines[lineIndex]?.length ?? 0)
+    lineAtOffset.fill(lineIndex, offset, Math.min(end + 1, lineAtOffset.length))
+    offset = end + 1
+  }
+
+  return {
+    source,
+    parseLines,
+    sourceLineStarts,
+    lineAtOffset,
+    proseMask: new Uint8Array(source.length),
+    structuralMask: new Uint8Array(source.length),
+    dictionaryMask: new Uint8Array(source.length),
+    containerMask: new Uint8Array(source.length),
+    structuralBlanks: parseLines.map((line) => line.trim() === ""),
+  }
+}
+
+const markContainerOnlyLinesAsBlank = (state: AnalysisState): void => {
+  for (let line = 0; line < state.parseLines.length; line++) {
+    const start = state.sourceLineStarts[line] ?? 0
+    const end = start + (state.parseLines[line]?.length ?? 0)
+    let hasContainer = false
+    let hasOtherContent = false
+
+    for (let offset = start; offset < end; offset++) {
+      if (state.containerMask[offset] !== 0) {
+        hasContainer = true
+      } else if (state.source[offset]?.trim() !== "") {
+        hasOtherContent = true
+        break
+      }
+    }
+
+    if (hasContainer && !hasOtherContent) state.structuralBlanks[line] = true
+  }
+}
+
+const markCode = (state: AnalysisState, token: MarkdownToken, block: boolean): void => {
+  markRange(state.proseMask, token.start.offset, token.end.offset)
+  markRange(state.structuralMask, token.start.offset, token.end.offset)
+  markRange(state.dictionaryMask, token.start.offset, token.end.offset)
+  if (!block || token.end.offset <= token.start.offset) return
+
+  const firstLine = state.lineAtOffset[Math.min(token.start.offset, state.source.length)] ?? 0
+  const lastOffset = Math.max(token.start.offset, token.end.offset - 1)
+  const lastLine = state.lineAtOffset[Math.min(lastOffset, state.source.length)] ?? firstLine
+  for (let line = firstLine; line <= lastLine; line++) state.structuralBlanks[line] = true
+}
+
+const definitionMaskEnds = (events: MarkdownEvents): ReadonlyMap<number, number> => {
+  const contentColumns = new Map<number, number>()
+  for (const [phase, token] of events) {
+    if (phase === "enter" && CONTAINER_TOKENS.has(token.type)) {
+      contentColumns.set(
+        token.start.line,
+        Math.max(contentColumns.get(token.start.line) ?? 1, token.end.column),
+      )
+    }
+  }
+
+  const ends = new Map<number, number>()
+  let definition: MarkdownToken | undefined
+  let definitionContentColumn = 1
+
+  for (const [phase, token] of events) {
+    if (phase === "enter" && token.type === "definition") {
+      definition = token
+      definitionContentColumn = contentColumns.get(token.start.line) ?? 1
+    } else if (
+      phase === "enter" &&
+      token.type === "definitionTitle" &&
+      definition !== undefined &&
+      token.start.line > definition.start.line &&
+      token.start.column <=
+        Math.max(definitionContentColumn, contentColumns.get(token.start.line) ?? 1)
+    ) {
+      ends.set(definition.start.offset, token.start.offset)
+    } else if (phase === "exit" && token.type === "definition") {
+      definition = undefined
+    }
+  }
+
+  return ends
+}
+
+const definedLabels = (state: AnalysisState, events: MarkdownEvents): ReadonlySet<string> => {
+  const labels = new Set<string>()
   for (const [phase, token] of events) {
     if (phase === "enter" && token.type === "definitionLabelString") {
-      identifiers.add(normalizeIdentifier(source.slice(token.start.offset, token.end.offset)))
+      labels.add(normalizeIdentifier(state.source.slice(token.start.offset, token.end.offset)))
     }
   }
-  return identifiers
+  return labels
 }
 
-const referenceIdentifier = (
-  source: string,
-  candidate: ReferenceCandidate,
-): { identifier: string; end: number } | undefined => {
-  let backslashRun = 0
-  const contentStart = candidate.sourceStart + 1
-  const scanEnd = Math.min(source.length, contentStart + MAX_MARKDOWN_LABEL_SOURCE_SIZE + 1)
+interface InlineElement {
+  readonly type: number
+  readonly from: number
+  readonly to: number
+  readonly children?: readonly InlineElement[]
+}
 
-  for (let index = contentStart; index < scanEnd; index++) {
-    const character = source[index]
-    if (character === "\\") {
-      backslashRun++
-      continue
+const inlineElementName = (element: InlineElement): string =>
+  commonMarkParser.nodeSet.types[element.type]?.name ?? ""
+
+const markInlineSyntax = (
+  state: AnalysisState,
+  events: MarkdownEvents,
+  includeDictionary: boolean,
+): void => {
+  const definitions = includeDictionary ? definedLabels(state, events) : new Set<string>()
+
+  for (const [phase, token] of events) {
+    if (phase !== "enter" || !INLINE_CONTENT_TOKENS.has(token.type)) continue
+
+    const inlineSource = state.source.slice(token.start.offset, token.end.offset)
+    const parser =
+      inlineSource.includes(")") || (includeDictionary && definitions.size > 0)
+        ? commonMarkParser
+        : codeOnlyInlineParser
+    const elements = parser.parseInline(
+      inlineSource,
+      token.start.offset,
+    ) as readonly InlineElement[]
+    const pending = [...elements]
+
+    while (pending.length > 0) {
+      const element = pending.pop()
+      if (element === undefined) continue
+      if (element.children !== undefined) pending.push(...element.children)
+
+      const name = inlineElementName(element)
+      if (name === "InlineCode") {
+        markRange(state.proseMask, element.from, element.to)
+        markRange(state.structuralMask, element.from, element.to)
+        markRange(state.dictionaryMask, element.from, element.to)
+        continue
+      }
+      if (!includeDictionary || (name !== "Link" && name !== "Image")) continue
+
+      const children = element.children ?? []
+      let openingEnd: number | undefined
+      let closingStart: number | undefined
+      let reference: InlineElement | undefined
+      let resource = false
+
+      for (const child of children) {
+        const childName = inlineElementName(child)
+        if (childName === "LinkMark") {
+          const syntax = state.source.slice(child.from, child.to)
+          if (openingEnd === undefined) openingEnd = child.to
+          else if (closingStart === undefined) closingStart = child.from
+          if (syntax === "(") resource = true
+        } else if (childName === "LinkLabel") {
+          reference = child
+        }
+      }
+
+      if (!resource && definitions.size === 0) continue
+      if (
+        !resource &&
+        reference === undefined &&
+        (openingEnd === undefined || closingStart === undefined || closingStart - openingEnd > 999)
+      ) {
+        continue
+      }
+
+      const primary =
+        openingEnd === undefined || closingStart === undefined
+          ? ""
+          : state.source.slice(openingEnd, closingStart)
+      const referenceLabel =
+        reference === undefined
+          ? primary
+          : state.source.slice(reference.from + 1, reference.to - 1) || primary
+      if (!resource && !definitions.has(normalizeIdentifier(referenceLabel))) continue
+
+      for (const child of children) {
+        const childName = inlineElementName(child)
+        if (LINK_SYNTAX_NODES.has(childName) || childName === "LinkLabel") {
+          markRange(state.dictionaryMask, child.from, child.to)
+        }
+      }
     }
-    const escaped = backslashRun % 2 !== 0
-    backslashRun = 0
-    if (escaped) continue
-    if (character === "[") return undefined
-    if (character !== "]") continue
-
-    const identifier =
-      index === contentStart
-        ? normalizeIdentifierRange(source, candidate.imageLabelStart, candidate.imageLabelEnd)
-        : normalizeIdentifierRange(source, contentStart, index)
-    return identifier === undefined ? undefined : { identifier, end: index + 1 }
   }
-  return undefined
 }
 
-const resolvedReferenceSyntaxRanges = (
-  source: string,
-  candidates: readonly ReferenceCandidate[],
-  inlineBlocks: readonly SourceRange[],
-  definedIdentifiers: ReadonlySet<string>,
-): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
-  for (const candidate of candidates) {
-    const reference = referenceIdentifier(source, candidate)
-    if (reference === undefined || !definedIdentifiers.has(reference.identifier)) continue
-    const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
-    if (
-      inlineBlock !== undefined &&
-      candidate.sourceStart >= inlineBlock.start &&
-      reference.end <= inlineBlock.end
-    ) {
-      ranges.push({ start: candidate.sourceStart, end: reference.end })
-    }
-  }
-  return ranges
-}
+const markHtmlFlows = (state: AnalysisState, htmlFlows: readonly SourceRange[]): void => {
+  for (const flow of htmlFlows) {
+    const pending = commonMarkParser.parseInline(
+      state.source.slice(flow.start, flow.end),
+      flow.start,
+    ) as readonly InlineElement[]
 
-const blankRanges = (source: string, ranges: readonly SourceRange[]): string => {
-  const characters = source.split("")
-  for (const range of ranges) blankTextRange(characters, range.start, range.end)
-  return characters.join("")
-}
-
-const fallbackReferenceRanges = (
-  candidates: readonly ReferenceCandidate[],
-  inlineBlocks: readonly SourceRange[],
-  opaqueInlineRanges: readonly SourceRange[],
-  definedIdentifiers: ReadonlySet<string>,
-): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
-  for (const candidate of candidates) {
-    if (
-      candidate.sourceEnd === undefined ||
-      candidate.identifier === undefined ||
-      !definedIdentifiers.has(candidate.identifier)
-    ) {
-      continue
+    for (const element of pending) {
+      if (HTML_SYNTAX_NODES.has(inlineElementName(element))) {
+        markRange(state.dictionaryMask, element.from, element.to)
+      }
     }
-    const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
-    if (
-      inlineBlock === undefined ||
-      candidate.sourceStart < inlineBlock.start ||
-      candidate.sourceEnd > inlineBlock.end ||
-      rangeContaining(opaqueInlineRanges, candidate.labelStart) !== undefined
-    ) {
-      continue
-    }
-    ranges.push({ start: candidate.sourceStart, end: candidate.sourceEnd })
-  }
-  return ranges
-}
 
-const fallbackResourceRanges = (
-  source: string,
-  candidates: readonly ResourceCandidate[],
-  inlineBlocks: readonly SourceRange[],
-  opaqueInlineRanges: readonly SourceRange[],
-): readonly SourceRange[] => {
-  const chunks: string[] = []
-  const segments = new Map<number, { sourceStart: number; syntheticEnd: number }>()
-  let syntheticOffset = 0
-  let acceptedEnd = -1
-
-  for (const candidate of candidates) {
-    if (candidate.sourceEnd === undefined || candidate.sourceStart < acceptedEnd) continue
-    const inlineBlock = rangeContaining(inlineBlocks, candidate.labelStart)
-    if (
-      inlineBlock === undefined ||
-      candidate.sourceStart < inlineBlock.start ||
-      candidate.sourceEnd > inlineBlock.end ||
-      rangeContaining(opaqueInlineRanges, candidate.labelStart) !== undefined
-    ) {
-      continue
-    }
-    acceptedEnd = candidate.sourceEnd
-    const resource = source.slice(candidate.sourceStart, candidate.sourceEnd)
-    const syntheticStart = syntheticOffset + 3
-    chunks.push(`[x]${resource}\n\n`)
-    syntheticOffset += resource.length + 5
-    segments.set(syntheticStart, {
-      sourceStart: candidate.sourceStart,
-      syntheticEnd: syntheticStart + resource.length,
+    htmlParser.parse(state.source.slice(flow.start, flow.end)).iterate({
+      enter(ref) {
+        if (HTML_FLOW_NODES.has(ref.name)) {
+          markRange(state.dictionaryMask, flow.start + ref.from, flow.start + ref.to)
+        }
+      },
     })
   }
+}
 
-  if (chunks.length === 0) return []
-  const ranges: Array<{ start: number; end: number }> = []
-  for (const [phase, token] of markdownEvents(chunks.join(""))) {
-    if (phase !== "enter" || token.type !== "resource") continue
-    const segment = segments.get(token.start.offset)
-    if (segment === undefined || token.end.offset > segment.syntheticEnd) continue
-    ranges.push({
-      start: segment.sourceStart,
-      end: segment.sourceStart + token.end.offset - token.start.offset,
-    })
+const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void => {
+  const events = markdownEvents(state.source)
+  const definitionEnds = includeDictionary ? definitionMaskEnds(events) : new Map<number, number>()
+  const htmlFlows: SourceRange[] = []
+
+  for (const [phase, token] of events) {
+    if (phase !== "enter") continue
+
+    if (CODE_BLOCK_TOKENS.has(token.type)) {
+      markCode(state, token, true)
+      continue
+    }
+    if (CONTAINER_TOKENS.has(token.type)) {
+      markRange(state.proseMask, token.start.offset, token.end.offset)
+      markRange(state.containerMask, token.start.offset, token.end.offset)
+      if (includeDictionary) {
+        markRange(state.dictionaryMask, token.start.offset, token.end.offset)
+      }
+      continue
+    }
+    if (!includeDictionary) continue
+
+    if (token.type === "definition") {
+      markRange(
+        state.dictionaryMask,
+        token.start.offset,
+        definitionEnds.get(token.start.offset) ?? token.end.offset,
+      )
+    } else if (token.type === "htmlRawFlow") {
+      markRange(state.dictionaryMask, token.start.offset, token.end.offset)
+    } else if (token.type === "htmlFlow") {
+      htmlFlows.push({ start: token.start.offset, end: token.end.offset })
+    } else if (DICTIONARY_TOKENS.has(token.type)) {
+      markRange(state.dictionaryMask, token.start.offset, token.end.offset)
+    }
   }
-  return ranges
+
+  markInlineSyntax(state, events, includeDictionary)
+  markContainerOnlyLinesAsBlank(state)
+  if (htmlFlows.length > 0) markHtmlFlows(state, htmlFlows)
+}
+
+const applyMask = (
+  lines: readonly string[],
+  contentStarts: readonly number[],
+  parseLines: readonly string[],
+  sourceLineStarts: readonly number[],
+  mask: Uint8Array,
+): string[] =>
+  lines.map((line, lineIndex) => {
+    const characters = line.split("")
+    const contentStart = Math.min(Math.max(contentStarts[lineIndex] ?? 0, 0), line.length)
+    const sourceStart = sourceLineStarts[lineIndex] ?? 0
+    const parseLine = parseLines[lineIndex] ?? ""
+
+    for (let column = 0; column < parseLine.length; column++) {
+      if (mask[sourceStart + column] !== 0) characters[contentStart + column] = " "
+    }
+    return characters.join("")
+  })
+
+const analyzeMarkdown = (
+  lines: readonly string[],
+  contentStarts: readonly number[] = lines.map(() => 0),
+  includeDictionary = true,
+): MarkdownAnalysis => {
+  if (lines.length === 0) {
+    return { lines: [], structuralLines: [], dictionaryLines: [], structuralBlanks: [] }
+  }
+
+  const starts = lines.map((line, index) =>
+    Math.min(Math.max(contentStarts[index] ?? 0, 0), line.length),
+  )
+  const parseLines = lines.map((line, index) => line.slice(starts[index]))
+  const source = parseLines.join("\n")
+  const state = createAnalysisState(source, parseLines)
+  analyzeEvents(state, includeDictionary)
+
+  return {
+    lines: applyMask(lines, starts, parseLines, state.sourceLineStarts, state.proseMask),
+    structuralLines: applyMask(
+      lines,
+      starts,
+      parseLines,
+      state.sourceLineStarts,
+      state.structuralMask,
+    ),
+    dictionaryLines: applyMask(
+      lines,
+      starts,
+      parseLines,
+      state.sourceLineStarts,
+      state.dictionaryMask,
+    ),
+    structuralBlanks: state.structuralBlanks,
+  }
+}
+
+export function blankMarkdownForLint(
+  inputLines: readonly string[],
+  contentStarts: readonly number[],
+  includeDictionary: boolean,
+): MarkdownAnalysis {
+  return analyzeMarkdown(inputLines, contentStarts, includeDictionary)
+}
+
+export function blankMarkdownCodeWithStructure(
+  inputLines: readonly string[],
+  contentStarts: readonly number[] = inputLines.map(() => 0),
+): MarkdownCodeResult {
+  const analysis = analyzeMarkdown(inputLines, contentStarts, false)
+  return {
+    lines: analysis.lines,
+    structuralLines: analysis.structuralLines,
+    structuralBlanks: analysis.structuralBlanks,
+  }
+}
+
+export function blankMarkdownCode(
+  inputLines: readonly string[],
+  contentStarts: readonly number[] = inputLines.map(() => 0),
+): string[] {
+  return analyzeMarkdown(inputLines, contentStarts, false).lines
+}
+
+export function maskMarkdownCode(text: string): string {
+  return blankMarkdownCode(text.split("\n")).join("\n")
 }
 
 export function blankMarkdownDestinations(
   lines: readonly string[],
   contentStarts: readonly number[] = lines.map(() => 0),
 ): string[] {
-  if (lines.length === 0) return []
-
-  const parseLines = lines.map((line, index) =>
-    line.slice(Math.min(contentStarts[index] ?? 0, line.length)),
-  )
-  const source = parseLines.join("\n")
-  const sourceLineStarts = lineStartOffsets(parseLines)
-  const outputLineStarts = lineStartOffsets(lines)
-  const blanked = lines.join("\n").split("")
-  const outputOffset = (sourceOffset: number): number => {
-    const lineIndex = lineIndexAtOffset(sourceLineStarts, sourceOffset)
-    const line = lines[lineIndex] ?? ""
-    const contentStart = Math.min(contentStarts[lineIndex] ?? 0, line.length)
-    return (
-      (outputLineStarts[lineIndex] ?? 0) +
-      contentStart +
-      sourceOffset -
-      (sourceLineStarts[lineIndex] ?? 0)
-    )
-  }
-  const blankSourceRange = (start: number, end: number): void => {
-    blankTextRange(blanked, outputOffset(start), outputOffset(end))
-  }
-
-  const syntaxRangesFor = (
-    probe: string,
-  ): { opaqueInlineRanges: readonly SourceRange[]; inlineBlocks: readonly SourceRange[] } => {
-    const probeEvents = markdownEvents(opaqueInlineProbe(probe))
-    return {
-      opaqueInlineRanges: tokenRanges(probeEvents, OPAQUE_INLINE_TOKENS),
-      inlineBlocks: tokenRanges(probeEvents, INLINE_BLOCK_TOKENS),
-    }
-  }
-  const delimiterSourceFor = (ranges: readonly SourceRange[]): string => blankRanges(source, ranges)
-
-  let syntaxRanges = syntaxRangesFor(source)
-  let opaqueInlineRanges = syntaxRanges.opaqueInlineRanges
-  let preparedSource = prepareMarkdownSource(
-    source,
-    delimiterSourceFor(opaqueInlineRanges),
-    opaqueInlineRanges,
-    syntaxRanges.inlineBlocks,
-  )
-  let events = markdownEvents(preparedSource.value)
-  let definedIdentifiers = definitionIdentifiers(source, events)
-  const resolvedReferenceRanges = resolvedReferenceSyntaxRanges(
-    source,
-    preparedSource.referenceCandidates,
-    tokenRanges(events, INLINE_BLOCK_TOKENS),
-    definedIdentifiers,
-  )
-  if (
-    resolvedReferenceRanges.length > 0 ||
-    (preparedSource.deepFallback && definedIdentifiers.size > 0)
-  ) {
-    syntaxRanges = syntaxRangesFor(blankRanges(source, resolvedReferenceRanges))
-    opaqueInlineRanges = syntaxRanges.opaqueInlineRanges
-    preparedSource = prepareMarkdownSource(
-      source,
-      delimiterSourceFor(opaqueInlineRanges),
-      opaqueInlineRanges,
-      syntaxRanges.inlineBlocks,
-      definedIdentifiers,
-    )
-    events = markdownEvents(preparedSource.value)
-    definedIdentifiers = definitionIdentifiers(source, events)
-  }
-
-  const contentColumns = new Int32Array(parseLines.length).fill(1)
-  for (const [phase, token] of events) {
-    if (
-      phase === "enter" &&
-      (token.type === "blockQuotePrefix" ||
-        token.type === "listItemPrefix" ||
-        token.type === "listItemIndent")
-    ) {
-      const lineIndex = token.start.line - 1
-      contentColumns[lineIndex] = Math.max(contentColumns[lineIndex] ?? 1, token.end.column)
-    }
-  }
-
-  const definitionMaskEnds = new Map<number, number>()
-  let activeDefinitionStart: number | undefined
-  let activeDefinitionLine = 0
-  let activeDefinitionContentColumn = 1
-  for (const [phase, token] of events) {
-    if (phase === "enter" && token.type === "definition") {
-      activeDefinitionStart = token.start.offset
-      activeDefinitionLine = token.start.line
-      activeDefinitionContentColumn = contentColumns[token.start.line - 1] ?? 1
-    } else if (
-      phase === "enter" &&
-      token.type === "definitionTitle" &&
-      activeDefinitionStart !== undefined &&
-      token.start.line > activeDefinitionLine &&
-      token.start.column <=
-        Math.max(activeDefinitionContentColumn, contentColumns[token.start.line - 1] ?? 1)
-    ) {
-      definitionMaskEnds.set(activeDefinitionStart, token.start.offset)
-    } else if (phase === "exit" && token.type === "definition") {
-      activeDefinitionStart = undefined
-    }
-  }
-
-  for (const [phase, token] of events) {
-    if (phase !== "enter") continue
-    if (token.type === "definition") {
-      blankSourceRange(
-        token.start.offset,
-        definitionMaskEnds.get(token.start.offset) ?? token.end.offset,
-      )
-    } else if (MASKED_MARKDOWN_TOKENS.has(token.type)) {
-      blankSourceRange(token.start.offset, token.end.offset)
-    }
-  }
-
-  for (const range of htmlFlowSyntaxRanges(source, events)) {
-    blankSourceRange(range.start, range.end)
-  }
-
-  const inlineBlocks = tokenRanges(events, INLINE_BLOCK_TOKENS)
-
-  for (const range of fallbackReferenceRanges(
-    preparedSource.referenceCandidates,
-    inlineBlocks,
-    opaqueInlineRanges,
-    definedIdentifiers,
-  )) {
-    blankSourceRange(range.start, range.end)
-  }
-
-  for (const range of fallbackResourceRanges(
-    source,
-    preparedSource.resourceCandidates,
-    inlineBlocks,
-    opaqueInlineRanges,
-  )) {
-    blankSourceRange(range.start, range.end)
-  }
-
-  return blanked.join("").split("\n")
-}
-
-interface InlineBacktickRun {
-  readonly start: number
-  readonly length: number
-}
-
-function blankInlineCodeLine(line: string): string {
-  const runs: InlineBacktickRun[] = []
-  for (let index = 0; index < line.length; index += 1) {
-    if (line[index] !== "`") continue
-    const start = index
-    while (line[index + 1] === "`") index += 1
-    runs.push({ start, length: index - start + 1 })
-  }
-
-  const nextMatchingRun = new Int32Array(runs.length).fill(-1)
-  const latestRunByLength = new Map<number, number>()
-  for (let index = runs.length - 1; index >= 0; index -= 1) {
-    const run = runs[index]
-    if (!run) continue
-    nextMatchingRun[index] = latestRunByLength.get(run.length) ?? -1
-    latestRunByLength.set(run.length, index)
-  }
-
-  const masked = line.split("")
-  for (let index = 0; index < runs.length; index += 1) {
-    const closingIndex = nextMatchingRun[index] ?? -1
-    if (closingIndex < 0) continue
-    const opening = runs[index]
-    const closing = runs[closingIndex]
-    if (!opening || !closing) continue
-
-    masked.fill(" ", opening.start, closing.start + closing.length)
-    index = closingIndex
-  }
-
-  return masked.join("")
+  return analyzeMarkdown(lines, contentStarts).dictionaryLines
 }
 
 export function blankInlineCode(lines: readonly string[]): string[] {
-  return lines.map(blankInlineCodeLine)
+  const source = lines.join("\n")
+  const mask = new Uint8Array(source.length)
+  const parser = source.includes(")") ? commonMarkParser : codeOnlyInlineParser
+  const pending = [...(parser.parseInline(source, 0) as readonly InlineElement[])]
+
+  while (pending.length > 0) {
+    const element = pending.pop()
+    if (element === undefined) continue
+    if (element.children !== undefined) pending.push(...element.children)
+    if (inlineElementName(element) === "InlineCode") {
+      markRange(mask, element.from, element.to)
+    }
+  }
+
+  let offset = 0
+  return lines.map((line) => {
+    const characters = line.split("")
+    for (let index = 0; index < line.length; index++) {
+      if (mask[offset + index] !== 0) characters[index] = " "
+    }
+    offset += line.length + 1
+    return characters.join("")
+  })
 }
 
 export function proseVisibility(text: string): Uint8Array {
@@ -1321,9 +498,7 @@ export function proseVisibility(text: string): Uint8Array {
 
   for (let index = 0; index < sourceLines.length; index++) {
     const line = sourceLines[index] ?? ""
-    if (line === proseLines[index]) {
-      visibility.fill(1, offset, offset + line.length)
-    }
+    if (line === proseLines[index]) visibility.fill(1, offset, offset + line.length)
     offset += line.length
     if (offset < text.length) {
       visibility[offset] = 1

@@ -401,6 +401,12 @@ describe("lint prose-file: hardened markdown stripping", () => {
     expect(report.violations[0]).toMatchObject({ line: 1, column: 1 })
   })
 
+  test("empty blockquote container lines split prose sentences", () => {
+    const text = [words(20), ">", `${words(10)}.`].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
   test("a tilde fence is not closed by a backtick fence", () => {
     const text = ["~~~", "```", `${words(40)}.`, "~~~"].join("\n")
 

@@ -430,6 +430,7 @@ The enabled pi Adapter fails closed after that error.
 ```sh
 bun install
 bun run test
+bun run bench:markdown
 bun run lint
 bun run typecheck
 npm publish --dry-run
