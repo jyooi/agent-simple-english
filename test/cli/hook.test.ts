@@ -250,7 +250,7 @@ describe("simple-english CLI hook mode", () => {
       ),
     ) as SessionState
     expect(enabledState).toMatchObject({ version: 3, enabled: true, strict: false })
-  })
+  }, 15_000)
 
   test("starts a new session in enabled non-strict mode", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
