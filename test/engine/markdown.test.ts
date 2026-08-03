@@ -47,4 +47,14 @@ describe("Markdown parser masking", () => {
     const text = `${"![x](u) ".repeat(40)}\n\nAlphaword ](Betaword) and ](Gammaword)`
     expect(maskAfterThreshold(text).endsWith("Alphaword ](Betaword) and ](Gammaword)")).toBe(true)
   })
+
+  test("does not let nested images make link-like prose into syntax", () => {
+    expect(maskAfterThreshold("![![x](u)](v) Alphaword ](Betaword)")).toBe(
+      "    x         Alphaword ](Betaword)",
+    )
+  })
+
+  test("retains escaped angle-bracket prose", () => {
+    expect(maskAfterThreshold(String.raw`\<Betaword>`)).toBe(" <Betaword>")
+  })
 })

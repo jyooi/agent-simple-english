@@ -1,4 +1,6 @@
+import { parser as lezerMarkdownParser } from "@lezer/markdown"
 import Markdown from "@tree-sitter-grammars/tree-sitter-markdown"
+import { Parser as CommonmarkParser } from "commonmark"
 import { parse, postprocess, preprocess } from "micromark"
 import Parser from "tree-sitter"
 
@@ -281,90 +283,107 @@ const markTreeLink = (
   }
 }
 
-const maxNestedImages = (root: Parser.SyntaxNode): number => {
-  const pending = [{ node: root, depth: 0 }]
-  let maximum = 0
-  while (pending.length > 0) {
-    const current = pending.pop()
-    if (current === undefined) continue
-    const depth = current.depth + (current.node.type === "image" ? 1 : 0)
-    maximum = Math.max(maximum, depth)
-    for (const child of current.node.children) pending.push({ node: child, depth })
-  }
-  return maximum
+const needsLezerInline = (root: Parser.SyntaxNode): boolean => {
+  let needed = false
+  walk(root, (node) => {
+    const children = node.children
+    let shortcutResource = false
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index]
+      const next = children[index + 1]
+      const afterNext = children[index + 2]
+      if (
+        child?.type === "shortcut_link" &&
+        next?.type === "(" &&
+        child.endIndex === next.startIndex
+      ) {
+        shortcutResource = true
+      } else if (shortcutResource && child?.type === ")") {
+        needed = true
+        return false
+      } else if (child?.type === "]" && next?.type === "(" && afterNext?.type === ")") {
+        needed = true
+        return false
+      }
+    }
+    return needed ? false : undefined
+  })
+  return needed
 }
 
-// Tree-sitter bounds image nesting, so micromark validates omitted suffixes in affected ranges.
-const markRecoveredResources = (
+const LEZER_INLINE_LIMIT = 50_000
+const commonmarkParser = new CommonmarkParser()
+
+const markLezerInline = (state: AnalysisState, source: string, base: number): boolean => {
+  if (source.length > LEZER_INLINE_LIMIT) return false
+  const cursor = lezerMarkdownParser.parse(source).cursor()
+  do {
+    if (cursor.name === "LinkMark" || cursor.name === "URL" || cursor.name === "LinkTitle") {
+      markRange(state.dictionaryMask, base + cursor.from, base + cursor.to)
+    }
+  } while (cursor.next())
+  return true
+}
+
+const parserEmptyResourceRanges = (root: Parser.SyntaxNode): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  walk(root, (node) => {
+    const children = node.children
+    for (let index = 0; index < children.length - 2; index++) {
+      const labelEnd = children[index]
+      const opening = children[index + 1]
+      const closing = children[index + 2]
+      if (labelEnd?.type === "]" && opening?.type === "(" && closing?.type === ")") {
+        ranges.push({ start: labelEnd.startIndex, end: closing.endIndex })
+      }
+    }
+  })
+  return ranges.sort((left, right) => left.start - right.start)
+}
+
+const countTreeResources = (
+  root: Parser.SyntaxNode,
+  source: string,
+  definedIdentifiers: ReadonlySet<string>,
+): number => {
+  let resources = 0
+  walk(root, (node) => {
+    if (node.type === "link_destination" || TREE_AUTOLINK_TOKENS.has(node.type)) {
+      resources++
+    } else if (
+      (TREE_REFERENCE_TOKENS.has(node.type) || node.type === "image") &&
+      !node.children.some((child) => child.type === "link_destination") &&
+      definedIdentifiers.has(normalizedIdentifier(visibleReferenceLabel(source, node)))
+    ) {
+      resources++
+    }
+  })
+  return resources
+}
+
+const markCommonmarkResources = (
   state: AnalysisState,
   source: string,
   base: number,
-  shortcutStarts: ReadonlyMap<number, number>,
-  nestedImages: number,
+  root: Parser.SyntaxNode,
+  definedIdentifiers: ReadonlySet<string>,
 ): void => {
-  const chunks: string[] = []
-  const sourceStarts = new Map<number, { labelStart?: number; resourceStart: number }>()
-  const candidates = [...source.matchAll(/\]\((?:[^()\\\n]|\\.)*\)/g)]
-  let syntheticOffset = 0
-  for (const candidate of candidates) {
-    if (candidate.index === undefined) continue
-    const resourceStart = candidate.index + 1
-    const shortcutStart = shortcutStarts.get(resourceStart)
-    if (shortcutStart === undefined && (nestedImages <= 1 || candidates.length < 2)) {
-      continue
-    }
-    const resource = candidate[0].slice(1)
-    sourceStarts.set(syntheticOffset + 3, {
-      labelStart: shortcutStart === undefined ? undefined : base + shortcutStart,
-      resourceStart: base + resourceStart,
-    })
-    chunks.push(`[x]${resource}\n\n`)
-    syntheticOffset += resource.length + 5
+  let resources = 0
+  const walker = commonmarkParser.parse(source).walker()
+  let event = walker.next()
+  while (event !== null) {
+    if (event.entering && (event.node.type === "link" || event.node.type === "image")) resources++
+    event = walker.next()
   }
-  if (chunks.length === 0) return
 
-  for (const [phase, token] of markdownEvents(chunks.join(""))) {
-    if (phase !== "enter" || token.type !== "resource") continue
-    const recovered = sourceStarts.get(token.start.offset)
-    if (recovered !== undefined) {
-      markRange(
-        state.dictionaryMask,
-        recovered.resourceStart,
-        recovered.resourceStart + token.end.offset - token.start.offset,
-      )
-      if (recovered.labelStart !== undefined) {
-        markRange(state.dictionaryMask, recovered.labelStart, recovered.labelStart + 1)
-        markRange(state.dictionaryMask, recovered.resourceStart - 1, recovered.resourceStart)
-      }
-    }
-  }
-}
-
-// Micromark fills the HTML constructs that Tree-sitter deliberately leaves as plain text.
-const markRecoveredHtml = (state: AnalysisState, source: string, base: number): void => {
-  const chunks: string[] = []
-  const sourceRanges = new Map<number, SourceRange>()
-  let syntheticOffset = 0
-  for (const candidate of source.matchAll(/<[^>\n]*>/g)) {
-    if (candidate.index === undefined) continue
-    sourceRanges.set(syntheticOffset, {
-      start: base + candidate.index,
-      end: base + candidate.index + candidate[0].length,
-    })
-    chunks.push(`${candidate[0]}\n\n`)
-    syntheticOffset += candidate[0].length + 2
-  }
-  if (chunks.length === 0) return
-
-  for (const [phase, token] of markdownTextEvents(chunks.join(""))) {
-    if (phase !== "enter" || token.type !== "htmlText") continue
-    const sourceRange = sourceRanges.get(token.start.offset)
-    if (
-      sourceRange !== undefined &&
-      token.end.offset - token.start.offset === sourceRange.end - sourceRange.start
-    ) {
-      markRange(state.dictionaryMask, sourceRange.start, sourceRange.end)
-    }
+  const missingResources = Math.max(
+    0,
+    resources - countTreeResources(root, source, definedIdentifiers),
+  )
+  const ranges = parserEmptyResourceRanges(root)
+  for (let index = 0; index < Math.min(missingResources, ranges.length); index++) {
+    const range = ranges[index]
+    if (range !== undefined) markRange(state.dictionaryMask, base + range.start, base + range.end)
   }
 }
 
@@ -375,11 +394,9 @@ const markInlineTree = (
   definedIdentifiers: ReadonlySet<string>,
 ): void => {
   const tree = inlineParser.parse(source, undefined, { bufferSize: source.length + 1 })
-  const shortcutStarts = new Map<number, number>()
   walk(tree.rootNode, (node) => {
     const start = base + node.startIndex
     const end = base + node.endIndex
-    if (node.type === "shortcut_link") shortcutStarts.set(node.endIndex, node.startIndex)
     if (node.type === "code_span") {
       markCode(state, start, end, false)
       return false
@@ -407,8 +424,9 @@ const markInlineTree = (
       markRange(state.dictionaryMask, start, Math.min(start + 1, end))
     }
   })
-  markRecoveredResources(state, source, base, shortcutStarts, maxNestedImages(tree.rootNode))
-  markRecoveredHtml(state, source, base)
+  if (needsLezerInline(tree.rootNode) && !markLezerInline(state, source, base)) {
+    markCommonmarkResources(state, source, base, tree.rootNode, definedIdentifiers)
+  }
 }
 
 const markHtmlTree = (state: AnalysisState, source: string, base: number): void => {
@@ -419,7 +437,6 @@ const markHtmlTree = (state: AnalysisState, source: string, base: number): void 
       return false
     }
   })
-  markRecoveredHtml(state, source, base)
 }
 
 const analyzeCodeWithTreeSitter = (state: AnalysisState): void => {
