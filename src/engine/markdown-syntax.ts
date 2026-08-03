@@ -80,7 +80,7 @@ const tokenizeRawHtmlFlow: Tokenizer = function (effects, ok, nok) {
   }
 
   function openingName(code: Code): State | undefined {
-    if (code === 47 || code === 62 || markdownLineEndingOrSpace(code) || code === null) {
+    if (code === 62 || markdownLineEndingOrSpace(code) || code === null) {
       if (!htmlRawNames.includes(name.toLowerCase())) return nok(code)
       return self.interrupt ? ok(code) : continuation(code)
     }

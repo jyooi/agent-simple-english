@@ -139,6 +139,25 @@ describe("Markdown parser masking", () => {
     ])
   })
 
+  test("retains prose after a self-closing raw-content tag name", () => {
+    const input = "<script/>\nBetaword"
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      " ".repeat(9),
+      "Betaword",
+    ])
+  })
+
+  test("masks HTML tags inside code-like HTML flow content", () => {
+    const input = "<div>\n`<span>`\n</div>"
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      " ".repeat(5),
+      `\`${" ".repeat(6)}\``,
+      " ".repeat(6),
+    ])
+  })
+
   test("keeps parser offsets aligned after a byte order mark", () => {
     expect(blankMarkdownCode(["\ufeff`Betaword`"])).toEqual([`\ufeff${" ".repeat(10)}`])
   })

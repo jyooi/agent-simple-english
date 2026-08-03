@@ -1,4 +1,5 @@
 import { parse, postprocess, preprocess } from "micromark"
+import type { Extension } from "micromark-util-types"
 import { markdownSyntaxExtension } from "./markdown-syntax.ts"
 
 interface MarkdownAnalysis {
@@ -72,6 +73,28 @@ const markdownTextEvents = (source: string) => {
   )
   return translateParserOffsets(events, input.offset)
 }
+
+const htmlSyntaxExtension: Extension = {
+  disable: {
+    null: [
+      "attention",
+      "autolink",
+      "characterEscape",
+      "codeText",
+      "hardBreakEscape",
+      "labelEnd",
+      "labelStartImage",
+      "labelStartLink",
+    ],
+  },
+}
+
+const htmlSyntaxEvents = (source: string) =>
+  postprocess(
+    parse({ extensions: [htmlSyntaxExtension] })
+      .text()
+      .write(preprocess()(source, undefined, true)),
+  )
 
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
@@ -189,22 +212,14 @@ const enteredRanges = (
   return ranges
 }
 
-const markHtmlFlows = (
-  state: AnalysisState,
-  htmlFlows: readonly SourceRange[],
-  textEvents: MarkdownEvents,
-): void => {
-  const syntax = enteredRanges(textEvents, HTML_SYNTAX_TOKENS)
-  let syntaxIndex = 0
-
+const markHtmlFlows = (state: AnalysisState, htmlFlows: readonly SourceRange[]): void => {
   for (const flow of htmlFlows) {
-    while ((syntax[syntaxIndex]?.end ?? Number.POSITIVE_INFINITY) <= flow.start) syntaxIndex++
-    for (let index = syntaxIndex; index < syntax.length; index++) {
-      const range = syntax[index]
-      if (range === undefined || range.start >= flow.end) break
-      if (range.start >= flow.start && range.end <= flow.end) {
-        markRange(state.dictionaryMask, range.start, range.end)
-      }
+    const syntax = enteredRanges(
+      htmlSyntaxEvents(state.source.slice(flow.start, flow.end)),
+      HTML_SYNTAX_TOKENS,
+    )
+    for (const range of syntax) {
+      markRange(state.dictionaryMask, flow.start + range.start, flow.start + range.end)
     }
   }
 }
@@ -249,9 +264,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     }
   }
 
-  if (htmlFlows.length > 0) {
-    markHtmlFlows(state, htmlFlows, markdownTextEvents(state.source))
-  }
+  if (htmlFlows.length > 0) markHtmlFlows(state, htmlFlows)
 }
 
 const applyMask = (
