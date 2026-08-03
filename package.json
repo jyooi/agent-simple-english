@@ -37,8 +37,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tree-sitter-grammars/tree-sitter-markdown": "^0.3.2",
     "effect": "^3.14.0",
     "micromark": "^4.0.2",
+    "tree-sitter": "0.21.1",
     "unicode-case-folding": "^1.1.1",
     "wink-eng-lite-web-model": "^1.8.1",
     "wink-nlp": "^2.4.0"

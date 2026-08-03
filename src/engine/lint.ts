@@ -4,7 +4,7 @@ import { type ProseBreak, extractHashComments, extractSlashComments } from "./co
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure, blankMarkdownDestinations } from "./markdown.ts"
+import { blankMarkdownForLint } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { type CompiledDictionary, compileDictionary, dictionaryRule } from "./rules/dictionary.ts"
@@ -110,11 +110,9 @@ const isApprovedWordMode = (dictionary: CompiledDictionary | undefined): boolean
   dictionary?.mode === "approved-words"
 
 const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedProse => {
-  const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
+  const markdown = blankMarkdownForLint(extracted.lines, extracted.contentStarts, approvedWordMode)
   const lines = blankIdentifiers(markdown.lines)
-  const dictionaryLines = approvedWordMode
-    ? blankIdentifiers(blankMarkdownDestinations(extracted.lines, extracted.contentStarts))
-    : lines
+  const dictionaryLines = approvedWordMode ? blankIdentifiers(markdown.dictionaryLines) : lines
   return {
     lines,
     dictionaryLines,
