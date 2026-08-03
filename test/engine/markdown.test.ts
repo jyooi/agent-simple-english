@@ -168,6 +168,15 @@ describe("Markdown parser masking", () => {
     ])
   })
 
+  test("uses parser-relative columns for definitions after a byte order mark", () => {
+    const input = '\ufeff- [target]: /path\n   "Betaword"'
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      `\ufeff${" ".repeat(17)}`,
+      " ".repeat(13),
+    ])
+  })
+
   test("masks self-closing syntax in a parser-classified raw-content block", () => {
     const input = '<script data=">"/>\nBetaword'
 

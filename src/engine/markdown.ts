@@ -48,7 +48,6 @@ const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
       if (points.has(point)) continue
       points.add(point)
       point.offset += offset
-      if (point.line === 1) point.column += offset
     }
   }
   return events
