@@ -23,6 +23,7 @@ interface AnalysisState {
   readonly proseMask: Uint8Array
   readonly structuralMask: Uint8Array
   readonly dictionaryMask: Uint8Array
+  readonly containerMask: Uint8Array
   readonly structuralBlanks: boolean[]
 }
 
@@ -146,7 +147,28 @@ const createAnalysisState = (source: string, parseLines: readonly string[]): Ana
     proseMask: new Uint8Array(source.length),
     structuralMask: new Uint8Array(source.length),
     dictionaryMask: new Uint8Array(source.length),
+    containerMask: new Uint8Array(source.length),
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
+  }
+}
+
+const markContainerOnlyLinesAsBlank = (state: AnalysisState): void => {
+  for (let line = 0; line < state.parseLines.length; line++) {
+    const start = state.sourceLineStarts[line] ?? 0
+    const end = start + (state.parseLines[line]?.length ?? 0)
+    let hasContainer = false
+    let hasOtherContent = false
+
+    for (let offset = start; offset < end; offset++) {
+      if (state.containerMask[offset] !== 0) {
+        hasContainer = true
+      } else if (state.source[offset]?.trim() !== "") {
+        hasOtherContent = true
+        break
+      }
+    }
+
+    if (hasContainer && !hasOtherContent) state.structuralBlanks[line] = true
   }
 }
 
@@ -241,6 +263,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     }
     if (CONTAINER_TOKENS.has(token.type)) {
       markRange(state.proseMask, token.start.offset, token.end.offset)
+      markRange(state.containerMask, token.start.offset, token.end.offset)
       if (includeDictionary) {
         markRange(state.dictionaryMask, token.start.offset, token.end.offset)
       }
@@ -263,6 +286,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     }
   }
 
+  markContainerOnlyLinesAsBlank(state)
   if (htmlFlows.length > 0) markHtmlFlows(state, htmlFlows)
 }
 
