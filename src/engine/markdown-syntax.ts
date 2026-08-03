@@ -1,6 +1,6 @@
 import {
-  asciiAlphanumeric,
   asciiAlpha,
+  asciiAlphanumeric,
   markdownLineEnding,
   markdownLineEndingOrSpace,
 } from "micromark-util-character"
@@ -47,14 +47,12 @@ const resolveToRawHtmlFlow: Resolver = (events) => {
 const nonLazyContinuationStart: Construct = {
   partial: true,
   tokenize(this: TokenizeContext, effects: Effects, ok: State, nok: State): State {
-    const self = this
-
     return (code) => {
       if (!markdownLineEnding(code)) return nok(code)
       effects.enter("lineEnding")
       effects.consume(code)
       effects.exit("lineEnding")
-      return (nextCode) => (self.parser.lazy[self.now().line] ? nok(nextCode) : ok(nextCode))
+      return (nextCode) => (this.parser.lazy[this.now().line] ? nok(nextCode) : ok(nextCode))
     }
   },
 }
@@ -166,5 +164,8 @@ const rawHtmlFlow: Construct = {
 }
 
 export const markdownSyntaxExtension: Extension = {
+  disable: {
+    null: ["labelEnd", "labelStartImage", "labelStartLink"],
+  },
   flow: { 60: rawHtmlFlow },
 }

@@ -1,5 +1,7 @@
+import { parser as htmlParser } from "@lezer/html"
+import { parser as commonMarkParser } from "@lezer/markdown"
 import { parse, postprocess, preprocess } from "micromark"
-import type { Extension } from "micromark-util-types"
+import { normalizeIdentifier } from "micromark-util-normalize-identifier"
 import { markdownSyntaxExtension } from "./markdown-syntax.ts"
 
 interface MarkdownAnalysis {
@@ -64,38 +66,6 @@ const markdownEvents = (source: string) => {
   return translateParserOffsets(events, input.offset)
 }
 
-const markdownTextEvents = (source: string) => {
-  const input = parserInput(source)
-  const events = postprocess(
-    parse({ extensions: [markdownSyntaxExtension] })
-      .text()
-      .write(preprocess()(input.source, undefined, true)),
-  )
-  return translateParserOffsets(events, input.offset)
-}
-
-const htmlSyntaxExtension: Extension = {
-  disable: {
-    null: [
-      "attention",
-      "autolink",
-      "characterEscape",
-      "codeText",
-      "hardBreakEscape",
-      "labelEnd",
-      "labelStartImage",
-      "labelStartLink",
-    ],
-  },
-}
-
-const htmlSyntaxEvents = (source: string) =>
-  postprocess(
-    parse({ extensions: [htmlSyntaxExtension] })
-      .text()
-      .write(preprocess()(source, undefined, true)),
-  )
-
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
 
@@ -121,7 +91,20 @@ const DICTIONARY_TOKENS = new Set([
   "strongSequence",
   "thematicBreak",
 ])
-const HTML_SYNTAX_TOKENS = new Set(["characterReference", "htmlText"])
+const codeOnlyInlineParser = commonMarkParser.configure({ remove: ["Image", "Link"] })
+
+const HTML_SYNTAX_NODES = new Set(["Comment", "Entity", "HTMLTag", "ProcessingInstruction"])
+const HTML_FLOW_NODES = new Set([
+  "CloseTag",
+  "Comment",
+  "DoctypeDecl",
+  "EntityReference",
+  "MismatchedCloseTag",
+  "OpenTag",
+  "ProcessingInst",
+])
+const INLINE_CONTENT_TOKENS = new Set(["atxHeadingText", "paragraph", "setextHeadingText"])
+const LINK_SYNTAX_NODES = new Set(["LinkMark", "URL", "LinkTitle"])
 
 const markRange = (mask: Uint8Array, start: number, end: number): void => {
   mask.fill(1, Math.max(0, start), Math.min(mask.length, end))
@@ -220,28 +203,128 @@ const definitionMaskEnds = (events: MarkdownEvents): ReadonlyMap<number, number>
   return ends
 }
 
-const enteredRanges = (
-  events: MarkdownEvents,
-  tokenTypes: ReadonlySet<string>,
-): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
+const definedLabels = (state: AnalysisState, events: MarkdownEvents): ReadonlySet<string> => {
+  const labels = new Set<string>()
   for (const [phase, token] of events) {
-    if (phase === "enter" && tokenTypes.has(token.type)) {
-      ranges.push({ start: token.start.offset, end: token.end.offset })
+    if (phase === "enter" && token.type === "definitionLabelString") {
+      labels.add(normalizeIdentifier(state.source.slice(token.start.offset, token.end.offset)))
     }
   }
-  return ranges
+  return labels
+}
+
+interface InlineElement {
+  readonly type: number
+  readonly from: number
+  readonly to: number
+  readonly children?: readonly InlineElement[]
+}
+
+const inlineElementName = (element: InlineElement): string =>
+  commonMarkParser.nodeSet.types[element.type]?.name ?? ""
+
+const markInlineSyntax = (
+  state: AnalysisState,
+  events: MarkdownEvents,
+  includeDictionary: boolean,
+): void => {
+  const definitions = includeDictionary ? definedLabels(state, events) : new Set<string>()
+
+  for (const [phase, token] of events) {
+    if (phase !== "enter" || !INLINE_CONTENT_TOKENS.has(token.type)) continue
+
+    const inlineSource = state.source.slice(token.start.offset, token.end.offset)
+    const parser =
+      inlineSource.includes(")") || (includeDictionary && definitions.size > 0)
+        ? commonMarkParser
+        : codeOnlyInlineParser
+    const elements = parser.parseInline(
+      inlineSource,
+      token.start.offset,
+    ) as readonly InlineElement[]
+    const pending = [...elements]
+
+    while (pending.length > 0) {
+      const element = pending.pop()
+      if (element === undefined) continue
+      if (element.children !== undefined) pending.push(...element.children)
+
+      const name = inlineElementName(element)
+      if (name === "InlineCode") {
+        markRange(state.proseMask, element.from, element.to)
+        markRange(state.structuralMask, element.from, element.to)
+        markRange(state.dictionaryMask, element.from, element.to)
+        continue
+      }
+      if (!includeDictionary || (name !== "Link" && name !== "Image")) continue
+
+      const children = element.children ?? []
+      let openingEnd: number | undefined
+      let closingStart: number | undefined
+      let reference: InlineElement | undefined
+      let resource = false
+
+      for (const child of children) {
+        const childName = inlineElementName(child)
+        if (childName === "LinkMark") {
+          const syntax = state.source.slice(child.from, child.to)
+          if (openingEnd === undefined) openingEnd = child.to
+          else if (closingStart === undefined) closingStart = child.from
+          if (syntax === "(") resource = true
+        } else if (childName === "LinkLabel") {
+          reference = child
+        }
+      }
+
+      if (!resource && definitions.size === 0) continue
+      if (
+        !resource &&
+        reference === undefined &&
+        (openingEnd === undefined || closingStart === undefined || closingStart - openingEnd > 999)
+      ) {
+        continue
+      }
+
+      const primary =
+        openingEnd === undefined || closingStart === undefined
+          ? ""
+          : state.source.slice(openingEnd, closingStart)
+      const referenceLabel =
+        reference === undefined
+          ? primary
+          : state.source.slice(reference.from + 1, reference.to - 1) || primary
+      if (!resource && !definitions.has(normalizeIdentifier(referenceLabel))) continue
+
+      for (const child of children) {
+        const childName = inlineElementName(child)
+        if (LINK_SYNTAX_NODES.has(childName) || childName === "LinkLabel") {
+          markRange(state.dictionaryMask, child.from, child.to)
+        }
+      }
+    }
+  }
 }
 
 const markHtmlFlows = (state: AnalysisState, htmlFlows: readonly SourceRange[]): void => {
   for (const flow of htmlFlows) {
-    const syntax = enteredRanges(
-      htmlSyntaxEvents(state.source.slice(flow.start, flow.end)),
-      HTML_SYNTAX_TOKENS,
-    )
-    for (const range of syntax) {
-      markRange(state.dictionaryMask, flow.start + range.start, flow.start + range.end)
+    const pending = commonMarkParser.parseInline(
+      state.source.slice(flow.start, flow.end),
+      flow.start,
+    ) as readonly InlineElement[]
+
+    for (const element of pending) {
+      if (HTML_SYNTAX_NODES.has(inlineElementName(element))) {
+        markRange(state.dictionaryMask, element.from, element.to)
+      }
     }
+
+    htmlParser.parse(state.source.slice(flow.start, flow.end)).iterate({
+      enter(ref) {
+        if (HTML_FLOW_NODES.has(ref.name)) {
+          markRange(state.dictionaryMask, flow.start + ref.from, flow.start + ref.to)
+        }
+      },
+    })
   }
 }
 
@@ -255,10 +338,6 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
 
     if (CODE_BLOCK_TOKENS.has(token.type)) {
       markCode(state, token, true)
-      continue
-    }
-    if (token.type === "codeText") {
-      markCode(state, token, false)
       continue
     }
     if (CONTAINER_TOKENS.has(token.type)) {
@@ -286,6 +365,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     }
   }
 
+  markInlineSyntax(state, events, includeDictionary)
   markContainerOnlyLinesAsBlank(state)
   if (htmlFlows.length > 0) markHtmlFlows(state, htmlFlows)
 }
@@ -387,10 +467,15 @@ export function blankMarkdownDestinations(
 export function blankInlineCode(lines: readonly string[]): string[] {
   const source = lines.join("\n")
   const mask = new Uint8Array(source.length)
+  const parser = source.includes(")") ? commonMarkParser : codeOnlyInlineParser
+  const pending = [...(parser.parseInline(source, 0) as readonly InlineElement[])]
 
-  for (const [phase, token] of markdownTextEvents(source)) {
-    if (phase === "enter" && token.type === "codeText") {
-      markRange(mask, token.start.offset, token.end.offset)
+  while (pending.length > 0) {
+    const element = pending.pop()
+    if (element === undefined) continue
+    if (element.children !== undefined) pending.push(...element.children)
+    if (inlineElementName(element) === "InlineCode") {
+      markRange(mask, element.from, element.to)
     }
   }
 

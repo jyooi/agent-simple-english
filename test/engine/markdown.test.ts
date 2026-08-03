@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 import {
+  blankInlineCode,
   blankMarkdownCode,
   blankMarkdownDestinations,
 } from "../../src/engine/markdown.ts"
@@ -127,6 +128,7 @@ describe("Markdown parser masking", () => {
     const input = "[Alpha](target`) Betaword `"
 
     expect(blankMarkdownCode([input])).toEqual([input])
+    expect(blankInlineCode([input])).toEqual([input])
   })
 
   test("masks parser-classified malformed raw-content blocks", () => {
@@ -142,10 +144,7 @@ describe("Markdown parser masking", () => {
   test("retains prose after a self-closing raw-content tag name", () => {
     const input = "<script/>\nBetaword"
 
-    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
-      " ".repeat(9),
-      "Betaword",
-    ])
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([" ".repeat(9), "Betaword"])
   })
 
   test("masks HTML tags inside code-like HTML flow content", () => {
@@ -163,9 +162,7 @@ describe("Markdown parser masking", () => {
   })
 
   test("keeps parser offsets aligned after consecutive byte order marks", () => {
-    expect(blankMarkdownCode(["\ufeff\ufeff`Betaword`"])).toEqual([
-      `\ufeff\ufeff${" ".repeat(10)}`,
-    ])
+    expect(blankMarkdownCode(["\ufeff\ufeff`Betaword`"])).toEqual([`\ufeff\ufeff${" ".repeat(10)}`])
   })
 
   test("uses parser-relative columns for definitions after a byte order mark", () => {
@@ -180,9 +177,6 @@ describe("Markdown parser masking", () => {
   test("masks self-closing syntax in a parser-classified raw-content block", () => {
     const input = '<script data=">"/>\nBetaword'
 
-    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
-      " ".repeat(18),
-      " ".repeat(8),
-    ])
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([" ".repeat(18), " ".repeat(8)])
   })
 })
