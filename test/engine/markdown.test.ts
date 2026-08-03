@@ -57,4 +57,47 @@ describe("Markdown parser masking", () => {
   test("retains escaped angle-bracket prose", () => {
     expect(maskAfterThreshold(String.raw`\<Betaword>`)).toBe(" <Betaword>")
   })
+
+  test("masks the parser-classified empty resource after link-like prose", () => {
+    const prefix = "Alphaword ".repeat(6_000)
+    const text = `${prefix}Alphaword ]() before [x]()`
+    const masked = blankMarkdownDestinations([text])[0]
+
+    expect(masked).toBe(`${prefix}Alphaword ]() before  x   `)
+  })
+
+  test.each(["> [x]: /private", "- [x]: /private"])(
+    "resolves definitions in Markdown containers: %s",
+    (definition) => {
+      expect(maskAfterThreshold(`${definition}\n\n[text][x]`)).toBe(
+        `${" ".repeat(definition.length)}\n\n text    `,
+      )
+    },
+  )
+
+  test("retains labels beyond the CommonMark size limit", () => {
+    const label = "x".repeat(1_000)
+    const text = `[${label}]: /Betaword`
+
+    expect(maskAfterThreshold(text)).toBe(text)
+  })
+
+  test("does not mistake a slash in a quoted attribute for a self-closing tag", () => {
+    const input = '<script data="/>">\nBetaword\n</script>'
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      " ".repeat(18),
+      " ".repeat(8),
+      " ".repeat(9),
+    ])
+  })
+
+  test("retains prose after a parser-classified self-closing raw tag", () => {
+    const input = '<script data=">"/>\nBetaword'
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      " ".repeat(18),
+      "Betaword",
+    ])
+  })
 })

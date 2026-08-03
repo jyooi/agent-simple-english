@@ -1,13 +1,4 @@
-import { parser as lezerMarkdownParser } from "@lezer/markdown"
-import Markdown from "@tree-sitter-grammars/tree-sitter-markdown"
-import { Parser as CommonmarkParser } from "commonmark"
-import { parse, postprocess, preprocess } from "micromark"
-import Parser from "tree-sitter"
-
-interface SourceRange {
-  readonly start: number
-  readonly end: number
-}
+import { parser as markdownParser } from "@lezer/markdown"
 
 interface MarkdownAnalysis {
   readonly lines: string[]
@@ -22,24 +13,55 @@ export interface MarkdownCodeResult {
   readonly structuralBlanks: boolean[]
 }
 
-// Micromark is exact for resolved references but has quadratic label resolution on adversarial input.
-const MICROMARK_SOURCE_LIMIT = 10_000
-const RAW_HTML_FLOW_START = /^ {0,3}<(?:pre|script|style|textarea)(?:[\t\n\r\f >]|$)/iu
-const RAW_HTML_FLOW_SELF_CLOSING = /^ {0,3}<(?:pre|script|style|textarea)\b[^>]*\/\s*>/iu
+interface AnalysisState {
+  readonly source: string
+  readonly parseLines: readonly string[]
+  readonly sourceLineStarts: readonly number[]
+  readonly lineAtOffset: Int32Array
+  readonly proseMask: Uint8Array
+  readonly structuralMask: Uint8Array
+  readonly dictionaryMask: Uint8Array
+  readonly structuralBlanks: boolean[]
+}
 
-const markdownEvents = (source: string) =>
-  postprocess(
-    parse()
-      .document()
-      .write(preprocess()(source, "utf8", true)),
-  )
+type MarkdownTree = ReturnType<typeof markdownParser.parse>
+type MarkdownNode = MarkdownTree["topNode"]
 
-const markdownTextEvents = (source: string) =>
-  postprocess(
-    parse()
-      .text()
-      .write(preprocess()(source, "utf8", true)),
-  )
+interface ParserElement {
+  readonly type: number
+  readonly from: number
+  readonly to: number
+  readonly children: readonly ParserElement[]
+}
+
+const nodeId = (name: string): number =>
+  markdownParser.nodeSet.types.find((type) => type.name === name)?.id ?? -1
+
+const NODE = {
+  autolink: nodeId("Autolink"),
+  codeBlock: nodeId("CodeBlock"),
+  comment: nodeId("Comment"),
+  emphasisMark: nodeId("EmphasisMark"),
+  entity: nodeId("Entity"),
+  escape: nodeId("Escape"),
+  fencedCode: nodeId("FencedCode"),
+  hardBreak: nodeId("HardBreak"),
+  headerMark: nodeId("HeaderMark"),
+  horizontalRule: nodeId("HorizontalRule"),
+  htmlBlock: nodeId("HTMLBlock"),
+  htmlTag: nodeId("HTMLTag"),
+  image: nodeId("Image"),
+  inlineCode: nodeId("InlineCode"),
+  link: nodeId("Link"),
+  linkLabel: nodeId("LinkLabel"),
+  linkMark: nodeId("LinkMark"),
+  linkReference: nodeId("LinkReference"),
+  linkTitle: nodeId("LinkTitle"),
+  listMark: nodeId("ListMark"),
+  processingInstruction: nodeId("ProcessingInstruction"),
+  quoteMark: nodeId("QuoteMark"),
+  url: nodeId("URL"),
+} as const
 
 const markRange = (mask: Uint8Array, start: number, end: number): void => {
   mask.fill(1, Math.max(0, start), Math.min(mask.length, end))
@@ -51,17 +73,6 @@ const normalizedIdentifier = (value: string): string =>
     .replace(/^ | $/g, "")
     .toLowerCase()
     .toUpperCase()
-
-interface AnalysisState {
-  readonly source: string
-  readonly parseLines: readonly string[]
-  readonly sourceLineStarts: readonly number[]
-  readonly lineAtOffset: Int32Array
-  readonly proseMask: Uint8Array
-  readonly structuralMask: Uint8Array
-  readonly dictionaryMask: Uint8Array
-  readonly structuralBlanks: boolean[]
-}
 
 const createAnalysisState = (source: string, parseLines: readonly string[]): AnalysisState => {
   const sourceLineStarts: number[] = []
@@ -98,377 +109,42 @@ const markCode = (state: AnalysisState, start: number, end: number, block: boole
   for (let line = firstLine; line <= lastLine; line++) state.structuralBlanks[line] = true
 }
 
-const MICROMARK_DICTIONARY_TOKENS = new Set([
-  "atxHeadingSequence",
-  "autolink",
-  "blockQuotePrefix",
-  "characterReference",
-  "definition",
-  "emphasisSequence",
-  "escapeMarker",
-  "hardBreakEscape",
-  "hardBreakTrailing",
-  "htmlText",
-  "labelImageMarker",
-  "labelMarker",
-  "listItemIndent",
-  "listItemPrefix",
-  "reference",
-  "resource",
-  "setextHeadingLine",
-  "strongSequence",
-  "thematicBreak",
-])
-
-const MICROMARK_CODE_TOKENS = new Set(["codeFenced", "codeIndented", "codeText"])
-const MICROMARK_BLOCK_CODE_TOKENS = new Set(["codeFenced", "codeIndented"])
-const MICROMARK_CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
-
-const markOrdinaryHtml = (state: AnalysisState, start: number, end: number): void => {
-  const flowSource = state.source.slice(start, end)
-  for (const [phase, token] of markdownTextEvents(flowSource)) {
-    if (phase === "enter" && (token.type === "htmlText" || token.type === "characterReference")) {
-      markRange(state.dictionaryMask, start + token.start.offset, start + token.end.offset)
+const walkTree = (root: MarkdownNode, visit: (node: MarkdownNode) => boolean | undefined): void => {
+  const cursor = root.cursor()
+  for (;;) {
+    const descend = visit(cursor.node) !== false
+    if (descend && cursor.firstChild()) continue
+    while (!cursor.nextSibling()) {
+      if (!cursor.parent()) return
     }
   }
 }
 
-const analyzeWithMicromark = (state: AnalysisState): void => {
-  const events = markdownEvents(state.source)
-  const contentColumns = new Int32Array(state.parseLines.length).fill(1)
-
-  for (const [phase, token] of events) {
-    if (phase !== "enter") continue
-    if (MICROMARK_CONTAINER_TOKENS.has(token.type)) {
-      const lineIndex = token.start.line - 1
-      contentColumns[lineIndex] = Math.max(contentColumns[lineIndex] ?? 1, token.end.column)
-      markRange(state.proseMask, token.start.offset, token.end.offset)
-    }
-  }
-
-  const shortenedDefinitions = new Map<number, number>()
-  let definitionStart: number | undefined
-  let definitionLine = 0
-  let definitionContentColumn = 1
-  for (const [phase, token] of events) {
-    if (phase === "enter" && token.type === "definition") {
-      definitionStart = token.start.offset
-      definitionLine = token.start.line
-      definitionContentColumn = contentColumns[token.start.line - 1] ?? 1
-    } else if (
-      phase === "enter" &&
-      token.type === "definitionTitle" &&
-      definitionStart !== undefined &&
-      token.start.line > definitionLine &&
-      token.start.column <=
-        Math.max(definitionContentColumn, contentColumns[token.start.line - 1] ?? 1)
-    ) {
-      shortenedDefinitions.set(definitionStart, token.start.offset)
-    } else if (phase === "exit" && token.type === "definition") {
-      definitionStart = undefined
-    }
-  }
-
-  for (const [phase, token] of events) {
-    if (phase !== "enter") continue
-    const { start, end } = token
-    if (MICROMARK_CODE_TOKENS.has(token.type)) {
-      markCode(state, start.offset, end.offset, MICROMARK_BLOCK_CODE_TOKENS.has(token.type))
-    } else if (token.type === "definition") {
-      markRange(
-        state.dictionaryMask,
-        start.offset,
-        shortenedDefinitions.get(start.offset) ?? end.offset,
-      )
-    } else if (MICROMARK_DICTIONARY_TOKENS.has(token.type)) {
-      markRange(state.dictionaryMask, start.offset, end.offset)
-    } else if (token.type === "htmlFlow") {
-      const flowSource = state.source.slice(start.offset, end.offset)
-      if (RAW_HTML_FLOW_START.test(flowSource) && !RAW_HTML_FLOW_SELF_CLOSING.test(flowSource)) {
-        markRange(state.dictionaryMask, start.offset, end.offset)
-      } else {
-        markOrdinaryHtml(state, start.offset, end.offset)
-      }
-    }
-  }
+const directChildren = (node: MarkdownNode): readonly MarkdownNode[] => {
+  const children: MarkdownNode[] = []
+  for (let child = node.firstChild; child !== null; child = child.nextSibling) children.push(child)
+  return children
 }
 
-const blockParser = new Parser()
-blockParser.setLanguage(Markdown)
-const inlineParser = new Parser()
-inlineParser.setLanguage(Markdown.inline)
-
-const walk = (
-  root: Parser.SyntaxNode,
-  visit: (node: Parser.SyntaxNode) => boolean | undefined,
-): void => {
-  const pending = [root]
-  while (pending.length > 0) {
-    const node = pending.pop()
-    if (node === undefined || visit(node) === false) continue
-    const children = node.children
-    for (let index = children.length - 1; index >= 0; index--) {
-      const child = children[index]
-      if (child !== undefined) pending.push(child)
-    }
-  }
+const labelIdentifier = (source: string, start: number, end: number): string | undefined => {
+  if (end - start > 999) return undefined
+  return normalizedIdentifier(source.slice(start, end))
 }
 
-const TREE_CONTAINER_TOKENS = new Set([
-  "block_quote_marker",
-  "list_marker_dot",
-  "list_marker_minus",
-  "list_marker_parenthesis",
-  "list_marker_plus",
-  "list_marker_star",
-])
-const TREE_CODE_TOKENS = new Set(["fenced_code_block", "indented_code_block"])
-const TREE_REFERENCE_TOKENS = new Set([
-  "collapsed_reference_link",
-  "full_reference_link",
-  "shortcut_link",
-])
-const TREE_AUTOLINK_TOKENS = new Set(["email_autolink", "uri_autolink"])
-const TREE_ENTITY_TOKENS = new Set(["entity_reference", "numeric_character_reference"])
-const TREE_MARKER_TOKENS = new Set(["emphasis_delimiter", "hard_line_break"])
-const TREE_LINK_MARKERS = new Set(["!", "[", "]", "(", ")"])
-
-const contentOfLabel = (source: string, node: Parser.SyntaxNode): string => {
-  const value = source.slice(node.startIndex, node.endIndex)
-  return value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value
-}
-
-const visibleReferenceLabel = (source: string, node: Parser.SyntaxNode): string => {
-  const explicit = node.children.find((child) => child.type === "link_label")
-  if (explicit !== undefined && explicit.endIndex - explicit.startIndex > 2) {
-    return contentOfLabel(source, explicit)
-  }
-  const visible = node.children.find(
-    (child) => child.type === "link_text" || child.type === "image_description",
-  )
-  return visible === undefined ? "" : source.slice(visible.startIndex, visible.endIndex)
-}
-
-const markTreeLink = (
-  state: AnalysisState,
+const referenceIdentifier = (
   source: string,
-  node: Parser.SyntaxNode,
-  base: number,
-  definedIdentifiers: ReadonlySet<string>,
-): void => {
-  const reference = TREE_REFERENCE_TOKENS.has(node.type) || node.type === "image"
-  const hasResource = node.children.some(
-    (child) => child.type === "link_destination" || child.type === "link_title",
-  )
-  const hasReferenceLabel = node.children.some((child) => child.type === "link_label")
-  const resolved =
-    hasResource ||
-    ((reference || hasReferenceLabel) &&
-      definedIdentifiers.has(normalizedIdentifier(visibleReferenceLabel(source, node))))
-
-  if (!resolved) return
-
-  for (const child of node.children) {
-    const start = base + child.startIndex
-    const end = base + child.endIndex
-    if (
-      child.type === "link_destination" ||
-      child.type === "link_title" ||
-      child.type === "link_label"
-    ) {
-      markRange(state.dictionaryMask, start, end)
-    } else if (TREE_LINK_MARKERS.has(child.type)) {
-      markRange(state.dictionaryMask, start, end)
-    }
-  }
-}
-
-const needsLezerInline = (root: Parser.SyntaxNode): boolean => {
-  let needed = false
-  walk(root, (node) => {
-    const children = node.children
-    let shortcutResource = false
-    for (let index = 0; index < children.length; index++) {
-      const child = children[index]
-      const next = children[index + 1]
-      const afterNext = children[index + 2]
-      if (
-        child?.type === "shortcut_link" &&
-        next?.type === "(" &&
-        child.endIndex === next.startIndex
-      ) {
-        shortcutResource = true
-      } else if (shortcutResource && child?.type === ")") {
-        needed = true
-        return false
-      } else if (child?.type === "]" && next?.type === "(" && afterNext?.type === ")") {
-        needed = true
-        return false
-      }
-    }
-    return needed ? false : undefined
-  })
-  return needed
-}
-
-const LEZER_INLINE_LIMIT = 50_000
-const commonmarkParser = new CommonmarkParser()
-
-const markLezerInline = (state: AnalysisState, source: string, base: number): boolean => {
-  if (source.length > LEZER_INLINE_LIMIT) return false
-  const cursor = lezerMarkdownParser.parse(source).cursor()
-  do {
-    if (cursor.name === "LinkMark" || cursor.name === "URL" || cursor.name === "LinkTitle") {
-      markRange(state.dictionaryMask, base + cursor.from, base + cursor.to)
-    }
-  } while (cursor.next())
-  return true
-}
-
-const parserEmptyResourceRanges = (root: Parser.SyntaxNode): readonly SourceRange[] => {
-  const ranges: SourceRange[] = []
-  walk(root, (node) => {
-    const children = node.children
-    for (let index = 0; index < children.length - 2; index++) {
-      const labelEnd = children[index]
-      const opening = children[index + 1]
-      const closing = children[index + 2]
-      if (labelEnd?.type === "]" && opening?.type === "(" && closing?.type === ")") {
-        ranges.push({ start: labelEnd.startIndex, end: closing.endIndex })
-      }
-    }
-  })
-  return ranges.sort((left, right) => left.start - right.start)
-}
-
-const countTreeResources = (
-  root: Parser.SyntaxNode,
-  source: string,
-  definedIdentifiers: ReadonlySet<string>,
-): number => {
-  let resources = 0
-  walk(root, (node) => {
-    if (node.type === "link_destination" || TREE_AUTOLINK_TOKENS.has(node.type)) {
-      resources++
-    } else if (
-      (TREE_REFERENCE_TOKENS.has(node.type) || node.type === "image") &&
-      !node.children.some((child) => child.type === "link_destination") &&
-      definedIdentifiers.has(normalizedIdentifier(visibleReferenceLabel(source, node)))
-    ) {
-      resources++
-    }
-  })
-  return resources
-}
-
-const markCommonmarkResources = (
-  state: AnalysisState,
-  source: string,
-  base: number,
-  root: Parser.SyntaxNode,
-  definedIdentifiers: ReadonlySet<string>,
-): void => {
-  let resources = 0
-  const walker = commonmarkParser.parse(source).walker()
-  let event = walker.next()
-  while (event !== null) {
-    if (event.entering && (event.node.type === "link" || event.node.type === "image")) resources++
-    event = walker.next()
+  children: readonly MarkdownNode[],
+): string | undefined => {
+  const explicit = children.find((child) => child.type.id === NODE.linkLabel)
+  if (explicit !== undefined && explicit.to - explicit.from > 2) {
+    return labelIdentifier(source, explicit.from + 1, explicit.to - 1)
   }
 
-  const missingResources = Math.max(
-    0,
-    resources - countTreeResources(root, source, definedIdentifiers),
-  )
-  const ranges = parserEmptyResourceRanges(root)
-  for (let index = 0; index < Math.min(missingResources, ranges.length); index++) {
-    const range = ranges[index]
-    if (range !== undefined) markRange(state.dictionaryMask, base + range.start, base + range.end)
-  }
-}
-
-const markInlineTree = (
-  state: AnalysisState,
-  source: string,
-  base: number,
-  definedIdentifiers: ReadonlySet<string>,
-): void => {
-  const tree = inlineParser.parse(source, undefined, { bufferSize: source.length + 1 })
-  walk(tree.rootNode, (node) => {
-    const start = base + node.startIndex
-    const end = base + node.endIndex
-    if (node.type === "code_span") {
-      markCode(state, start, end, false)
-      return false
-    }
-    if (
-      node.type === "inline_link" ||
-      node.type === "image" ||
-      TREE_REFERENCE_TOKENS.has(node.type)
-    ) {
-      markTreeLink(state, source, node, base, definedIdentifiers)
-    }
-    if (
-      TREE_AUTOLINK_TOKENS.has(node.type) ||
-      TREE_ENTITY_TOKENS.has(node.type) ||
-      node.type === "html_tag" ||
-      node.type === "link_destination" ||
-      node.type === "link_title"
-    ) {
-      markRange(state.dictionaryMask, start, end)
-      return false
-    }
-    if (TREE_MARKER_TOKENS.has(node.type)) {
-      markRange(state.dictionaryMask, start, end)
-    } else if (node.type === "backslash_escape") {
-      markRange(state.dictionaryMask, start, Math.min(start + 1, end))
-    }
-  })
-  if (needsLezerInline(tree.rootNode) && !markLezerInline(state, source, base)) {
-    markCommonmarkResources(state, source, base, tree.rootNode, definedIdentifiers)
-  }
-}
-
-const markHtmlTree = (state: AnalysisState, source: string, base: number): void => {
-  const tree = inlineParser.parse(source, undefined, { bufferSize: source.length + 1 })
-  walk(tree.rootNode, (node) => {
-    if (node.type === "html_tag" || TREE_ENTITY_TOKENS.has(node.type)) {
-      markRange(state.dictionaryMask, base + node.startIndex, base + node.endIndex)
-      return false
-    }
-  })
-}
-
-const analyzeCodeWithTreeSitter = (state: AnalysisState): void => {
-  const tree = blockParser.parse(state.source, undefined, {
-    bufferSize: state.source.length + 1,
-  })
-  const inlineRanges: SourceRange[] = []
-
-  walk(tree.rootNode, (node) => {
-    if (TREE_CODE_TOKENS.has(node.type)) {
-      markCode(state, node.startIndex, node.endIndex, true)
-      return false
-    }
-    if (TREE_CONTAINER_TOKENS.has(node.type)) {
-      markRange(state.proseMask, node.startIndex, node.endIndex)
-    } else if (node.type === "inline") {
-      inlineRanges.push({ start: node.startIndex, end: node.endIndex })
-      return false
-    }
-  })
-
-  for (const range of inlineRanges) {
-    const source = state.source.slice(range.start, range.end)
-    if (!source.includes("`")) continue
-    const inlineTree = inlineParser.parse(source, undefined, { bufferSize: source.length + 1 })
-    walk(inlineTree.rootNode, (node) => {
-      if (node.type === "code_span") {
-        markCode(state, range.start + node.startIndex, range.start + node.endIndex, false)
-        return false
-      }
-    })
-  }
+  const marks = children.filter((child) => child.type.id === NODE.linkMark)
+  const opening = marks[0]
+  const closing = marks[1]
+  if (opening === undefined || closing === undefined) return undefined
+  return labelIdentifier(source, opening.to, closing.from)
 }
 
 const virtualColumn = (line: string, sourceColumn: number): number => {
@@ -479,71 +155,181 @@ const virtualColumn = (line: string, sourceColumn: number): number => {
   return column
 }
 
-const analyzeWithTreeSitter = (state: AnalysisState): void => {
-  // Disable Tree-sitter's task-marker ambiguity without changing any source offsets.
-  const blockSource = state.source.replace(/^([ \t]{0,3})\[x\](?=:)/gimu, "$1[a]")
-  const tree = blockParser.parse(blockSource, undefined, {
-    bufferSize: blockSource.length + 1,
-  })
+const sourceColumn = (state: AnalysisState, offset: number): number => {
+  const line = state.lineAtOffset[Math.min(offset, state.source.length)] ?? 0
+  return virtualColumn(
+    state.parseLines[line] ?? "",
+    offset - (state.sourceLineStarts[line] ?? 0),
+  )
+}
+
+const definitionMaskEnd = (state: AnalysisState, node: MarkdownNode): number => {
+  const title = directChildren(node).find((child) => child.type.id === NODE.linkTitle)
+  if (title === undefined) return node.to
+
+  const definitionLine = state.lineAtOffset[Math.min(node.from, state.source.length)] ?? 0
+  const titleLine = state.lineAtOffset[Math.min(title.from, state.source.length)] ?? definitionLine
+  if (titleLine > definitionLine && sourceColumn(state, title.from) <= sourceColumn(state, node.from)) {
+    return title.from
+  }
+  return node.to
+}
+
+const markLink = (
+  state: AnalysisState,
+  node: MarkdownNode,
+  definitions: ReadonlySet<string>,
+): void => {
+  const children = directChildren(node)
+  const marks = children.filter((child) => child.type.id === NODE.linkMark)
+  const hasResource =
+    children.some((child) => child.type.id === NODE.url || child.type.id === NODE.linkTitle) ||
+    marks.length >= 4
+  const identifier = hasResource ? undefined : referenceIdentifier(state.source, children)
+  if (!hasResource && (identifier === undefined || !definitions.has(identifier))) return
+
+  for (const child of children) {
+    if (
+      child.type.id === NODE.linkMark ||
+      child.type.id === NODE.linkLabel ||
+      child.type.id === NODE.url ||
+      child.type.id === NODE.linkTitle
+    ) {
+      markRange(state.dictionaryMask, child.from, child.to)
+    }
+  }
+}
+
+const rawContentTag = (tag: string): boolean => {
+  const lower = tag.toLowerCase()
+  for (const name of ["pre", "script", "style", "textarea"]) {
+    if (!lower.startsWith(`<${name}`)) continue
+    const boundary = lower[name.length + 1]
+    if (boundary === undefined || boundary === ">" || boundary === "/" || /\s/u.test(boundary)) {
+      return true
+    }
+  }
+  return false
+}
+
+const selfClosingTag = (tag: string): boolean => {
+  let index = tag.length - 2
+  while (index >= 0 && /\s/u.test(tag[index] ?? "")) index--
+  return tag[index] === "/"
+}
+
+const htmlElements = (source: string, start: number, end: number): readonly ParserElement[] =>
+  markdownParser.parseInline(source.slice(start, end), start) as readonly ParserElement[]
+
+const markHtmlBlock = (state: AnalysisState, start: number, end: number): void => {
+  const pending = [...htmlElements(state.source, start, end)]
+  const syntax: ParserElement[] = []
+  let firstTag: ParserElement | undefined
+
+  while (pending.length > 0) {
+    const element = pending.pop()
+    if (element === undefined) continue
+    if (element.type === NODE.htmlTag && (firstTag === undefined || element.from < firstTag.from)) {
+      firstTag = element
+    }
+    if (
+      element.type === NODE.htmlTag ||
+      element.type === NODE.entity ||
+      element.type === NODE.comment ||
+      element.type === NODE.processingInstruction
+    ) {
+      syntax.push(element)
+    }
+    for (const child of element.children) pending.push(child)
+  }
+
+  if (firstTag !== undefined) {
+    const tag = state.source.slice(firstTag.from, firstTag.to)
+    if (firstTag.from === start && rawContentTag(tag) && !selfClosingTag(tag)) {
+      markRange(state.dictionaryMask, start, end)
+      return
+    }
+  }
+
+  for (const element of syntax) markRange(state.dictionaryMask, element.from, element.to)
+}
+
+const collectDefinitions = (source: string, root: MarkdownNode): ReadonlySet<string> => {
   const definitions = new Set<string>()
-  const inlineRanges: SourceRange[] = []
-  const ordinaryHtmlRanges: SourceRange[] = []
-  const contentColumns = new Int32Array(state.parseLines.length)
+  walkTree(root, (node) => {
+    if (node.type.id !== NODE.linkReference) return
+    const label = directChildren(node).find((child) => child.type.id === NODE.linkLabel)
+    if (label !== undefined) {
+      const identifier = labelIdentifier(source, label.from + 1, label.to - 1)
+      if (identifier !== undefined) definitions.add(identifier)
+    }
+    return false
+  })
+  return definitions
+}
 
-  walk(tree.rootNode, (node) => {
-    if (TREE_CODE_TOKENS.has(node.type)) {
-      markCode(state, node.startIndex, node.endIndex, true)
+const CODE_BLOCKS = new Set([NODE.codeBlock, NODE.fencedCode])
+const CONTAINER_MARKS = new Set([NODE.quoteMark, NODE.listMark])
+const DICTIONARY_NODES = new Set([
+  NODE.autolink,
+  NODE.comment,
+  NODE.entity,
+  NODE.htmlTag,
+  NODE.processingInstruction,
+  NODE.hardBreak,
+  NODE.headerMark,
+  NODE.horizontalRule,
+  NODE.emphasisMark,
+])
+
+const analyzeTree = (state: AnalysisState, includeDictionary: boolean): void => {
+  const tree = markdownParser.parse(state.source)
+  const definitions = includeDictionary
+    ? collectDefinitions(state.source, tree.topNode)
+    : new Set<string>()
+
+  walkTree(tree.topNode, (node) => {
+    if (CODE_BLOCKS.has(node.type.id)) {
+      markCode(state, node.from, node.to, true)
       return false
     }
-    if (TREE_CONTAINER_TOKENS.has(node.type)) {
-      const line = node.endPosition.row
-      const column = virtualColumn(state.parseLines[line] ?? "", node.endPosition.column)
-      contentColumns[line] = Math.max(contentColumns[line] ?? 0, column)
-      markRange(state.proseMask, node.startIndex, node.endIndex)
-      markRange(state.dictionaryMask, node.startIndex, node.endIndex)
-    } else if (node.type === "link_reference_definition") {
-      const label = node.children.find((child) => child.type === "link_label")
-      if (label !== undefined) {
-        definitions.add(normalizedIdentifier(contentOfLabel(state.source, label)))
-      }
-      const title = node.children.find((child) => child.type === "link_title")
-      const maskEnd =
-        title !== undefined &&
-        title.startPosition.row > node.startPosition.row &&
-        virtualColumn(
-          state.parseLines[title.startPosition.row] ?? "",
-          title.startPosition.column,
-        ) <=
-          Math.max(
-            contentColumns[node.startPosition.row] ?? 0,
-            contentColumns[title.startPosition.row] ?? 0,
-          )
-          ? title.startIndex
-          : node.endIndex
-      markRange(state.dictionaryMask, node.startIndex, maskEnd)
+    if (node.type.id === NODE.inlineCode) {
+      markCode(state, node.from, node.to, false)
       return false
-    } else if (node.type === "inline") {
-      inlineRanges.push({ start: node.startIndex, end: node.endIndex })
+    }
+    if (CONTAINER_MARKS.has(node.type.id)) {
+      const siblingStart = node.nextSibling?.from ?? node.to
+      const end =
+        siblingStart > node.to && state.source.slice(node.to, siblingStart).trim() === ""
+          ? siblingStart
+          : node.to
+      markRange(state.proseMask, node.from, end)
+      if (includeDictionary) markRange(state.dictionaryMask, node.from, end)
+      return
+    }
+    if (!includeDictionary) return
+
+    if (node.type.id === NODE.linkReference) {
+      markRange(state.dictionaryMask, node.from, definitionMaskEnd(state, node))
       return false
-    } else if (node.type === "html_block") {
-      const html = state.source.slice(node.startIndex, node.endIndex)
-      if (RAW_HTML_FLOW_START.test(html) && !RAW_HTML_FLOW_SELF_CLOSING.test(html)) {
-        markRange(state.dictionaryMask, node.startIndex, node.endIndex)
-      } else {
-        ordinaryHtmlRanges.push({ start: node.startIndex, end: node.endIndex })
-      }
+    }
+    if (node.type.id === NODE.link || node.type.id === NODE.image) {
+      markLink(state, node, definitions)
+      return
+    }
+    if (node.type.id === NODE.htmlBlock) {
+      markHtmlBlock(state, node.from, node.to)
       return false
-    } else if (node.type === "thematic_break" || /^atx_h[1-6]_marker$/.test(node.type)) {
-      markRange(state.dictionaryMask, node.startIndex, node.endIndex)
+    }
+    if (node.type.id === NODE.escape) {
+      markRange(state.dictionaryMask, node.from, Math.min(node.from + 1, node.to))
+      return false
+    }
+    if (DICTIONARY_NODES.has(node.type.id)) {
+      markRange(state.dictionaryMask, node.from, node.to)
+      return false
     }
   })
-
-  for (const range of inlineRanges) {
-    markInlineTree(state, state.source.slice(range.start, range.end), range.start, definitions)
-  }
-  for (const range of ordinaryHtmlRanges) {
-    markHtmlTree(state, state.source.slice(range.start, range.end), range.start)
-  }
 }
 
 const applyMask = (
@@ -579,12 +365,9 @@ const analyzeMarkdown = (
   const parseLines = lines.map((line, index) => line.slice(starts[index]))
   const source = parseLines.join("\n")
   const state = createAnalysisState(source, parseLines)
+  analyzeTree(state, includeDictionary)
 
-  if (source.length <= MICROMARK_SOURCE_LIMIT) analyzeWithMicromark(state)
-  else if (includeDictionary) analyzeWithTreeSitter(state)
-  else analyzeCodeWithTreeSitter(state)
-
-  const analysis = {
+  return {
     lines: applyMask(lines, starts, parseLines, state.sourceLineStarts, state.proseMask),
     structuralLines: applyMask(
       lines,
@@ -602,7 +385,6 @@ const analyzeMarkdown = (
     ),
     structuralBlanks: state.structuralBlanks,
   }
-  return analysis
 }
 
 export function blankMarkdownForLint(
@@ -646,9 +428,14 @@ export function blankMarkdownDestinations(
 export function blankInlineCode(lines: readonly string[]): string[] {
   const source = lines.join("\n")
   const mask = new Uint8Array(source.length)
-  for (const [phase, token] of markdownTextEvents(source)) {
-    if (phase === "enter" && token.type === "codeText") {
-      markRange(mask, token.start.offset, token.end.offset)
+  const pending = [...(markdownParser.parseInline(source, 0) as readonly ParserElement[])]
+  while (pending.length > 0) {
+    const element = pending.pop()
+    if (element === undefined) continue
+    if (element.type === NODE.inlineCode) {
+      markRange(mask, element.from, element.to)
+    } else {
+      for (const child of element.children) pending.push(child)
     }
   }
 
