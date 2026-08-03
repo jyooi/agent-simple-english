@@ -1,5 +1,5 @@
 import { parse, postprocess, preprocess } from "micromark"
-import { htmlRawNames } from "micromark-util-html-tag-name"
+import { markdownSyntaxExtension } from "./markdown-syntax.ts"
 
 interface MarkdownAnalysis {
   readonly lines: string[]
@@ -30,23 +30,48 @@ interface SourceRange {
   readonly end: number
 }
 
-const withoutLinks = {
-  disable: { null: ["labelEnd", "labelStartImage", "labelStartLink"] },
+const parserInput = (source: string): { readonly source: string; readonly offset: number } =>
+  source.charCodeAt(0) === 0xfeff
+    ? { source: source.slice(1), offset: 1 }
+    : { source, offset: 0 }
+
+const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
+  events: Events,
+  offset: number,
+): Events => {
+  if (offset === 0) return events
+
+  const points = new Set<object>()
+  for (const [, token] of events) {
+    for (const point of [token.start, token.end]) {
+      if (points.has(point)) continue
+      points.add(point)
+      point.offset += offset
+      if (point.line === 1) point.column += offset
+    }
+  }
+  return events
 }
 
-const markdownEvents = (source: string, includeLinks: boolean) =>
-  postprocess(
-    parse(includeLinks ? undefined : { extensions: [withoutLinks] })
+const markdownEvents = (source: string) => {
+  const input = parserInput(source)
+  const events = postprocess(
+    parse({ extensions: [markdownSyntaxExtension] })
       .document()
-      .write(preprocess()(source, undefined, true)),
+      .write(preprocess()(input.source, undefined, true)),
   )
+  return translateParserOffsets(events, input.offset)
+}
 
-const markdownTextEvents = (source: string) =>
-  postprocess(
-    parse({ extensions: [withoutLinks] })
+const markdownTextEvents = (source: string) => {
+  const input = parserInput(source)
+  const events = postprocess(
+    parse({ extensions: [markdownSyntaxExtension] })
       .text()
-      .write(preprocess()(source, undefined, true)),
+      .write(preprocess()(input.source, undefined, true)),
   )
+  return translateParserOffsets(events, input.offset)
+}
 
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
@@ -164,55 +189,20 @@ const enteredRanges = (
   return ranges
 }
 
-const rangesWithin = (
-  ranges: readonly SourceRange[],
-  container: SourceRange,
-): readonly SourceRange[] => {
-  const matches: SourceRange[] = []
-  for (const range of ranges) {
-    if (range.start >= container.end) break
-    if (range.start >= container.start && range.end <= container.end) matches.push(range)
-  }
-  return matches
-}
-
-const rawHtmlOpening = (
-  source: string,
-  flow: SourceRange,
-  syntax: readonly SourceRange[],
-): SourceRange | undefined => {
-  const opening = syntax.find(
-    (range) => range.start >= flow.start && source.charCodeAt(range.start) === 60,
-  )
-  if (opening === undefined) return undefined
-
-  const tag = source.slice(opening.start, opening.end).toLowerCase()
-  for (const name of htmlRawNames) {
-    const prefix = `<${name}`
-    if (!tag.startsWith(prefix)) continue
-    const boundary = tag[prefix.length]
-    if (boundary === undefined || "\t\n\r\f />".includes(boundary)) return opening
-  }
-  return undefined
-}
-
 const markHtmlFlows = (
   state: AnalysisState,
   htmlFlows: readonly SourceRange[],
   textEvents: MarkdownEvents,
 ): void => {
   const syntax = enteredRanges(textEvents, HTML_SYNTAX_TOKENS)
+  let syntaxIndex = 0
 
   for (const flow of htmlFlows) {
-    const flowSyntax = rangesWithin(syntax, flow)
-    const opening = rawHtmlOpening(state.source, flow, flowSyntax)
-    const selfClosing =
-      opening !== undefined && state.source.charCodeAt(opening.end - 2) === 47
-
-    if (opening !== undefined && !selfClosing) {
-      markRange(state.dictionaryMask, flow.start, flow.end)
-    } else {
-      for (const range of flowSyntax) {
+    while ((syntax[syntaxIndex]?.end ?? Number.POSITIVE_INFINITY) <= flow.start) syntaxIndex++
+    for (let index = syntaxIndex; index < syntax.length; index++) {
+      const range = syntax[index]
+      if (range === undefined || range.start >= flow.end) break
+      if (range.start >= flow.start && range.end <= flow.end) {
         markRange(state.dictionaryMask, range.start, range.end)
       }
     }
@@ -220,7 +210,7 @@ const markHtmlFlows = (
 }
 
 const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void => {
-  const events = markdownEvents(state.source, includeDictionary)
+  const events = markdownEvents(state.source)
   const definitionEnds = includeDictionary ? definitionMaskEnds(events) : new Map<number, number>()
   const htmlFlows: SourceRange[] = []
 
@@ -250,6 +240,8 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
         token.start.offset,
         definitionEnds.get(token.start.offset) ?? token.end.offset,
       )
+    } else if (token.type === "htmlRawFlow") {
+      markRange(state.dictionaryMask, token.start.offset, token.end.offset)
     } else if (token.type === "htmlFlow") {
       htmlFlows.push({ start: token.start.offset, end: token.end.offset })
     } else if (DICTIONARY_TOKENS.has(token.type)) {

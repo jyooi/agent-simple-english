@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest"
-import { blankMarkdownDestinations } from "../../src/engine/markdown.ts"
+import {
+  blankMarkdownCode,
+  blankMarkdownDestinations,
+} from "../../src/engine/markdown.ts"
 
 const parserThresholdPrefix = `${"Alphaword ".repeat(1_100)}\n\n`
 
@@ -120,12 +123,32 @@ describe("Markdown parser masking", () => {
     ])
   })
 
-  test("retains prose after a parser-classified self-closing raw tag", () => {
+  test("uses the complete grammar when link destinations contain backticks", () => {
+    const input = "[Alpha](target`) Betaword `"
+
+    expect(blankMarkdownCode([input])).toEqual([input])
+  })
+
+  test("masks parser-classified malformed raw-content blocks", () => {
+    const input = "<script =bad>\nBetaword\n</script>"
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      " ".repeat(13),
+      " ".repeat(8),
+      " ".repeat(9),
+    ])
+  })
+
+  test("keeps parser offsets aligned after a byte order mark", () => {
+    expect(blankMarkdownCode(["\ufeff`Betaword`"])).toEqual([`\ufeff${" ".repeat(10)}`])
+  })
+
+  test("masks self-closing syntax in a parser-classified raw-content block", () => {
     const input = '<script data=">"/>\nBetaword'
 
     expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
       " ".repeat(18),
-      "Betaword",
+      " ".repeat(8),
     ])
   })
 })
