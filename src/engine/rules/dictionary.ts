@@ -1,5 +1,5 @@
 import { DICTIONARY_TOKEN_SOURCE } from "../../dictionary/form.ts"
-import type { Dictionary, DictionaryEntry } from "../../dictionary/schema.ts"
+import type { Dictionary, DictionaryData, DictionaryEntry } from "../../dictionary/schema.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
 
@@ -14,6 +14,10 @@ interface Form {
   readonly entry: DictionaryEntry
   readonly words: readonly string[]
 }
+
+export type CompiledDictionary =
+  | { readonly mode: "approved-words"; readonly approvedWords: ReadonlySet<string> }
+  | { readonly mode: "not-approved"; readonly forms: readonly Form[] }
 
 interface MarkdownContext {
   readonly contentStart: number
@@ -49,6 +53,14 @@ const compileForms = (dictionary: Dictionary): readonly Form[] =>
       entry.unapproved.map((form) => ({ entry, words: form.toLowerCase().split(/\s+/) })),
     )
     .sort((left, right) => right.words.length - left.words.length)
+
+export const compileDictionary = (dictionary: DictionaryData): CompiledDictionary =>
+  "approvedWords" in dictionary
+    ? {
+        mode: "approved-words",
+        approvedWords: new Set(dictionary.approvedWords.map((word) => word.toLowerCase())),
+      }
+    : { mode: "not-approved", forms: compileForms(dictionary) }
 
 const markdownContext = (line: string, initialContentStart = 0): MarkdownContext => {
   let contentStart = Math.min(initialContentStart, line.length)
@@ -212,13 +224,36 @@ const messageFor = (suggestions: readonly string[], found: string): string => {
   return `Use ${alternatives}, not "${found}".`
 }
 
+const approvedWordRule = (
+  lines: readonly string[],
+  approvedWords: ReadonlySet<string>,
+): Violation[] =>
+  tokenize(lines).flatMap((token) =>
+    approvedWords.has(token.lower)
+      ? []
+      : [
+          {
+            ruleId: "dictionary-not-approved-word" as const,
+            severity: "hard" as const,
+            message: `"${token.text}" is not in the approved-word list.`,
+            suggestions: [],
+            line: token.lineIndex + 1,
+            column: token.offset + 1,
+          },
+        ],
+  )
+
 export function dictionaryRule(
   lines: readonly string[],
-  dictionary: Dictionary,
+  dictionary: CompiledDictionary,
   tagger?: Tagger,
   contentStarts: readonly number[] = lines.map(() => 0),
+  proseLines: readonly string[] = lines,
 ): Violation[] {
-  const forms = compileForms(dictionary)
+  if (dictionary.mode === "approved-words") {
+    return approvedWordRule(proseLines, dictionary.approvedWords)
+  }
+  const forms = dictionary.forms
   const violations: Violation[] = []
   const contexts = markdownContexts(lines, contentStarts)
   const tokens = tokenize(lines)

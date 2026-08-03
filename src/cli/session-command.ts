@@ -2,7 +2,8 @@ import { resolve } from "node:path"
 import { Effect, Either } from "effect"
 import { formatFailedStatusSummary, formatStatusSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
-import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
+import { loadConfiguredDictionary } from "../dictionary/configured.ts"
+import { loadRuleData } from "../dictionary/load.ts"
 import {
   type SessionControl,
   getSessionControl,
@@ -47,7 +48,9 @@ function status(sessionId: string, cwd: string): Effect.Effect<string, Error> {
     const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
     const dictionaryResult = yield* Effect.either(
       Effect.all({
-        dictionary: loadDictionary(
+        dictionary: loadConfiguredDictionary(
+          configResult.right,
+          cwd,
           dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
         ),
         ruleData: loadRuleData(configResult.right.ruleDataExtensions, cwd),

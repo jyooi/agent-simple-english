@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
-import type { Dictionary } from "../../src/dictionary/schema.ts"
+import type { ApprovedWordList, Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const fixture = (name: string) =>
@@ -20,6 +20,17 @@ const dictionary = {
     { unapproved: ["prior to"], suggestions: ["before"] },
   ],
 } as const satisfies Dictionary
+
+const approvedWordList = {
+  formatVersion: 1,
+  source: {
+    name: "synthetic test fixture",
+    repository: "https://example.test/approved-words",
+    commit: "fixture",
+    path: "approved-words.json",
+  },
+  approvedWords: ["alphaword"],
+} as const satisfies ApprovedWordList
 
 describe("lint prose-file: diff-only linting via previousText", () => {
   const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(" ")
@@ -255,6 +266,23 @@ describe("lint prose-file: diff-only linting via previousText", () => {
       lint("prose-file", current, { previousText: previous, dictionary }).violations,
     ).toHaveLength(0)
   })
+
+  test.each([
+    ["changes", "old-target", "longer-target"],
+    ["adds", "", "target"],
+    ["removes", "target", ""],
+  ])(
+    "%s a link destination without reporting an existing allowlist violation",
+    (_description, previousTarget, currentTarget) => {
+      const previous = `[Alphaword](${previousTarget}) Betaword.`
+      const current = `[Alphaword](${currentTarget}) Betaword.`
+
+      expect(
+        lint("prose-file", current, { previousText: previous, dictionary: approvedWordList })
+          .violations,
+      ).toHaveLength(0)
+    },
+  )
 
   test("an excluded-code insertion does not select unrelated deletion-only prose", () => {
     const previous = `${words(15)}  ${words(15)}.\n\n\`\`\`\nconst oldValue = 1;\n\`\`\``

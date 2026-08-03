@@ -7,6 +7,7 @@ export interface SteConfig {
   readonly rules?: Partial<Readonly<Record<RuleId, RuleSetting>>>
   readonly maxSentenceWords?: number
   readonly ruleDataExtensions?: RuleDataExtensions
+  readonly approvedWordsPath?: string
 }
 
 const RuleSettingSchema = Schema.Literal("hard", "soft", "off").annotations({
@@ -39,6 +40,7 @@ const SteConfigSchema = Schema.Struct({
   rules: Schema.optional(RulesSchema),
   maxSentenceWords: Schema.optional(MaxSentenceWordsSchema),
   ruleDataExtensions: Schema.optional(RuleDataExtensionsSchema),
+  approvedWordsPath: Schema.optional(Schema.NonEmptyTrimmedString),
 })
 
 const decodeUnknown = Schema.decodeUnknown(SteConfigSchema, {

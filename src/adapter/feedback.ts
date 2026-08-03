@@ -8,7 +8,7 @@ function suggestedFix(violation: Violation): string {
   }
   const fixes: Readonly<Record<RuleId, string>> = {
     contraction: "Write the contracted words in full.",
-    "dictionary-not-approved-word": "Replace the unapproved word with an approved alternative.",
+    "dictionary-not-approved-word": "Use a word from the approved-word list.",
     hedging: "Delete the hedging phrase.",
     marketing: "Replace the phrase with factual language.",
     "paragraph-length": "Split the paragraph into shorter paragraphs.",

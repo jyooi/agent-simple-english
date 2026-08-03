@@ -20,9 +20,10 @@ import { formatViolations, violationDetails } from "../adapter/feedback.ts"
 import { formatStatusSummary, ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import type { SteConfig } from "../config/schema.ts"
-import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
+import { loadConfiguredDictionary } from "../dictionary/configured.ts"
+import { loadRuleData } from "../dictionary/load.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
-import type { Dictionary } from "../dictionary/schema.ts"
+import type { DictionaryData } from "../dictionary/schema.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
@@ -38,7 +39,7 @@ const COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
 
 interface SessionState {
   config: SteConfig
-  dictionary?: Dictionary
+  dictionary?: DictionaryData
   ruleData?: RuleData
   tagger?: Tagger
   enabled: boolean
@@ -655,7 +656,11 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     try {
       const loadedData = await Effect.runPromise(
         Effect.all({
-          dictionary: loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+          dictionary: loadConfiguredDictionary(
+            state.config,
+            ctx.cwd,
+            process.env.SIMPLE_ENGLISH_DICTIONARY,
+          ),
           ruleData: loadRuleData(state.config.ruleDataExtensions, ctx.cwd),
         }),
       )

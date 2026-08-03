@@ -15,6 +15,7 @@ describe("config schema", () => {
     const result = decode({
       rules: { "sentence-length": "soft" },
       maxSentenceWords: 20,
+      approvedWordsPath: "config/approved-words.json",
     })
 
     expect(result._tag).toBe("Right")
@@ -22,6 +23,7 @@ describe("config schema", () => {
       expect(result.right).toEqual({
         rules: { "sentence-length": "soft" },
         maxSentenceWords: 20,
+        approvedWordsPath: "config/approved-words.json",
       })
     }
   })
@@ -64,6 +66,13 @@ describe("config schema", () => {
       const message = expectDecodeError({ maxSentenceWords: bad })
       expect(message).toContain("maxSentenceWords")
       expect(message).toContain("positive integer")
+    }
+  })
+
+  test("approvedWordsPath must be a non-empty string", () => {
+    for (const bad of ["", "   ", 42]) {
+      const message = expectDecodeError({ approvedWordsPath: bad })
+      expect(message).toContain("approvedWordsPath")
     }
   })
 

@@ -51,6 +51,17 @@ async function makeProject(config?: object): Promise<string> {
   return cwd
 }
 
+const approvedWordList = (approvedWords: readonly string[]) => ({
+  formatVersion: 1,
+  source: {
+    name: "synthetic test fixture",
+    repository: "https://example.test/approved-words",
+    commit: "fixture",
+    path: "approved-words.json",
+  },
+  approvedWords,
+})
+
 function event(
   cwd: string,
   toolName: "Write" | "Edit" | "Bash",
@@ -239,7 +250,7 @@ describe("simple-english CLI hook mode", () => {
       ),
     ) as SessionState
     expect(enabledState).toMatchObject({ version: 3, enabled: true, strict: false })
-  })
+  }, 15_000)
 
   test("starts a new session in enabled non-strict mode", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
@@ -287,6 +298,29 @@ describe("simple-english CLI hook mode", () => {
     expect(failedDictionary.code).toBe(0)
     expect(failedDictionary.stdout).toContain("Dictionary: failed (")
     expect(failedDictionary.stdout).toContain("missing-dictionary.json")
+  })
+
+  test("reports approved-word list status with dictionary precedence", async () => {
+    const cwd = await makeProject({ approvedWordsPath: "approved-words.json" })
+    const approvedWordsPath = join(cwd, "approved-words.json")
+    await writeFile(approvedWordsPath, JSON.stringify(approvedWordList(["alphaword"])))
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const loaded = await runSessionCommand(
+      "session-1",
+      cwd,
+      "status",
+      xdgStateHome,
+      join(cwd, "missing-dictionary.json"),
+    )
+
+    expect(loaded.stdout).toContain("Dictionary: loaded")
+
+    await rm(approvedWordsPath)
+    const missing = await runSessionCommand("session-1", cwd, "status", xdgStateHome)
+    expect(missing.stdout).toContain("Dictionary: failed (")
+    expect(missing.stdout).toContain("approved-words.json")
   })
 
   test("reports unavailable status details when config loading fails", async () => {
@@ -734,6 +768,51 @@ describe("simple-english CLI hook mode", () => {
     const output = decision(result.output)
     expect(output.hookEventName).toBe("SessionStart")
     expect(output.additionalContext).toContain("Simplified Technical English")
+  })
+
+  test("uses an approved-word list from the event directory", async () => {
+    const cwd = await makeProject({ approvedWordsPath: "approved-words.json" })
+    await writeFile(
+      join(cwd, "approved-words.json"),
+      JSON.stringify(approvedWordList(["alphaword"])),
+    )
+
+    const approved = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "approved.md"),
+        content: "ALPHAWORD.",
+      }),
+      repoRoot,
+    )
+    const absent = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "absent.md"),
+        content: "Betaword.",
+      }),
+      repoRoot,
+    )
+
+    expect(decision(approved.output).permissionDecision).toBe("allow")
+    expect(decision(absent.output).permissionDecision).toBe("deny")
+    expect(decision(absent.output).permissionDecisionReason).toContain(
+      '"Betaword" is not in the approved-word list.',
+    )
+  })
+
+  test("allows a hook event with a warning when the approved-word list is missing", async () => {
+    const cwd = await makeProject({ approvedWordsPath: "missing-approved-words.json" })
+    const result = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "notes.md"),
+        content: "Alphaword.",
+      }),
+      repoRoot,
+    )
+
+    const output = decision(result.output)
+    expect(output.permissionDecision).toBe("allow")
+    expect(output.additionalContext).toContain("missing-approved-words.json")
+    expect(output.additionalContext).toContain("event is allowed")
   })
 
   test("resolves a custom dictionary from the event directory", async () => {

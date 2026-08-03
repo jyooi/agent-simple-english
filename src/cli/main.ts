@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises"
 import { Effect, Either } from "effect"
 import packageManifest from "../../package.json" with { type: "json" }
 import { loadConfig } from "../config/load.ts"
-import { loadDictionary, loadRuleData } from "../dictionary/load.ts"
+import { loadConfiguredDictionary } from "../dictionary/configured.ts"
+import { loadRuleData } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
@@ -180,9 +181,12 @@ const lintProgram = Effect.gen(function* () {
   }
   const config = yield* loadConfig(configPath)
   const loadedDictionary = yield* Effect.either(
-    loadDictionary(process.env.SIMPLE_ENGLISH_DICTIONARY),
+    loadConfiguredDictionary(config, process.cwd(), process.env.SIMPLE_ENGLISH_DICTIONARY),
   )
   const loadedRuleData = yield* Effect.either(loadRuleData(config.ruleDataExtensions))
+  if (Either.isLeft(loadedDictionary) && config.approvedWordsPath !== undefined) {
+    return yield* Effect.fail(loadedDictionary.left)
+  }
   const dictionary = Either.getOrUndefined(loadedDictionary)
   const ruleData = Either.getOrUndefined(loadedRuleData)
   if (Either.isLeft(loadedDictionary)) {

@@ -1,14 +1,13 @@
 import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
-import type { Dictionary } from "../dictionary/schema.ts"
 import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownCodeWithStructure } from "./markdown.ts"
+import { blankMarkdownCodeWithStructure, blankMarkdownDestinations } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
-import { dictionaryRule } from "./rules/dictionary.ts"
+import { type CompiledDictionary, compileDictionary, dictionaryRule } from "./rules/dictionary.ts"
 import { hedging } from "./rules/hedging.ts"
 import { marketing } from "./rules/marketing.ts"
 import { paragraphLength } from "./rules/paragraph-length.ts"
@@ -24,7 +23,7 @@ export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
-  readonly dictionary?: Dictionary
+  readonly dictionary?: CompiledDictionary
   readonly ruleData?: RuleData
   readonly tagger?: Tagger
 }
@@ -43,6 +42,7 @@ interface ProseRun extends ExtractedProse {
 
 interface PreparedProse {
   readonly lines: readonly string[]
+  readonly dictionaryLines: readonly string[]
   readonly structuralLines: readonly string[]
   readonly mechanicalLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
@@ -106,10 +106,18 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
   return wholeText(text)
 }
 
-const prepareProse = (extracted: ProseRun): PreparedProse => {
+const isApprovedWordMode = (dictionary: CompiledDictionary | undefined): boolean =>
+  dictionary?.mode === "approved-words"
+
+const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedProse => {
   const markdown = blankMarkdownCodeWithStructure(extracted.lines, extracted.contentStarts)
+  const lines = blankIdentifiers(markdown.lines)
+  const dictionaryLines = approvedWordMode
+    ? blankIdentifiers(blankMarkdownDestinations(extracted.lines, extracted.contentStarts))
+    : lines
   return {
-    lines: blankIdentifiers(markdown.lines),
+    lines,
+    dictionaryLines,
     structuralLines: blankIdentifiers(markdown.structuralLines),
     mechanicalLines: blankIdentifiers(
       extracted.lines.map((line, index) =>
@@ -233,12 +241,28 @@ const lintProse = (
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
-  const sentenceFindings = (violations: readonly Violation[]): ScopedViolation[] =>
+  const approvedWordMode = isApprovedWordMode(options.dictionary)
+  const dictionarySentenceIndex = approvedWordMode
+    ? indexSentenceScopes(
+        segmentSentences(
+          prepared.dictionaryLines,
+          prepared.dictionaryLines.join("\n"),
+          prepared.structuralBlanks,
+        ),
+        prepared.dictionaryLines.length,
+        sourceOffset,
+      )
+    : sentenceIndex
+  const sentenceFindings = (
+    violations: readonly Violation[],
+    findingSentenceIndex: SentenceScopeIndex = sentenceIndex,
+    findingLines: readonly string[] = prepared.structuralLines,
+  ): ScopedViolation[] =>
     violations.map((violation) => {
       const scope = scopeForViolation(
         violation,
-        sentenceIndex,
-        prepared.structuralLines,
+        findingSentenceIndex,
+        findingLines,
         offsets,
         sourceOffset,
       )
@@ -282,7 +306,10 @@ const lintProse = (
             options.dictionary,
             options.tagger,
             contentStarts,
+            prepared.dictionaryLines,
           ),
+          dictionarySentenceIndex,
+          approvedWordMode ? prepared.dictionaryLines : prepared.structuralLines,
         )),
     ...(options.tagger === undefined
       ? []
@@ -291,7 +318,12 @@ const lintProse = (
 }
 
 const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): ScopedViolation[] =>
-  lintProse(prepareProse(extracted), extracted.contentStarts, extracted.sourceOffset, options)
+  lintProse(
+    prepareProse(extracted, isApprovedWordMode(options.dictionary)),
+    extracted.contentStarts,
+    extracted.sourceOffset,
+    options,
+  )
 
 function configuredFinding(
   finding: ScopedViolation,
@@ -303,13 +335,12 @@ function configuredFinding(
   return { ...finding, violation: { ...finding.violation, severity: setting } }
 }
 
-function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedViolation[] {
-  const resolved: ResolvedOptions = {
-    maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
-    dictionary: options.dictionary,
-    ruleData: options.ruleData ?? BUNDLED_RULE_DATA,
-    tagger: options.tagger,
-  }
+function evaluate(
+  kind: LintKind,
+  text: string,
+  options: LintOptions,
+  resolved: ResolvedOptions,
+): ScopedViolation[] {
   return splitProseRuns(extract(kind, text, options))
     .flatMap((run) =>
       lintExtracted(run, resolved).map((finding) => ({
@@ -334,12 +365,19 @@ function evaluate(kind: LintKind, text: string, options: LintOptions): ScopedVio
 }
 
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
-  const current = evaluate(kind, text, options)
+  const resolved: ResolvedOptions = {
+    maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
+    dictionary:
+      options.dictionary === undefined ? undefined : compileDictionary(options.dictionary),
+    ruleData: options.ruleData ?? BUNDLED_RULE_DATA,
+    tagger: options.tagger,
+  }
+  const current = evaluate(kind, text, options, resolved)
   const findings =
     options.previousText === undefined
       ? current
       : newFindings(
-          evaluate(kind, options.previousText, options),
+          evaluate(kind, options.previousText, options, resolved),
           current,
           changedText(options.previousText, text).retained,
         )
