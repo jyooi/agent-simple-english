@@ -75,11 +75,39 @@ describe("Markdown parser masking", () => {
     },
   )
 
+  test("accepts labels at the CommonMark size limit", () => {
+    const text = `[${"x".repeat(999)}]: /Betaword`
+
+    expect(maskAfterThreshold(text)).toBe(" ".repeat(text.length))
+  })
+
   test("retains labels beyond the CommonMark size limit", () => {
     const label = "x".repeat(1_000)
     const text = `[${label}]: /Betaword`
 
     expect(maskAfterThreshold(text)).toBe(text)
+  })
+
+  test("retains unknown character references as prose", () => {
+    expect(maskAfterThreshold("Alphaword &Betaword;")).toBe("Alphaword &Betaword;")
+  })
+
+  test.each([
+    ["comment", "<!--\nBetaword\n-->", ["    ", "        ", "   "]],
+    ["processing instruction", "<?target\nBetaword\n?>", ["        ", "        ", "  "]],
+  ])("masks multiline HTML %s blocks", (_name, input, expected) => {
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual(expected)
+  })
+
+  test("retains prose after a closed raw-content block", () => {
+    const input = "<textarea>\nBetaword\n</textarea>\nAlphaword"
+
+    expect(blankMarkdownDestinations(input.split("\n"))).toEqual([
+      " ".repeat(10),
+      " ".repeat(8),
+      " ".repeat(11),
+      "Alphaword",
+    ])
   })
 
   test("does not mistake a slash in a quoted attribute for a self-closing tag", () => {

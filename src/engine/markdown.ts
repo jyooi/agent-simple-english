@@ -1,4 +1,5 @@
-import { parser as markdownParser } from "@lezer/markdown"
+import { parse, postprocess, preprocess } from "micromark"
+import { htmlRawNames } from "micromark-util-html-tag-name"
 
 interface MarkdownAnalysis {
   readonly lines: string[]
@@ -24,60 +25,65 @@ interface AnalysisState {
   readonly structuralBlanks: boolean[]
 }
 
-type MarkdownTree = ReturnType<typeof markdownParser.parse>
-type MarkdownNode = MarkdownTree["topNode"]
-
-interface ParserElement {
-  readonly type: number
-  readonly from: number
-  readonly to: number
-  readonly children: readonly ParserElement[]
+interface SourceRange {
+  readonly start: number
+  readonly end: number
 }
 
-const nodeId = (name: string): number =>
-  markdownParser.nodeSet.types.find((type) => type.name === name)?.id ?? -1
+const withoutLinks = {
+  disable: { null: ["labelEnd", "labelStartImage", "labelStartLink"] },
+}
 
-const NODE = {
-  autolink: nodeId("Autolink"),
-  codeBlock: nodeId("CodeBlock"),
-  comment: nodeId("Comment"),
-  emphasisMark: nodeId("EmphasisMark"),
-  entity: nodeId("Entity"),
-  escape: nodeId("Escape"),
-  fencedCode: nodeId("FencedCode"),
-  hardBreak: nodeId("HardBreak"),
-  headerMark: nodeId("HeaderMark"),
-  horizontalRule: nodeId("HorizontalRule"),
-  htmlBlock: nodeId("HTMLBlock"),
-  htmlTag: nodeId("HTMLTag"),
-  image: nodeId("Image"),
-  inlineCode: nodeId("InlineCode"),
-  link: nodeId("Link"),
-  linkLabel: nodeId("LinkLabel"),
-  linkMark: nodeId("LinkMark"),
-  linkReference: nodeId("LinkReference"),
-  linkTitle: nodeId("LinkTitle"),
-  listMark: nodeId("ListMark"),
-  processingInstruction: nodeId("ProcessingInstruction"),
-  quoteMark: nodeId("QuoteMark"),
-  url: nodeId("URL"),
-} as const
+const markdownEvents = (source: string, includeLinks: boolean) =>
+  postprocess(
+    parse(includeLinks ? undefined : { extensions: [withoutLinks] })
+      .document()
+      .write(preprocess()(source, undefined, true)),
+  )
+
+const markdownTextEvents = (source: string) =>
+  postprocess(
+    parse({ extensions: [withoutLinks] })
+      .text()
+      .write(preprocess()(source, undefined, true)),
+  )
+
+type MarkdownEvents = ReturnType<typeof markdownEvents>
+type MarkdownToken = MarkdownEvents[number][1]
+
+const CODE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented"])
+const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
+const DICTIONARY_TOKENS = new Set([
+  "atxHeadingSequence",
+  "autolink",
+  "characterReference",
+  "emphasisSequence",
+  "escapeMarker",
+  "hardBreakEscape",
+  "hardBreakTrailing",
+  "htmlText",
+  "labelEnd",
+  "labelImage",
+  "labelImageMarker",
+  "labelLink",
+  "labelMarker",
+  "reference",
+  "resource",
+  "setextHeadingLine",
+  "strongSequence",
+  "thematicBreak",
+])
+const HTML_SYNTAX_TOKENS = new Set(["characterReference", "htmlText"])
 
 const markRange = (mask: Uint8Array, start: number, end: number): void => {
   mask.fill(1, Math.max(0, start), Math.min(mask.length, end))
 }
 
-const normalizedIdentifier = (value: string): string =>
-  value
-    .replace(/[\t\n\r ]+/g, " ")
-    .replace(/^ | $/g, "")
-    .toLowerCase()
-    .toUpperCase()
-
 const createAnalysisState = (source: string, parseLines: readonly string[]): AnalysisState => {
   const sourceLineStarts: number[] = []
   const lineAtOffset = new Int32Array(source.length + 1)
   let offset = 0
+
   for (let lineIndex = 0; lineIndex < parseLines.length; lineIndex++) {
     sourceLineStarts.push(offset)
     const end = offset + (parseLines[lineIndex]?.length ?? 0)
@@ -97,239 +103,163 @@ const createAnalysisState = (source: string, parseLines: readonly string[]): Ana
   }
 }
 
-const markCode = (state: AnalysisState, start: number, end: number, block: boolean): void => {
-  markRange(state.proseMask, start, end)
-  markRange(state.structuralMask, start, end)
-  markRange(state.dictionaryMask, start, end)
-  if (!block || end <= start) return
+const markCode = (state: AnalysisState, token: MarkdownToken, block: boolean): void => {
+  markRange(state.proseMask, token.start.offset, token.end.offset)
+  markRange(state.structuralMask, token.start.offset, token.end.offset)
+  markRange(state.dictionaryMask, token.start.offset, token.end.offset)
+  if (!block || token.end.offset <= token.start.offset) return
 
-  const firstLine = state.lineAtOffset[Math.min(start, state.source.length)] ?? 0
-  const lastOffset = Math.max(start, end - 1)
+  const firstLine = state.lineAtOffset[Math.min(token.start.offset, state.source.length)] ?? 0
+  const lastOffset = Math.max(token.start.offset, token.end.offset - 1)
   const lastLine = state.lineAtOffset[Math.min(lastOffset, state.source.length)] ?? firstLine
   for (let line = firstLine; line <= lastLine; line++) state.structuralBlanks[line] = true
 }
 
-const walkTree = (root: MarkdownNode, visit: (node: MarkdownNode) => boolean | undefined): void => {
-  const cursor = root.cursor()
-  for (;;) {
-    const descend = visit(cursor.node) !== false
-    if (descend && cursor.firstChild()) continue
-    while (!cursor.nextSibling()) {
-      if (!cursor.parent()) return
+const definitionMaskEnds = (events: MarkdownEvents): ReadonlyMap<number, number> => {
+  const contentColumns = new Map<number, number>()
+  for (const [phase, token] of events) {
+    if (phase === "enter" && CONTAINER_TOKENS.has(token.type)) {
+      contentColumns.set(
+        token.start.line,
+        Math.max(contentColumns.get(token.start.line) ?? 1, token.end.column),
+      )
     }
   }
+
+  const ends = new Map<number, number>()
+  let definition: MarkdownToken | undefined
+  let definitionContentColumn = 1
+
+  for (const [phase, token] of events) {
+    if (phase === "enter" && token.type === "definition") {
+      definition = token
+      definitionContentColumn = contentColumns.get(token.start.line) ?? 1
+    } else if (
+      phase === "enter" &&
+      token.type === "definitionTitle" &&
+      definition !== undefined &&
+      token.start.line > definition.start.line &&
+      token.start.column <=
+        Math.max(definitionContentColumn, contentColumns.get(token.start.line) ?? 1)
+    ) {
+      ends.set(definition.start.offset, token.start.offset)
+    } else if (phase === "exit" && token.type === "definition") {
+      definition = undefined
+    }
+  }
+
+  return ends
 }
 
-const directChildren = (node: MarkdownNode): readonly MarkdownNode[] => {
-  const children: MarkdownNode[] = []
-  for (let child = node.firstChild; child !== null; child = child.nextSibling) children.push(child)
-  return children
+const enteredRanges = (
+  events: MarkdownEvents,
+  tokenTypes: ReadonlySet<string>,
+): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  for (const [phase, token] of events) {
+    if (phase === "enter" && tokenTypes.has(token.type)) {
+      ranges.push({ start: token.start.offset, end: token.end.offset })
+    }
+  }
+  return ranges
 }
 
-const labelIdentifier = (source: string, start: number, end: number): string | undefined => {
-  if (end - start > 999) return undefined
-  return normalizedIdentifier(source.slice(start, end))
+const rangesWithin = (
+  ranges: readonly SourceRange[],
+  container: SourceRange,
+): readonly SourceRange[] => {
+  const matches: SourceRange[] = []
+  for (const range of ranges) {
+    if (range.start >= container.end) break
+    if (range.start >= container.start && range.end <= container.end) matches.push(range)
+  }
+  return matches
 }
 
-const referenceIdentifier = (
+const rawHtmlOpening = (
   source: string,
-  children: readonly MarkdownNode[],
-): string | undefined => {
-  const explicit = children.find((child) => child.type.id === NODE.linkLabel)
-  if (explicit !== undefined && explicit.to - explicit.from > 2) {
-    return labelIdentifier(source, explicit.from + 1, explicit.to - 1)
-  }
-
-  const marks = children.filter((child) => child.type.id === NODE.linkMark)
-  const opening = marks[0]
-  const closing = marks[1]
-  if (opening === undefined || closing === undefined) return undefined
-  return labelIdentifier(source, opening.to, closing.from)
-}
-
-const virtualColumn = (line: string, sourceColumn: number): number => {
-  let column = 0
-  for (let index = 0; index < sourceColumn; index++) {
-    column = line[index] === "\t" ? column + 4 - (column % 4) : column + 1
-  }
-  return column
-}
-
-const sourceColumn = (state: AnalysisState, offset: number): number => {
-  const line = state.lineAtOffset[Math.min(offset, state.source.length)] ?? 0
-  return virtualColumn(
-    state.parseLines[line] ?? "",
-    offset - (state.sourceLineStarts[line] ?? 0),
+  flow: SourceRange,
+  syntax: readonly SourceRange[],
+): SourceRange | undefined => {
+  const opening = syntax.find(
+    (range) => range.start >= flow.start && source.charCodeAt(range.start) === 60,
   )
-}
+  if (opening === undefined) return undefined
 
-const definitionMaskEnd = (state: AnalysisState, node: MarkdownNode): number => {
-  const title = directChildren(node).find((child) => child.type.id === NODE.linkTitle)
-  if (title === undefined) return node.to
-
-  const definitionLine = state.lineAtOffset[Math.min(node.from, state.source.length)] ?? 0
-  const titleLine = state.lineAtOffset[Math.min(title.from, state.source.length)] ?? definitionLine
-  if (titleLine > definitionLine && sourceColumn(state, title.from) <= sourceColumn(state, node.from)) {
-    return title.from
+  const tag = source.slice(opening.start, opening.end).toLowerCase()
+  for (const name of htmlRawNames) {
+    const prefix = `<${name}`
+    if (!tag.startsWith(prefix)) continue
+    const boundary = tag[prefix.length]
+    if (boundary === undefined || "\t\n\r\f />".includes(boundary)) return opening
   }
-  return node.to
+  return undefined
 }
 
-const markLink = (
+const markHtmlFlows = (
   state: AnalysisState,
-  node: MarkdownNode,
-  definitions: ReadonlySet<string>,
+  htmlFlows: readonly SourceRange[],
+  textEvents: MarkdownEvents,
 ): void => {
-  const children = directChildren(node)
-  const marks = children.filter((child) => child.type.id === NODE.linkMark)
-  const hasResource =
-    children.some((child) => child.type.id === NODE.url || child.type.id === NODE.linkTitle) ||
-    marks.length >= 4
-  const identifier = hasResource ? undefined : referenceIdentifier(state.source, children)
-  if (!hasResource && (identifier === undefined || !definitions.has(identifier))) return
+  const syntax = enteredRanges(textEvents, HTML_SYNTAX_TOKENS)
 
-  for (const child of children) {
-    if (
-      child.type.id === NODE.linkMark ||
-      child.type.id === NODE.linkLabel ||
-      child.type.id === NODE.url ||
-      child.type.id === NODE.linkTitle
-    ) {
-      markRange(state.dictionaryMask, child.from, child.to)
+  for (const flow of htmlFlows) {
+    const flowSyntax = rangesWithin(syntax, flow)
+    const opening = rawHtmlOpening(state.source, flow, flowSyntax)
+    const selfClosing =
+      opening !== undefined && state.source.charCodeAt(opening.end - 2) === 47
+
+    if (opening !== undefined && !selfClosing) {
+      markRange(state.dictionaryMask, flow.start, flow.end)
+    } else {
+      for (const range of flowSyntax) {
+        markRange(state.dictionaryMask, range.start, range.end)
+      }
     }
   }
 }
 
-const rawContentTag = (tag: string): boolean => {
-  const lower = tag.toLowerCase()
-  for (const name of ["pre", "script", "style", "textarea"]) {
-    if (!lower.startsWith(`<${name}`)) continue
-    const boundary = lower[name.length + 1]
-    if (boundary === undefined || boundary === ">" || boundary === "/" || /\s/u.test(boundary)) {
-      return true
+const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void => {
+  const events = markdownEvents(state.source, includeDictionary)
+  const definitionEnds = includeDictionary ? definitionMaskEnds(events) : new Map<number, number>()
+  const htmlFlows: SourceRange[] = []
+
+  for (const [phase, token] of events) {
+    if (phase !== "enter") continue
+
+    if (CODE_BLOCK_TOKENS.has(token.type)) {
+      markCode(state, token, true)
+      continue
     }
-  }
-  return false
-}
-
-const selfClosingTag = (tag: string): boolean => {
-  let index = tag.length - 2
-  while (index >= 0 && /\s/u.test(tag[index] ?? "")) index--
-  return tag[index] === "/"
-}
-
-const htmlElements = (source: string, start: number, end: number): readonly ParserElement[] =>
-  markdownParser.parseInline(source.slice(start, end), start) as readonly ParserElement[]
-
-const markHtmlBlock = (state: AnalysisState, start: number, end: number): void => {
-  const pending = [...htmlElements(state.source, start, end)]
-  const syntax: ParserElement[] = []
-  let firstTag: ParserElement | undefined
-
-  while (pending.length > 0) {
-    const element = pending.pop()
-    if (element === undefined) continue
-    if (element.type === NODE.htmlTag && (firstTag === undefined || element.from < firstTag.from)) {
-      firstTag = element
+    if (token.type === "codeText") {
+      markCode(state, token, false)
+      continue
     }
-    if (
-      element.type === NODE.htmlTag ||
-      element.type === NODE.entity ||
-      element.type === NODE.comment ||
-      element.type === NODE.processingInstruction
-    ) {
-      syntax.push(element)
+    if (CONTAINER_TOKENS.has(token.type)) {
+      markRange(state.proseMask, token.start.offset, token.end.offset)
+      if (includeDictionary) {
+        markRange(state.dictionaryMask, token.start.offset, token.end.offset)
+      }
+      continue
     }
-    for (const child of element.children) pending.push(child)
-  }
+    if (!includeDictionary) continue
 
-  if (firstTag !== undefined) {
-    const tag = state.source.slice(firstTag.from, firstTag.to)
-    if (firstTag.from === start && rawContentTag(tag) && !selfClosingTag(tag)) {
-      markRange(state.dictionaryMask, start, end)
-      return
+    if (token.type === "definition") {
+      markRange(
+        state.dictionaryMask,
+        token.start.offset,
+        definitionEnds.get(token.start.offset) ?? token.end.offset,
+      )
+    } else if (token.type === "htmlFlow") {
+      htmlFlows.push({ start: token.start.offset, end: token.end.offset })
+    } else if (DICTIONARY_TOKENS.has(token.type)) {
+      markRange(state.dictionaryMask, token.start.offset, token.end.offset)
     }
   }
 
-  for (const element of syntax) markRange(state.dictionaryMask, element.from, element.to)
-}
-
-const collectDefinitions = (source: string, root: MarkdownNode): ReadonlySet<string> => {
-  const definitions = new Set<string>()
-  walkTree(root, (node) => {
-    if (node.type.id !== NODE.linkReference) return
-    const label = directChildren(node).find((child) => child.type.id === NODE.linkLabel)
-    if (label !== undefined) {
-      const identifier = labelIdentifier(source, label.from + 1, label.to - 1)
-      if (identifier !== undefined) definitions.add(identifier)
-    }
-    return false
-  })
-  return definitions
-}
-
-const CODE_BLOCKS = new Set([NODE.codeBlock, NODE.fencedCode])
-const CONTAINER_MARKS = new Set([NODE.quoteMark, NODE.listMark])
-const DICTIONARY_NODES = new Set([
-  NODE.autolink,
-  NODE.comment,
-  NODE.entity,
-  NODE.htmlTag,
-  NODE.processingInstruction,
-  NODE.hardBreak,
-  NODE.headerMark,
-  NODE.horizontalRule,
-  NODE.emphasisMark,
-])
-
-const analyzeTree = (state: AnalysisState, includeDictionary: boolean): void => {
-  const tree = markdownParser.parse(state.source)
-  const definitions = includeDictionary
-    ? collectDefinitions(state.source, tree.topNode)
-    : new Set<string>()
-
-  walkTree(tree.topNode, (node) => {
-    if (CODE_BLOCKS.has(node.type.id)) {
-      markCode(state, node.from, node.to, true)
-      return false
-    }
-    if (node.type.id === NODE.inlineCode) {
-      markCode(state, node.from, node.to, false)
-      return false
-    }
-    if (CONTAINER_MARKS.has(node.type.id)) {
-      const siblingStart = node.nextSibling?.from ?? node.to
-      const end =
-        siblingStart > node.to && state.source.slice(node.to, siblingStart).trim() === ""
-          ? siblingStart
-          : node.to
-      markRange(state.proseMask, node.from, end)
-      if (includeDictionary) markRange(state.dictionaryMask, node.from, end)
-      return
-    }
-    if (!includeDictionary) return
-
-    if (node.type.id === NODE.linkReference) {
-      markRange(state.dictionaryMask, node.from, definitionMaskEnd(state, node))
-      return false
-    }
-    if (node.type.id === NODE.link || node.type.id === NODE.image) {
-      markLink(state, node, definitions)
-      return
-    }
-    if (node.type.id === NODE.htmlBlock) {
-      markHtmlBlock(state, node.from, node.to)
-      return false
-    }
-    if (node.type.id === NODE.escape) {
-      markRange(state.dictionaryMask, node.from, Math.min(node.from + 1, node.to))
-      return false
-    }
-    if (DICTIONARY_NODES.has(node.type.id)) {
-      markRange(state.dictionaryMask, node.from, node.to)
-      return false
-    }
-  })
+  if (htmlFlows.length > 0) {
+    markHtmlFlows(state, htmlFlows, markdownTextEvents(state.source))
+  }
 }
 
 const applyMask = (
@@ -344,6 +274,7 @@ const applyMask = (
     const contentStart = Math.min(Math.max(contentStarts[lineIndex] ?? 0, 0), line.length)
     const sourceStart = sourceLineStarts[lineIndex] ?? 0
     const parseLine = parseLines[lineIndex] ?? ""
+
     for (let column = 0; column < parseLine.length; column++) {
       if (mask[sourceStart + column] !== 0) characters[contentStart + column] = " "
     }
@@ -365,7 +296,7 @@ const analyzeMarkdown = (
   const parseLines = lines.map((line, index) => line.slice(starts[index]))
   const source = parseLines.join("\n")
   const state = createAnalysisState(source, parseLines)
-  analyzeTree(state, includeDictionary)
+  analyzeEvents(state, includeDictionary)
 
   return {
     lines: applyMask(lines, starts, parseLines, state.sourceLineStarts, state.proseMask),
@@ -428,14 +359,10 @@ export function blankMarkdownDestinations(
 export function blankInlineCode(lines: readonly string[]): string[] {
   const source = lines.join("\n")
   const mask = new Uint8Array(source.length)
-  const pending = [...(markdownParser.parseInline(source, 0) as readonly ParserElement[])]
-  while (pending.length > 0) {
-    const element = pending.pop()
-    if (element === undefined) continue
-    if (element.type === NODE.inlineCode) {
-      markRange(mask, element.from, element.to)
-    } else {
-      for (const child of element.children) pending.push(child)
+
+  for (const [phase, token] of markdownTextEvents(source)) {
+    if (phase === "enter" && token.type === "codeText") {
+      markRange(mask, token.start.offset, token.end.offset)
     }
   }
 

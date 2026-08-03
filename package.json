@@ -38,8 +38,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lezer/markdown": "^1.7.2",
     "effect": "^3.14.0",
+    "micromark": "^4.0.2",
+    "micromark-util-html-tag-name": "^2.0.1",
     "unicode-case-folding": "^1.1.1",
     "wink-eng-lite-web-model": "^1.8.1",
     "wink-nlp": "^2.4.0"
