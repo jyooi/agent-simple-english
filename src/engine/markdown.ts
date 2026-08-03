@@ -690,6 +690,17 @@ const opaqueInlineProbe = (source: string): string => {
       protectedEnd = end + 2
     } else if (boundedSource[index] === "<") {
       protectedEnd = nextGreater[index + 1] ?? -1
+      let keptOpening = false
+      let keptClosing = false
+      for (let delimiter = index + 1; delimiter < protectedEnd; delimiter++) {
+        if (boundedSource[delimiter] === "[") {
+          if (keptOpening) characters[delimiter] = "^"
+          keptOpening = true
+        } else if (boundedSource[delimiter] === "]") {
+          if (keptClosing) characters[delimiter] = "^"
+          keptClosing = true
+        }
+      }
     } else if (boundedSource[index] === "[" || boundedSource[index] === "]") {
       characters[index] = "^"
     }
