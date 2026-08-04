@@ -1,6 +1,11 @@
 import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
-import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
+import {
+  type LineCommentSpan,
+  type ProseBreak,
+  extractHashComments,
+  extractSlashComments,
+} from "./comments.ts"
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
@@ -34,9 +39,13 @@ interface ExtractedProse {
   readonly lines: readonly string[]
   readonly contentStarts: readonly number[]
   readonly proseBreaks: readonly ProseBreak[]
+  readonly lineComments: readonly LineCommentSpan[]
 }
 
-interface ProseRun extends ExtractedProse {
+interface ProseRun {
+  readonly lines: readonly string[]
+  readonly contentStarts: readonly number[]
+  readonly proseBreaks: readonly ProseBreak[]
   readonly lineOffset: number
   readonly firstColumnOffset: number
   readonly sourceOffset: number
@@ -59,7 +68,7 @@ interface SentenceScopeIndex {
 
 const wholeText = (text: string): ExtractedProse => {
   const lines = text.split("\n")
-  return { lines, contentStarts: lines.map(() => 0), proseBreaks: [] }
+  return { lines, contentStarts: lines.map(() => 0), proseBreaks: [], lineComments: [] }
 }
 
 const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
@@ -403,12 +412,7 @@ function evaluate(
   resolved: ResolvedOptions,
 ): ScopedViolation[] {
   const extractedText = extract(kind, text, options)
-  const suppressions = analyzeSuppressions(
-    kind,
-    text,
-    extractedText.lines,
-    extractedText.contentStarts,
-  )
+  const suppressions = analyzeSuppressions(kind, text, extractedText.lineComments)
   const extracted = blankDirectiveRanges(extractedText, suppressions.directiveRanges)
   const proseFindings = splitProseRuns(extracted).flatMap((run) =>
     lintExtracted(run, resolved).map((finding) => ({

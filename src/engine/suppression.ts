@@ -1,3 +1,4 @@
+import type { LineCommentSpan } from "./comments.ts"
 import type { ScopedViolation } from "./diff-match.ts"
 import { markdownHtmlComments } from "./markdown.ts"
 import { type RuleId, ruleIds } from "./rules/registry.ts"
@@ -32,35 +33,22 @@ const markdownDirective = /^<!--\s*ste-disable-next-line(?:\s+(.*?))?\s*-->$/u
 
 const unique = <Value>(values: readonly Value[]): readonly Value[] => [...new Set(values)]
 
-const sourceMarker = (
-  kind: "slash-source" | "hash-source",
-  line: string,
-  contentStart: number,
-): RegExpMatchArray | undefined => {
-  const prefix = line.slice(0, contentStart)
-  return prefix.match(kind === "slash-source" ? /\/\/[/!]*[ \t]?$/u : /#+[ \t]?$/u) ?? undefined
-}
-
 const sourceCandidates = (
-  kind: "slash-source" | "hash-source",
   lines: readonly string[],
-  extractedLines: readonly string[],
-  contentStarts: readonly number[],
+  lineComments: readonly LineCommentSpan[],
 ): readonly DirectiveCandidate[] =>
-  lines.flatMap((line, index) => {
-    const contentStart = contentStarts[index] ?? line.length
-    const marker = sourceMarker(kind, line, contentStart)
-    if (marker?.index === undefined) return []
-
-    const match = extractedLines[index]?.slice(contentStart).match(sourceDirective)
+  lineComments.flatMap((comment) => {
+    const match = lines[comment.line - 1]
+      ?.slice(comment.contentStart, comment.endColumn)
+      .match(sourceDirective)
     if (match === null || match === undefined) return []
 
     return [
       {
-        line: index + 1,
-        column: marker.index + 1,
-        startColumn: contentStart,
-        endColumn: line.length,
+        line: comment.line,
+        column: comment.markerStart + 1,
+        startColumn: comment.contentStart,
+        endColumn: comment.endColumn,
         names: match[1] ?? "",
       },
     ]
@@ -137,8 +125,7 @@ const invalidFinding = (
 export function analyzeSuppressions(
   kind: LintKind,
   text: string,
-  extractedLines: readonly string[],
-  contentStarts: readonly number[],
+  lineComments: readonly LineCommentSpan[],
 ): SuppressionAnalysis {
   if (!text.includes("ste-disable-next-line")) {
     return {
@@ -153,7 +140,7 @@ export function analyzeSuppressions(
     kind === "prose-file"
       ? markdownCandidates(text)
       : kind === "slash-source" || kind === "hash-source"
-        ? sourceCandidates(kind, lines, extractedLines, contentStarts)
+        ? sourceCandidates(lines, lineComments)
         : []
   const directives = candidates.map(parseDirective)
   const offsets = offsetsForLines(lines)

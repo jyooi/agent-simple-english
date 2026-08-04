@@ -93,6 +93,15 @@ describe("lint: inline suppression directives", () => {
     expect(lint(kind, text).violations).toHaveLength(0)
   })
 
+  test("a slash directive after a block comment suppresses the next source comment", () => {
+    const text = [
+      "/**/ // ste-disable-next-line marketing",
+      "// The robust method works.",
+    ].join("\n")
+
+    expect(lint("slash-source", text).violations).toHaveLength(0)
+  })
+
   test("a directive in an indented code block does not suppress prose", () => {
     const text = ["    <!-- ste-disable-next-line marketing -->", "The robust method works."].join(
       "\n",

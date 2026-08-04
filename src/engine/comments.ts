@@ -5,10 +5,18 @@ export interface ProseBreak {
   readonly column: number
 }
 
+export interface LineCommentSpan {
+  readonly line: number
+  readonly markerStart: number
+  readonly contentStart: number
+  readonly endColumn: number
+}
+
 export interface ExtractedComments {
   readonly lines: readonly string[]
   readonly contentStarts: readonly number[]
   readonly proseBreaks: readonly ProseBreak[]
+  readonly lineComments: readonly LineCommentSpan[]
 }
 
 const blankLine = (line: string): string => " ".repeat(line.length)
@@ -78,6 +86,7 @@ export function extractSlashComments(text: string): ExtractedComments {
   let previousComment: "line" | "block" | null = null
   const contentStarts: number[] = []
   const proseBreaks: ProseBreak[] = []
+  const lineComments: LineCommentSpan[] = []
 
   const lines = text.split("\n").map((line, lineIndex) => {
     const out = new Array<string>(line.length).fill(" ")
@@ -178,9 +187,16 @@ export function extractSlashComments(text: string): ExtractedComments {
         continue
       }
       if (ch === "/" && next === "/") {
+        const markerStart = i
         i += 2
         while (line[i] === "/" || line[i] === "!") i++
         i = consumeSeparator(line, i)
+        lineComments.push({
+          line: lineIndex + 1,
+          markerStart,
+          contentStart: i,
+          endColumn: line.length,
+        })
         beginComment("line", i)
         markContentStart(i)
         for (; i < line.length; i++) out[i] = line[i] as string
@@ -203,7 +219,7 @@ export function extractSlashComments(text: string): ExtractedComments {
     return out.join("")
   })
 
-  return { lines, contentStarts, proseBreaks }
+  return { lines, contentStarts, proseBreaks, lineComments }
 }
 
 interface Heredoc {
@@ -263,6 +279,7 @@ export function extractHashComments(
   let arithmeticDepth = 0
   const heredocs: Heredoc[] = []
   const contentStarts: number[] = []
+  const lineComments: LineCommentSpan[] = []
   const shell = dialect === "shell"
 
   const lines = text.split("\n").map((line, lineIndex) => {
@@ -366,9 +383,16 @@ export function extractHashComments(
         line[i - 1] !== "$" &&
         (!shell || isShellCommentStart(line, i))
       ) {
+        const markerStart = i
         let j = i + 1
         while (line[j] === "#") j++
         j = consumeSeparator(line, j)
+        lineComments.push({
+          line: lineIndex + 1,
+          markerStart,
+          contentStart: j,
+          endColumn: line.length,
+        })
         contentStart = j
         for (; j < line.length; j++) out[j] = line[j] as string
         break
@@ -382,5 +406,5 @@ export function extractHashComments(
     return out.join("")
   })
 
-  return { lines, contentStarts, proseBreaks: [] }
+  return { lines, contentStarts, proseBreaks: [], lineComments }
 }
