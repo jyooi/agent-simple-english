@@ -103,10 +103,7 @@ const invalidFinding = (
   if (message === undefined) return undefined
 
   const directiveStart = directive.column - 1
-  const identity = line
-    .slice(directiveStart, directive.endColumn)
-    .replace(/\s+/gu, " ")
-    .trim()
+  const identity = line.slice(directiveStart, directive.endColumn).replace(/\s+/gu, " ").trim()
   return {
     violation: {
       ruleId: "invalid-suppression",

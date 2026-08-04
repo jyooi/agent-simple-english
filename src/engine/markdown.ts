@@ -47,17 +47,11 @@ const parserInput = (source: string): { readonly source: string; readonly offset
   offset: source.charCodeAt(0) === 0xfeff ? 1 : 0,
 })
 
-const translateParserPoints = <Events extends ReturnType<typeof postprocess>>(
+const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
   events: Events,
-  source: string,
   offset: number,
 ): Events => {
   if (offset === 0) return events
-
-  const lineStarts = [0]
-  for (let index = 0; index < source.length; index++) {
-    if (source.charCodeAt(index) === 0x0a) lineStarts.push(index + 1)
-  }
 
   const points = new Set<object>()
   for (const [, token] of events) {
@@ -65,7 +59,6 @@ const translateParserPoints = <Events extends ReturnType<typeof postprocess>>(
       if (points.has(point)) continue
       points.add(point)
       point.offset += offset
-      point.column = point.offset - (lineStarts[point.line - 1] ?? 0) + 1
     }
   }
   return events
@@ -80,7 +73,7 @@ const markdownEvents = (source: string) => {
       .document()
       .write(preprocess()(input.source, undefined, true)),
   )
-  return translateParserPoints(events, source, input.offset)
+  return translateParserOffsets(events, input.offset)
 }
 
 type MarkdownEvents = ReturnType<typeof markdownEvents>
