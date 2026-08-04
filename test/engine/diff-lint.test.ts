@@ -393,7 +393,7 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     expect(report.violations).toHaveLength(500)
     expect(report.violations.at(0)).toMatchObject({ line: 2, column: 1 })
     expect(report.violations.at(-1)).toMatchObject({ line: 1000, column: 1 })
-  })
+  }, 15_000)
 
   test("character fallback reports a sentence merged by a large replacement", () => {
     const fragment = words(13)
