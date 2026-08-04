@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { ExtensionRunner, createExtensionRuntime } from "@earendil-works/pi-coding-agent"
 import type { AutocompleteItem } from "@earendil-works/pi-tui"
+import { createJiti } from "jiti/static"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import simpleEnglishExtension from "../../src/extension/index.ts"
 
@@ -398,7 +399,15 @@ describe.sequential("pi extension wiring", () => {
       "@earendil-works/pi-coding-agent": "*",
       typebox: "*",
     })
-    expect(manifest.devDependencies).toMatchObject({ typebox: "1.3.7" })
+    expect(manifest.devDependencies).toMatchObject({ jiti: "2.7.0", typebox: "1.3.7" })
+  })
+
+  test("loads the extension entry with Jiti", async () => {
+    const jiti = createJiti(import.meta.url, { moduleCache: false })
+
+    await expect(
+      jiti.import(resolve("src/extension/index.ts"), { default: true }),
+    ).resolves.toEqual(expect.any(Function))
   })
 
   test("injects a grouped rule summary that reflects merged active settings", async () => {
