@@ -345,13 +345,21 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
   const events = markdownEvents(state.source)
   const definitionEnds = includeDictionary ? definitionMaskEnds(events) : new Map<number, number>()
   const htmlFlows: SourceRange[] = []
+  let blockQuoteDepth = 0
 
   for (const [phase, token] of events) {
+    if (token.type === "blockQuote" && state.blockQuoteMask !== undefined) {
+      if (phase === "enter") {
+        if (blockQuoteDepth === 0) {
+          markRange(state.blockQuoteMask, token.start.offset, token.end.offset)
+        }
+        blockQuoteDepth++
+      } else {
+        blockQuoteDepth--
+      }
+    }
     if (phase !== "enter") continue
 
-    if (token.type === "blockQuote" && state.blockQuoteMask !== undefined) {
-      markRange(state.blockQuoteMask, token.start.offset, token.end.offset)
-    }
     if (NON_PROSE_BLOCK_TOKENS.has(token.type)) {
       markNonProseBlock(state, token)
       continue

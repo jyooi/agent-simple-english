@@ -74,6 +74,12 @@ describe("lint prose-file: block quote exemption", () => {
     expect(lint("prose-file", text, { exemptBlockQuotes: true }).violations).toEqual([])
   })
 
+  test("handles deeply nested block quotes", () => {
+    const text = `${"> ".repeat(10_000)}We're rolling out a seamless change.`
+
+    expect(lint("prose-file", text, { exemptBlockQuotes: true }).violations).toEqual([])
+  })
+
   test("keeps default and disabled behavior unchanged", () => {
     expect(lint("prose-file", quotedWording, { dictionary })).toEqual(
       lint("prose-file", quotedWording, { dictionary, exemptBlockQuotes: false }),
