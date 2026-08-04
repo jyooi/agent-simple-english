@@ -4,11 +4,23 @@ import { mergeConfigs } from "../../src/config/merge.ts"
 describe("config merge", () => {
   test("project scalars win over global values", () => {
     const merged = mergeConfigs(
-      { maxSentenceWords: 20, approvedWordsPath: "global.json" },
-      { maxSentenceWords: 15, approvedWordsPath: "project.json" },
+      {
+        maxSentenceWords: 20,
+        exemptBlockQuotes: false,
+        approvedWordsPath: "global.json",
+      },
+      {
+        maxSentenceWords: 15,
+        exemptBlockQuotes: true,
+        approvedWordsPath: "project.json",
+      },
     )
 
-    expect(merged).toEqual({ maxSentenceWords: 15, approvedWordsPath: "project.json" })
+    expect(merged).toEqual({
+      maxSentenceWords: 15,
+      exemptBlockQuotes: true,
+      approvedWordsPath: "project.json",
+    })
   })
 
   test("rules deep-merge per key with project winning", () => {

@@ -24,6 +24,7 @@ export type SourceDialect = "general" | "shell"
 export interface LintOptions {
   readonly rules?: Partial<Record<RuleId, RuleSetting>>
   readonly maxSentenceWords?: number
+  readonly exemptBlockQuotes?: boolean
   readonly dictionary?: DictionaryData
   readonly ruleData?: RuleData
   // POS tagger for the verb-form rules and POS-aware dictionary entries.

@@ -100,6 +100,18 @@ describe("simple-english CLI config", () => {
     expect(result.stdout).toContain("maximum is 5")
   })
 
+  test("project config exempts block quotes from wording rules", async () => {
+    const cwd = await makeProject({ exemptBlockQuotes: true })
+    const result = await runCli([], {
+      cwd,
+      stdin: "> A seamless interface can't help.",
+    })
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toBe("")
+  })
+
   test("global config in the XDG config directory applies", async () => {
     const home = await makeHome({ maxSentenceWords: 5 })
     const cwd = await makeProject()

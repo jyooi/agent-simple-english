@@ -6,6 +6,7 @@ import type { RuleSetting } from "../engine/types.ts"
 export interface SteConfig {
   readonly rules?: Partial<Readonly<Record<RuleId, RuleSetting>>>
   readonly maxSentenceWords?: number
+  readonly exemptBlockQuotes?: boolean
   readonly ruleDataExtensions?: RuleDataExtensions
   readonly approvedWordsPath?: string
 }
@@ -28,6 +29,13 @@ const MaxSentenceWordsSchema = Schema.Int.pipe(Schema.positive()).annotations({
   }),
 })
 
+const ExemptBlockQuotesSchema = Schema.Boolean.annotations({
+  message: (issue) => ({
+    message: `must be a boolean, got ${JSON.stringify(issue.actual)}`,
+    override: true,
+  }),
+})
+
 const RuleDataExtensionsSchema = Schema.partial(
   Schema.Struct({
     "phrasal-verb": Schema.Array(Schema.NonEmptyTrimmedString),
@@ -40,6 +48,7 @@ const RuleDataExtensionsSchema = Schema.partial(
 const SteConfigSchema = Schema.Struct({
   rules: Schema.optional(RulesSchema),
   maxSentenceWords: Schema.optional(MaxSentenceWordsSchema),
+  exemptBlockQuotes: Schema.optional(ExemptBlockQuotesSchema),
   ruleDataExtensions: Schema.optional(RuleDataExtensionsSchema),
   approvedWordsPath: Schema.optional(Schema.NonEmptyTrimmedString),
 })

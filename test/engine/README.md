@@ -28,5 +28,11 @@ Cross-cutting Markdown masks use the same finding, clean, and boundary audit at 
 | GFM tables | Yes. `lints prose around a table at its original positions`. | Yes. `masks a valid multi-row GFM table from all prose rules`. | Yes. `does not mask table-like text with mismatched delimiter cells`. |
 | YAML frontmatter | Yes. `lints prose after frontmatter at its original position`. | Yes. `masks YAML frontmatter from all prose rules`. | Yes. `does not mask a thematic break in the middle of a document`. |
 
+## Engine options
+
+| Option | Finding | Clean | Boundary |
+| --- | --- | --- | --- |
+| `exemptBlockQuotes` | Yes. `keeps structural rules active in quoted content`. | Yes. `exempts quoted content from all wording rules`. | Yes. `lints prose outside quotes at its original position`. |
+
 Diff-only behavior has a separate engine seam in `diff-match.test.ts`.
 Tests at that seam call `newFindings` directly.
