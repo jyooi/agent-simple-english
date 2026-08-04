@@ -19,6 +19,10 @@ export interface Violation {
   readonly suggestion?: string
 }
 
+export interface ReportViolation extends Violation {
+  readonly snippet: string
+}
+
 export type SourceDialect = "general" | "shell"
 
 export interface LintOptions {
@@ -39,7 +43,7 @@ export interface LintOptions {
 }
 
 export interface LintReport {
-  readonly violations: readonly Violation[]
+  readonly violations: readonly ReportViolation[]
   readonly summary: {
     readonly total: number
     readonly hard: number

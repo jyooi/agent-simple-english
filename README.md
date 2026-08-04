@@ -169,6 +169,37 @@ Malformed JSON returns a non-blocking error so Claude Code can continue.
 The hook also allows the event when configuration, dictionary, rule-data, tagger, transcript, state, or file processing fails.
 It adds warning text.
 
+### Review hook observations
+
+Hook mode logs every lint decision to the local XDG state directory.
+The log includes clean allows and soft Findings.
+Plain lint runs, disabled hook sessions, and the pi Adapter do not write Observations.
+Set `SIMPLE_ENGLISH_OBSERVE=0` to stop observation logging.
+
+Monthly Observation files use `$XDG_STATE_HOME/simple-english/observations/YYYY-MM.jsonl`.
+The default base directory is `~/.local/state`.
+Each Finding stores its offending snippet for later review.
+Verdicts use the separate `$XDG_STATE_HOME/simple-english/verdicts.jsonl` file.
+Both streams use append-only JSONL records.
+
+Review each unjudged Finding:
+
+```sh
+simple-english observe review
+```
+
+Press `t` for a true positive or `f` for a false positive.
+Press `s` to leave a Finding unjudged or `q` to quit.
+A Verdict can include an optional note.
+A false positive exists only after a human records that Verdict.
+The latest Verdict for a Finding wins.
+
+Show fire counts, judged counts, and false-positive rates for each rule:
+
+```sh
+simple-english observe stats
+```
+
 ### Lint files and standard input
 
 Lint one or more files:
@@ -214,6 +245,7 @@ Soft violations can appear with exit code 0.
 ### CLI flags
 
 - `--json` writes one JSON report with `violations` and `summary` fields.
+  Each violation includes its offending sentence or paragraph as `snippet`.
 
 - `--config <path>` uses only that config file and disables config discovery.
 

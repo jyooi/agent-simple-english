@@ -87,6 +87,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -104,6 +105,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -121,6 +123,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -147,6 +150,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -175,6 +179,7 @@ describe("lint prose-file: dictionary rule", () => {
         {
           ruleId: "dictionary-not-approved-word",
           severity: "hard",
+          snippet: expect.any(String),
           message: '"Betaword" is not in the approved-word list.',
           suggestions: [],
           line: 2,
@@ -193,6 +198,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -210,6 +216,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -226,6 +233,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -248,6 +256,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -317,6 +326,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -456,6 +466,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -485,6 +496,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -505,6 +517,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -521,6 +534,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -538,6 +552,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -557,6 +572,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -574,6 +590,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -632,6 +649,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -649,6 +667,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -671,6 +690,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"2" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -679,6 +699,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"target" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -687,6 +708,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
@@ -704,6 +726,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -792,6 +815,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: '"betaword" is not in the approved-word list.',
         suggestions: [],
         line: 1,
@@ -821,6 +845,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "try", not "Attempt".',
         suggestions: ["try"],
         line: 1,
@@ -863,6 +888,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "before", not "prior to".',
         suggestions: ["before"],
         line: 2,
@@ -878,6 +904,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "to", not "in order to".',
         suggestions: ["to"],
         line: 1,
@@ -893,6 +920,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "to", not "in order to".',
         suggestions: ["to"],
         line: 1,
@@ -956,6 +984,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "about", not "approximately".',
         suggestions: ["about"],
         line: 6,
@@ -980,6 +1009,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "about", not "approximately".',
         suggestions: ["about"],
         line: 2,
@@ -998,6 +1028,7 @@ describe("lint prose-file: dictionary rule", () => {
       {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
+        snippet: expect.any(String),
         message: 'Use "advanced", not "state-of-the-art".',
         suggestions: ["advanced"],
         line: 1,
