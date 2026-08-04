@@ -304,8 +304,9 @@ The `off` value disables that rule.
 
 `maxSentenceWords` must be a positive integer and has a default value of 25.
 `exemptBlockQuotes` must be a boolean and has a default value of `false`.
-When it is `true`, block-quote content is exempt from dictionary, contraction, phrasal-verb, hedging, and marketing checks.
-All other rules continue to check block-quote content.
+When it is omitted or `false`, block quotes receive the same checks as other prose.
+When it is `true`, CommonMark block quote content is exempt from `dictionary-not-approved-word`, `contraction`, `phrasal-verb`, `hedging`, and `marketing` checks.
+All other rules continue to check block quote content.
 `approvedWordsPath` selects a user-owned approved-word list.
 The loader resolves a relative path from the working directory that requested the config.
 This list replaces the bundled not-approved sample and any `SIMPLE_ENGLISH_DICTIONARY` replacement.
