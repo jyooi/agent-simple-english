@@ -146,6 +146,17 @@ describe("lint: inline suppression directives", () => {
     ])
   })
 
+  test("a directive after a byte order mark reports its source column", () => {
+    const report = lint(
+      "prose-file",
+      "\uFEFF<!-- ste-disable-next-line unknown -->\nA short sentence.",
+    )
+
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "invalid-suppression", line: 1, column: 2 }),
+    ])
+  })
+
   test.each([
     ["slash-source" as const, "// ste-disable-next-line"],
     ["hash-source" as const, "# ste-disable-next-line"],
