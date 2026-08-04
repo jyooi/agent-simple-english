@@ -13,16 +13,7 @@ export interface Sentence {
 
 const QUOTATION_CLOSERS = new Set(['"', "'", "’", "”", "»", "›"])
 const OPENING_PROSE_DELIMITERS = new Set(["(", "{"])
-const CLOSING_DELIMITERS = new Set([
-  ...QUOTATION_CLOSERS,
-  ")",
-  "]",
-  "}",
-  "*",
-  "_",
-  "~",
-  "`",
-])
+const CLOSING_DELIMITERS = new Set([...QUOTATION_CLOSERS, ")", "]", "}", "*", "_", "~", "`"])
 
 function valueAt(values: Int32Array | Uint32Array, index: number): number {
   const value = values[index]
@@ -112,52 +103,75 @@ function markdownDelimiterEnds(text: string): {
 
 const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
 const CAPITALIZED_CONTINUATION_ABBREVIATIONS = new Set(["e.g.", "i.e.", "vs."])
-const CODE_DESIGNATOR_ABBREVIATIONS = new Set<ListedAbbreviation>(["Fig.", "No."])
-const STANDALONE_INITIAL_CONTEXTS = new Set([
-  "appendix",
-  "class",
-  "figure",
-  "item",
-  "model",
-  "no",
-  "option",
-  "part",
-  "section",
-  "select",
-  "selected",
-  "step",
-  "type",
+const PERSON_NAME_CONTEXTS = new Set([
+  "ask",
+  "call",
+  "contact",
+  "doctor",
+  "dr",
+  "engineer",
+  "manager",
+  "mr",
+  "mrs",
+  "ms",
+  "operator",
+  "professor",
+  "technician",
 ])
 
 type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
 
-function hasUnderscoreEmphasisDelimiters(
-  text: string,
-  tokenStart: number,
-  tokenEnd: number,
-): boolean {
-  if (text[tokenStart - 1] !== "_" || text[tokenEnd + 1] !== "_") return false
+const CODE_DESIGNATOR_CONTEXTS: Readonly<Record<ListedAbbreviation, ReadonlySet<string>>> = {
+  "e.g.": new Set(),
+  "i.e.": new Set(),
+  "etc.": new Set(),
+  "vs.": new Set(),
+  "Fig.": new Set(["compare", "from", "in", "refer", "see", "shown", "to"]),
+  "No.": new Set(["item", "model", "order", "part", "reference", "serial", "use"]),
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let backslashes = 0
+  for (let current = index - 1; text[current] === "\\"; current -= 1) backslashes += 1
+  return backslashes % 2 === 1
+}
+
+function hasUnderscoreEmphasisOpening(text: string, tokenStart: number, tokenEnd: number): boolean {
+  if (text[tokenStart - 1] !== "_") return false
 
   let openingStart = tokenStart - 1
   while (text[openingStart - 1] === "_") openingStart -= 1
-  let closingEnd = tokenEnd + 1
-  while (text[closingEnd + 1] === "_") closingEnd += 1
+  const delimiterLength = tokenStart - openingStart
+  if (
+    delimiterLength > 3 ||
+    isEscaped(text, openingStart) ||
+    /[\p{L}\p{N}_]/u.test(text[openingStart - 1] ?? "")
+  ) {
+    return false
+  }
 
-  const openingLength = tokenStart - openingStart
-  const closingLength = closingEnd - tokenEnd
-  return (
-    openingLength === closingLength &&
-    openingLength <= 3 &&
-    !/[\p{L}\p{N}_]/u.test(text[openingStart - 1] ?? "") &&
-    !/[\p{L}\p{N}_]/u.test(text[closingEnd + 1] ?? "")
-  )
+  for (let index = tokenEnd + 1; index < text.length; index += 1) {
+    if (text[index] !== "_" || isEscaped(text, index)) continue
+    let closingEnd = index
+    while (text[closingEnd] === "_") closingEnd += 1
+    if (
+      closingEnd - index >= delimiterLength &&
+      !/\s/u.test(text[index - 1] ?? "") &&
+      !/[\p{L}\p{N}_]/u.test(text[index + delimiterLength] ?? "")
+    ) {
+      return true
+    }
+    index = closingEnd - 1
+  }
+
+  return false
 }
 
 function hasTokenStartBoundary(text: string, tokenStart: number, tokenEnd: number): boolean {
   const previous = text[tokenStart - 1] ?? ""
   return (
     !/[\p{L}\p{N}_.]/u.test(previous) ||
-    (previous === "_" && hasUnderscoreEmphasisDelimiters(text, tokenStart, tokenEnd))
+    (previous === "_" && hasUnderscoreEmphasisOpening(text, tokenStart, tokenEnd))
   )
 }
 
@@ -244,10 +258,25 @@ function nextContent(
   )
 }
 
+function precedingWord(text: string, tokenStart: number): string {
+  return (
+    /([\p{L}]+)[^\p{L}]*$/u.exec(text.slice(0, tokenStart))?.[1]?.toLocaleLowerCase("en-US") ?? ""
+  )
+}
+
 function initialIntroducesName(text: string, initialStart: number): boolean {
-  const previousWord = /([\p{L}]+)\s*$/u.exec(text.slice(0, initialStart))?.[1]
-  return !STANDALONE_INITIAL_CONTEXTS.has(
-    previousWord?.toLocaleLowerCase("en-US") ?? "",
+  return PERSON_NAME_CONTEXTS.has(precedingWord(text, initialStart))
+}
+
+function codeDesignatorIsInternal(
+  text: string,
+  abbreviation: ListedAbbreviation,
+  abbreviationStart: number,
+  nextWord: string,
+): boolean {
+  return (
+    /^[A-Z][A-Z0-9_-]*$/u.test(nextWord) &&
+    CODE_DESIGNATOR_CONTEXTS[abbreviation].has(precedingWord(text, abbreviationStart))
   )
 }
 
@@ -273,8 +302,8 @@ function abbreviationIsInternal(
   if (next === undefined || !/[A-Z]/u.test(next.character)) return true
   if (QUOTATION_CLOSERS.has(boundaryText[periodIndex + 1] ?? "")) return false
   if (listed !== undefined) {
-    if (CODE_DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) {
-      return /^[A-Z][A-Z0-9_-]*$/u.test(next.word)
+    if (listed.abbreviation === "Fig." || listed.abbreviation === "No.") {
+      return codeDesignatorIsInternal(boundaryText, listed.abbreviation, listed.start, next.word)
     }
     return CAPITALIZED_CONTINUATION_ABBREVIATIONS.has(listed.abbreviation)
   }

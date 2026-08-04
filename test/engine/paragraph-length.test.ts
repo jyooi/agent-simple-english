@@ -48,27 +48,23 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["Fig.", "See Fig. A for details."],
     ["No.", "Use part No. AX for assembly."],
   ])("keeps a capitalized continuation after %s", (_label, sentence) => {
-    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain(
-      "paragraph-length",
-    )
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
 
   test.each([
     ["a lowercase title", "Ask technician J. Smith for details."],
     ["a wrapped name", "Ask technician J.\nSmith for details."],
   ])("keeps a capital initial inside %s", (_label, sentence) => {
-    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain(
-      "paragraph-length",
-    )
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
 
   test.each([
     ["an abbreviation", "Use _e.g._ model two."],
+    ["an abbreviation in a larger span", "Use _e.g. model two_ today."],
     ["a capital initial", "Ask _J._ Smith for details."],
+    ["a capital initial in a larger span", "Ask _J. Smith_ for details."],
   ])("keeps underscore-emphasized %s inside a sentence", (_label, sentence) => {
-    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain(
-      "paragraph-length",
-    )
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
 
   test("does not treat an identifier underscore as Markdown emphasis", () => {
@@ -87,10 +83,7 @@ describe("lint prose-file: paragraph-length rule", () => {
 
   test.each([
     ["list item", "- One. Two. Three. Use a model,\n  e.g. model two. Four. Five."],
-    [
-      "quoted list item",
-      "> - One. Two. Three. Use a model,\n>   e.g. model two. Four. Five.",
-    ],
+    ["quoted list item", "> - One. Two. Three. Use a model,\n>   e.g. model two. Four. Five."],
   ])("does not count abbreviations in a multiline %s", (_label, text) => {
     expect(idsFor(text)).not.toContain("paragraph-length")
   })
@@ -105,8 +98,11 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["listed abbreviation", "Include screws, etc. Continue with the procedure."],
     ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
     ["number abbreviation", "The answer is No. Continue with the procedure."],
+    ["number abbreviation before capitals", "The answer is No. STOP the machine."],
+    ["figure abbreviation before capitals", "The result is Fig. STOP the machine."],
     ["capital initial", "Select option J. Continue with the procedure."],
     ["selected capital initial", "I selected J. Continue."],
+    ["assigned capital initial", "Set the selector to J. Continue with the test."],
     ["wrapped capital initial", "Select option J.\nContinue with the procedure."],
     ["linked abbreviation", "[Include screws, etc.](url) Continue with the procedure."],
     ["referenced abbreviation", "Include screws, etc.[^1] Continue with the procedure."],
