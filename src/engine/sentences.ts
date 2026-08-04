@@ -115,18 +115,62 @@ function markdownDelimiterEnds(text: string): {
 
 const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
 
-function abbreviationStartAtPeriod(text: string, periodIndex: number): number | undefined {
+function listedAbbreviationStartAtPeriod(
+  text: string,
+  periodIndex: number,
+): number | undefined {
   for (const abbreviation of ABBREVIATIONS) {
     const start = periodIndex - abbreviation.length + 1
     if (start < 0 || text.slice(start, periodIndex + 1) !== abbreviation) continue
     if (!/[\p{L}\p{N}_.]/u.test(text[start - 1] ?? "")) return start
   }
 
+  return undefined
+}
+
+function capitalInitialStartAtPeriod(text: string, periodIndex: number): number | undefined {
   const initial = text[periodIndex - 1] ?? ""
   const beforeInitial = text[periodIndex - 2] ?? ""
   return /[A-Z]/u.test(initial) && !/[\p{L}\p{N}_]/u.test(beforeInitial)
     ? periodIndex - 1
     : undefined
+}
+
+function nextContentCharacter(
+  text: string,
+  start: number,
+  followingText: string | undefined,
+): string | undefined {
+  for (const remainder of [text.slice(start), followingText ?? ""]) {
+    for (const character of remainder) {
+      if (!/\s/u.test(character) && !CLOSING_DELIMITERS.has(character)) return character
+    }
+  }
+  return undefined
+}
+
+function initialIntroducesName(text: string, initialStart: number): boolean {
+  const previousWord = /([\p{L}]+)\s*$/u.exec(text.slice(0, initialStart))?.[1]
+  return /^[A-Z]/u.test(previousWord ?? "")
+}
+
+function abbreviationIsInternal(
+  text: string,
+  boundaryText: string,
+  periodIndex: number,
+  followingBoundaryText: string | undefined,
+): boolean {
+  const listedStart = listedAbbreviationStartAtPeriod(boundaryText, periodIndex)
+  const initialStart = capitalInitialStartAtPeriod(text, periodIndex)
+  if (listedStart === undefined && initialStart === undefined) return false
+
+  const nextCharacter = nextContentCharacter(
+    boundaryText,
+    periodIndex + 1,
+    followingBoundaryText,
+  )
+  if (nextCharacter === undefined || !/[A-Z]/u.test(nextCharacter)) return true
+  return initialStart !== undefined && initialIntroducesName(text, initialStart)
 }
 
 // Identifier masking blanks dotted abbreviations but leaves their final periods.
@@ -137,7 +181,7 @@ function restoreAbbreviations(text: string, boundaryText: string): string {
 
   for (let index = 0; index < boundaryText.length; index++) {
     if (boundaryText[index] !== "." || text[index] !== ".") continue
-    const start = abbreviationStartAtPeriod(boundaryText, index)
+    const start = listedAbbreviationStartAtPeriod(boundaryText, index)
     if (start === undefined) continue
     for (let characterIndex = start; characterIndex <= index; characterIndex++) {
       characters[characterIndex] = boundaryText[characterIndex] ?? ""
@@ -148,7 +192,11 @@ function restoreAbbreviations(text: string, boundaryText: string): string {
   return changed ? characters.join("") : text
 }
 
-function sentenceTerminatorEnds(text: string, boundaryText: string): number[] {
+function sentenceTerminatorEnds(
+  text: string,
+  boundaryText: string,
+  followingBoundaryText?: string,
+): number[] {
   const { parentheses, brackets, linkSuffixes } = markdownDelimiterEnds(text)
   const closingRuns = new Uint32Array(text.length + 1)
   const closingBracketCounts = new Uint32Array(text.length + 1)
@@ -192,7 +240,7 @@ function sentenceTerminatorEnds(text: string, boundaryText: string): number[] {
     if (
       punctuationEnd === index + 1 &&
       text[index] === "." &&
-      abbreviationStartAtPeriod(boundaryText, index) !== undefined
+      abbreviationIsInternal(text, boundaryText, index, followingBoundaryText)
     ) {
       continue
     }
@@ -283,8 +331,17 @@ export function segmentSentences(
     }
     const boundaryRaw = boundaryLines[index] ?? maskedRaw
     const raw = restoreAbbreviations(maskedRaw, boundaryRaw)
+    let followingBoundaryRaw: string | undefined
+    for (let followingIndex = index + 1; followingIndex < lines.length; followingIndex++) {
+      if (structuralBlanks[followingIndex] ?? true) break
+      const candidate = boundaryLines[followingIndex] ?? lines[followingIndex] ?? ""
+      if (candidate.trim() !== "") {
+        followingBoundaryRaw = candidate
+        break
+      }
+    }
     let offset = 0
-    for (const end of sentenceTerminatorEnds(raw, boundaryRaw)) {
+    for (const end of sentenceTerminatorEnds(raw, boundaryRaw, followingBoundaryRaw)) {
       const part = raw.slice(offset, end)
       if (!open) {
         const indent = part.length - part.trimStart().length

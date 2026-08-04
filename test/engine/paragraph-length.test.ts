@@ -65,6 +65,21 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor(text)).toContain("paragraph-length")
   })
 
+  test.each([
+    ["listed abbreviation", "Include screws, etc. Continue with the procedure."],
+    ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
+    ["capital initial", "Select option J. Continue with the procedure."],
+    ["wrapped capital initial", "Select option J.\nContinue with the procedure."],
+  ])("preserves a true boundary after a %s", (_label, text) => {
+    expect(idsFor(`One. Two. Three. Four. Five. ${text}`)).toContain("paragraph-length")
+  })
+
+  test("does not restore a capital initial from a masked dotted identifier", () => {
+    const text = "One. Two. Three. Four. Five. Use x.Y. Continue."
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
   test("flags a paragraph of quoted sentences", () => {
     const text = '"One." "Two." “Three.” ‘Four.’ "Five?" “Six!” "Seven."'
 
