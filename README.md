@@ -167,7 +167,43 @@ A `UserPromptSubmit` event adds pending feedback to context and clears that feed
 Every hook reads the current session mode before it applies a gate.
 Malformed JSON returns a non-blocking error so Claude Code can continue.
 The hook also allows the event when configuration, dictionary, rule-data, tagger, transcript, state, or file processing fails.
-It adds warning text.
+It adds warning text for these operational failures.
+Observation-write failures are silent and do not change the hook output or decision.
+
+### Review hook observations
+
+Enabled Hook mode logs every write, edit, static commit-message, and reply lint decision to the local XDG state directory.
+Observation logging is on by default, and the log includes clean allows and soft Findings.
+Plain lint runs, disabled hook sessions, and the pi Adapter do not write Observations.
+Set `SIMPLE_ENGLISH_OBSERVE=0` to stop observation logging.
+
+Monthly Observation files use `$XDG_STATE_HOME/simple-english/observations/YYYY-MM.jsonl`.
+The default base directory is `~/.local/state`.
+Each Finding stores its offending snippet for later review.
+Verdicts use the separate `$XDG_STATE_HOME/simple-english/verdicts.jsonl` file.
+These global, host-local records can contain snippets, working directories, and file paths.
+New state directories use mode `0700`, and new JSONL files use mode `0600`.
+Each record uses one append-mode write without a lock, so concurrent hooks can safely add complete lines.
+
+Review each unjudged Finding:
+
+```sh
+simple-english observe review
+```
+
+Press `t` for a true positive or `f` for a false positive.
+Press `s` to leave a Finding unjudged or `q` to quit.
+A Verdict can include an optional note.
+A false positive exists only after a human records that Verdict.
+The latest Verdict for a Finding wins.
+
+Show fire counts, judged counts, and false-positive rates for each rule:
+
+```sh
+simple-english observe stats
+```
+
+The report also shows total Observations and clean allows.
 
 ### Lint files and standard input
 
@@ -214,6 +250,7 @@ Soft violations can appear with exit code 0.
 ### CLI flags
 
 - `--json` writes one JSON report with `violations` and `summary` fields.
+  Each violation includes its offending sentence or paragraph as `snippet`.
 
 - `--config <path>` uses only that config file and disables config discovery.
 

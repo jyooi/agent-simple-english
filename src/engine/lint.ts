@@ -419,7 +419,10 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
           current,
           changedText(options.previousText, text).retained,
         )
-  const violations = findings.map((finding) => finding.violation)
+  const violations = findings.map(({ scope, violation }) => ({
+    ...violation,
+    snippet: text.slice(scope.startOffset, scope.endOffset),
+  }))
   return {
     violations,
     summary: {

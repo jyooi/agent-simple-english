@@ -10,11 +10,14 @@ import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
 import { hookInternalFailure, runHookMode } from "./hook.ts"
+import { observationStats, reviewObservations } from "./observation-log.ts"
 import { runSessionCommand } from "./session-command.ts"
 
 const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
 
 const USAGE = `Usage: simple-english [options] [paths...]
+       simple-english observe review
+       simple-english observe stats
 
 Options:
   --json           Write a JSON report.
@@ -89,6 +92,7 @@ interface FileViolation {
   readonly ruleId: string
   readonly severity: string
   readonly message: string
+  readonly snippet: string
   readonly suggestions?: readonly string[]
   readonly line: number
   readonly column: number
@@ -155,6 +159,27 @@ const hookProgram = Effect.gen(function* () {
 
 const sessionProgram = Effect.gen(function* () {
   console.log(yield* runSessionCommand(args.slice(1)))
+  return 0
+})
+
+const observeProgram = Effect.gen(function* () {
+  const command = args[1]
+  if (args.length !== 2 || (command !== "review" && command !== "stats")) {
+    return yield* Effect.fail(new Error("Usage: simple-english observe <review|stats>"))
+  }
+  if (command === "review") {
+    yield* Effect.tryPromise({
+      try: () => reviewObservations(),
+      catch: (cause) => new Error(`cannot review observations: ${cause}`),
+    })
+  } else {
+    console.log(
+      yield* Effect.tryPromise({
+        try: () => observationStats(),
+        catch: (cause) => new Error(`cannot read observation stats: ${cause}`),
+      }),
+    )
+  }
   return 0
 })
 
@@ -228,7 +253,9 @@ const program: Effect.Effect<number, Error> =
     ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(hookProgram))
     : args[0] === "session"
       ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(sessionProgram))
-      : lintProgram.pipe(Effect.provide(WinkTaggerLive))
+      : args[0] === "observe"
+        ? observeProgram
+        : lintProgram.pipe(Effect.provide(WinkTaggerLive))
 
 const handled = program.pipe(
   Effect.catchAll((error) =>

@@ -11,8 +11,13 @@ import { loadRuleData } from "../dictionary/load.ts"
 import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
-import type { LintOptions, Violation } from "../engine/types.ts"
+import type { LintKind, LintOptions, ReportViolation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
+import {
+  type ObservationDraft,
+  type ObservationEvent,
+  appendObservation,
+} from "./observation-log.ts"
 import {
   consumePendingFeedback,
   getSessionControl,
@@ -527,13 +532,48 @@ const loadLintOptions = (cwd: string, tagger: Tagger) =>
     return { ...config, dictionary, ruleData, tagger } satisfies LintOptions
   })
 
-function splitViolations(violations: readonly Violation[]): {
-  readonly hard: Violation[]
-  readonly soft: Violation[]
+function splitViolations(violations: readonly ReportViolation[]): {
+  readonly hard: ReportViolation[]
+  readonly soft: ReportViolation[]
 } {
   return {
     hard: violations.filter((violation) => violation.severity === "hard"),
     soft: violations.filter((violation) => violation.severity === "soft"),
+  }
+}
+
+type EvaluationObservation = Omit<ObservationDraft, "sessionId" | "cwd">
+
+interface HookEvaluation {
+  readonly output: HookOutput
+  readonly observation?: EvaluationObservation
+}
+
+function evaluated(
+  output: HookOutput,
+  event: ObservationEvent,
+  kind: LintKind,
+  text: string,
+  violations: readonly ReportViolation[],
+  path?: string,
+): HookEvaluation {
+  const preToolDenied =
+    "hookSpecificOutput" in output &&
+    output.hookSpecificOutput !== undefined &&
+    "permissionDecision" in output.hookSpecificOutput &&
+    output.hookSpecificOutput.permissionDecision === "deny"
+  const decision =
+    ("decision" in output && output.decision === "block") || preToolDenied ? "deny" : "allow"
+  return {
+    output,
+    observation: {
+      event,
+      kind,
+      text,
+      violations,
+      decision,
+      ...(path === undefined ? {} : { path }),
+    },
   }
 }
 
@@ -543,7 +583,7 @@ function textDecision(
   text: string,
   options: LintOptions,
   previousText?: string,
-): HookDecision {
+): HookEvaluation {
   const classification = classifyPath(path)
   const report = lint(classification.kind, text, {
     ...options,
@@ -551,70 +591,99 @@ function textDecision(
     previousText,
   })
   const { hard, soft } = splitViolations(report.violations)
-  if (hard.length > 0) {
-    return deny(formatViolations(path, `Writing rules blocked ${operation} for`, hard))
-  }
-  return allow(soft.length === 0 ? [] : [formatViolations(path, "Writing-rule warnings for", soft)])
+  const output =
+    hard.length > 0
+      ? deny(formatViolations(path, `Writing rules blocked ${operation} for`, hard))
+      : allow(soft.length === 0 ? [] : [formatViolations(path, "Writing-rule warnings for", soft)])
+  return evaluated(output, operation, classification.kind, text, report.violations, path)
 }
 
-function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookOutput, Error> {
+function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookEvaluation, Error> {
   return Effect.gen(function* () {
     const reply = yield* event.lastAssistantMessage === undefined
       ? readAssistantReply(event.transcriptPath)
       : readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath)
     if (yield* replyWasProcessed(event.sessionId, reply.identity)) {
-      return {} as Record<string, never>
+      return { output: {} as Record<string, never> }
     }
     const options = yield* loadLintOptions(event.cwd, tagger)
-    const hard = lint("prose-file", reply.text, options).violations.filter(
-      (violation) => violation.severity === "hard",
-    )
+    const violations = lint("prose-file", reply.text, options).violations
+    const hard = violations.filter((violation) => violation.severity === "hard")
     const feedback =
       hard.length === 0
         ? undefined
         : formatViolations("assistant reply", "Writing-rule reply feedback for", hard)
     const currentControl = yield* updateReplyFeedback(event.sessionId, reply.identity, feedback)
-    if (
+    const output: HookOutput =
       currentControl === undefined ||
       !currentControl.strict ||
       event.stopHookActive ||
       hard.length === 0
-    ) {
-      return {} as Record<string, never>
-    }
-    return {
-      decision: "block",
-      reason: formatViolations("assistant reply", "Writing rules blocked reply for", hard),
-    }
+        ? ({} as Record<string, never>)
+        : {
+            decision: "block",
+            reason: formatViolations("assistant reply", "Writing rules blocked reply for", hard),
+          }
+    return evaluated(output, "reply", "prose-file", reply.text, violations)
   })
 }
 
-function evaluateEvent(event: PreToolUseEvent, tagger: Tagger): Effect.Effect<HookDecision, Error> {
+function restoreCommitSnippets(
+  message: string,
+  prepared: string,
+  violations: readonly ReportViolation[],
+): ReportViolation[] {
+  return violations.map((violation) => {
+    const offset = prepared.indexOf(violation.snippet)
+    return offset === -1
+      ? violation
+      : { ...violation, snippet: message.slice(offset, offset + violation.snippet.length) }
+  })
+}
+
+function evaluateEvent(
+  event: PreToolUseEvent,
+  tagger: Tagger,
+): Effect.Effect<HookEvaluation, Error> {
   if (event.toolName === "Bash") {
     const invocations = findCommitInvocations(event.command)
-    if (invocations.length === 0) return Effect.succeed(allow())
+    if (invocations.length === 0) return Effect.succeed({ output: allow() })
     if (invocations.some((invocation) => invocation.requiresExplicitMessage)) {
-      return Effect.succeed(
-        deny(
+      return Effect.succeed({
+        output: deny(
           "Writing rules could not check the git commit message. Use git commit with a static -m or --message argument.",
         ),
-      )
+      })
     }
     return Effect.gen(function* () {
       const options = yield* loadLintOptions(event.cwd, tagger)
-      const violations = invocations.flatMap((invocation) =>
-        invocation.requiresExplicitMessage
-          ? []
-          : lint("commit-message", blankCommitMetadata(invocation.message), options).violations,
+      const messages = invocations.flatMap((invocation) =>
+        invocation.requiresExplicitMessage ? [] : [invocation.message],
       )
+      const violations = messages.flatMap((message) => {
+        const prepared = blankCommitMetadata(message)
+        return restoreCommitSnippets(
+          message,
+          prepared,
+          lint("commit-message", prepared, options).violations,
+        )
+      })
       const { hard, soft } = splitViolations(violations)
-      if (hard.length > 0) {
-        return deny(formatViolations("commit message", "Writing rules blocked commit for", hard))
-      }
-      return allow(
-        soft.length === 0
-          ? []
-          : [formatViolations("commit message", "Writing-rule warnings for", soft)],
+      const output =
+        hard.length > 0
+          ? deny(formatViolations("commit message", "Writing rules blocked commit for", hard))
+          : allow(
+              soft.length === 0
+                ? []
+                : [formatViolations("commit message", "Writing-rule warnings for", soft)],
+            )
+      return evaluated(
+        output,
+        "commit-message",
+        "commit-message",
+        messages.join("\n\n"),
+        violations,
+        event.cwd,
       )
     })
   }
@@ -629,6 +698,23 @@ function evaluateEvent(event: PreToolUseEvent, tagger: Tagger): Effect.Effect<Ho
     const text = proposedEdit(previousText, event.oldString, event.newString, event.replaceAll)
     return textDecision("edit", path, text, options, previousText)
   })
+}
+
+function recordEvaluation(event: HookEvent, evaluation: HookEvaluation): Effect.Effect<HookOutput> {
+  const observation = evaluation.observation
+  if (observation === undefined) return Effect.succeed(evaluation.output)
+  return Effect.tryPromise({
+    try: () =>
+      appendObservation({
+        ...observation,
+        sessionId: event.sessionId,
+        cwd: event.cwd,
+      }),
+    catch: () => undefined,
+  }).pipe(
+    Effect.catchAll(() => Effect.void),
+    Effect.as(evaluation.output),
+  )
 }
 
 export function runHookMode(raw: string): Effect.Effect<HookOutput, never, TaggerService> {
@@ -661,12 +747,14 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
             if (event.hookEventName === "Stop") {
               return Effect.gen(function* () {
                 const tagger = yield* TaggerService
-                return yield* evaluateReply(event, tagger)
+                const evaluation = yield* evaluateReply(event, tagger)
+                return yield* recordEvaluation(event, evaluation)
               })
             }
             return Effect.gen(function* () {
               const tagger = yield* TaggerService
-              return yield* evaluateEvent(event, tagger)
+              const evaluation = yield* evaluateEvent(event, tagger)
+              return yield* recordEvaluation(event, evaluation)
             })
           }),
           Effect.catchAll((error) =>

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
-import { homedir } from "node:os"
-import { isAbsolute, join } from "node:path"
+import { join } from "node:path"
+import { applicationStateDirectory } from "./state-directory.ts"
 
 export interface SessionControl {
   readonly enabled: boolean
@@ -22,12 +22,7 @@ const LOCK_RETRIES = 200
 const isFileError = (cause: unknown, code: string): boolean =>
   typeof cause === "object" && cause !== null && (cause as { code?: string }).code === code
 
-const stateRoot = (): string => {
-  const configured = process.env.XDG_STATE_HOME
-  return configured && isAbsolute(configured) ? configured : join(homedir(), ".local", "state")
-}
-
-const sessionsDirectory = (): string => join(stateRoot(), "simple-english", "sessions")
+const sessionsDirectory = (): string => join(applicationStateDirectory(), "sessions")
 
 const sessionKey = (sessionId: string): string =>
   createHash("sha256").update(sessionId).digest("hex")
