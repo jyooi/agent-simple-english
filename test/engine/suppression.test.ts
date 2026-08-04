@@ -125,10 +125,9 @@ describe("lint: inline suppression directives", () => {
   })
 
   test("a slash directive after a block comment suppresses the next source comment", () => {
-    const text = [
-      "/**/ // ste-disable-next-line marketing",
-      "// The robust method works.",
-    ].join("\n")
+    const text = ["/**/ // ste-disable-next-line marketing", "// The robust method works."].join(
+      "\n",
+    )
 
     expect(lint("slash-source", text).violations).toHaveLength(0)
   })
@@ -160,6 +159,16 @@ describe("lint: inline suppression directives", () => {
   })
 
   test.each([
+    ["double-quoted", '- - "first\n # ste-disable-next-line unknown\n last"'],
+    ["block", "- - |\n # ste-disable-next-line unknown"],
+  ])(
+    "directive text inside a compact nested %s YAML scalar is not a hash comment",
+    (_kind, text) => {
+      expect(lint("hash-source", text, { sourceDialect: "yaml" }).violations).toHaveLength(0)
+    },
+  )
+
+  test.each([
     ["plain", "url: https://example.com/#ste-disable-next-line unknown"],
     [
       "double-quoted multiline",
@@ -170,11 +179,9 @@ describe("lint: inline suppression directives", () => {
       ["text: 'first line", "  # ste-disable-next-line unknown", "  last line'"].join("\n"),
     ],
   ])("directive text inside a %s YAML scalar is not a hash comment", (_kind, scalar) => {
-    const text = [
-      scalar,
-      "# ste-disable-next-line marketing",
-      "# The robust method works.",
-    ].join("\n")
+    const text = [scalar, "# ste-disable-next-line marketing", "# The robust method works."].join(
+      "\n",
+    )
 
     expect(lint("hash-source", text, { sourceDialect: "yaml" }).violations).toHaveLength(0)
   })

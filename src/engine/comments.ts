@@ -278,10 +278,9 @@ interface YamlBlockScalar {
 }
 
 const leadingSpaces = (line: string): number => line.length - line.replace(/^ */u, "").length
-const YAML_BLOCK_SCALAR_CONTEXT =
-  /(?:^[ \t]*|^[ \t]*[-?:][ \t]+|:[ \t]+)(?:[&!][^\s]+[ \t]+)*$/u
+const YAML_BLOCK_SCALAR_CONTEXT = /(?:^[ \t]*(?:[-?:][ \t]+)*|:[ \t]+)(?:[&!][^\s]+[ \t]+)*$/u
 const YAML_QUOTED_SCALAR_CONTEXT =
-  /(?:^[ \t]*(?:(?:---|\.\.\.)[ \t]+)?|^[ \t]*[-?:][ \t]+|:[ \t]+|[\[{,][ \t]*)(?:[&!][^\s,[\]{}]+[ \t]+)*$/u
+  /(?:^[ \t]*(?:(?:---|\.\.\.)[ \t]+)?(?:[-?:][ \t]+)*|:[ \t]+|[\[{,][ \t]*)(?:[&!][^\s,[\]{}]+[ \t]+)*$/u
 
 const isYamlQuotedScalarStart = (line: string, index: number): boolean =>
   YAML_QUOTED_SCALAR_CONTEXT.test(line.slice(0, index))
