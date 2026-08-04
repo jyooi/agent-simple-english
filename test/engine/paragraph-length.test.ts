@@ -89,13 +89,25 @@ describe("lint prose-file: paragraph-length rule", () => {
   test.each([
     ["listed abbreviation", "Include screws, etc. Continue with the procedure."],
     ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
+    ["number abbreviation", "The answer is No. Continue with the procedure."],
     ["capital initial", "Select option J. Continue with the procedure."],
+    ["selected capital initial", "I selected J. Continue."],
     ["wrapped capital initial", "Select option J.\nContinue with the procedure."],
     ["linked abbreviation", "[Include screws, etc.](url) Continue with the procedure."],
     ["referenced abbreviation", "Include screws, etc.[^1] Continue with the procedure."],
+    ["bracketed sentence", "Include screws, etc. [Continue with the procedure.]"],
   ])("preserves a true boundary after a %s", (_label, text) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${text}`)).toContain("paragraph-length")
   })
+
+  test.each(["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."])(
+    "preserves a true boundary after quoted %s",
+    (abbreviation) => {
+      const text = `One. Two. Three. Four. Five. The abbreviation is "${abbreviation}" Continue.`
+
+      expect(idsFor(text)).toContain("paragraph-length")
+    },
+  )
 
   test("does not restore a capital initial from a masked dotted identifier", () => {
     const text = "One. Two. Three. Four. Five. Use x.Y. Continue."

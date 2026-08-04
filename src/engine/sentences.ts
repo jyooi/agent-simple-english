@@ -11,13 +11,9 @@ export interface Sentence {
   }[]
 }
 
+const QUOTATION_CLOSERS = new Set(['"', "'", "’", "”", "»", "›"])
 const CLOSING_DELIMITERS = new Set([
-  '"',
-  "'",
-  "’",
-  "”",
-  "»",
-  "›",
+  ...QUOTATION_CLOSERS,
   ")",
   "]",
   "}",
@@ -114,14 +110,9 @@ function markdownDelimiterEnds(text: string): {
 }
 
 const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
-const CAPITALIZED_CONTINUATION_ABBREVIATIONS = new Set([
-  "e.g.",
-  "i.e.",
-  "vs.",
-  "Fig.",
-  "No.",
-])
-const LETTER_DESIGNATORS = new Set([
+const CAPITALIZED_CONTINUATION_ABBREVIATIONS = new Set(["e.g.", "i.e.", "vs."])
+const CODE_DESIGNATOR_ABBREVIATIONS = new Set<ListedAbbreviation>(["Fig.", "No."])
+const STANDALONE_INITIAL_CONTEXTS = new Set([
   "appendix",
   "class",
   "figure",
@@ -131,6 +122,8 @@ const LETTER_DESIGNATORS = new Set([
   "option",
   "part",
   "section",
+  "select",
+  "selected",
   "step",
   "type",
 ])
@@ -158,15 +151,26 @@ function capitalInitialStartAtPeriod(text: string, periodIndex: number): number 
     : undefined
 }
 
-function nextContentCharacterIn(
+interface NextContent {
+  readonly character: string
+  readonly word: string
+}
+
+function nextContentIn(
   text: string,
   start: number,
   linkSuffixes: Int32Array,
   brackets: Int32Array,
-): string | undefined {
+  suffixCanBeAttached: boolean,
+): NextContent | undefined {
+  let canSkipAttachedSuffix = suffixCanBeAttached
   for (let index = start; index < text.length; index += 1) {
     const character = text[index] ?? ""
-    if (/\s/u.test(character) || CLOSING_DELIMITERS.has(character)) continue
+    if (/\s/u.test(character)) {
+      canSkipAttachedSuffix = false
+      continue
+    }
+    if (CLOSING_DELIMITERS.has(character)) continue
 
     const linkSuffixEnd = sentinelAt(linkSuffixes, index)
     if (linkSuffixEnd >= 0) {
@@ -175,38 +179,45 @@ function nextContentCharacterIn(
     }
 
     const bracketEnd = sentinelAt(brackets, index)
-    if (character === "[" && bracketEnd >= 0) {
+    if (character === "[" && bracketEnd >= 0 && canSkipAttachedSuffix) {
       index = bracketEnd - 1
       continue
     }
+    if (character === "[") continue
 
-    return character
+    return {
+      character,
+      word: /^[\p{L}\p{N}_-]+/u.exec(text.slice(index))?.[0] ?? character,
+    }
   }
   return undefined
 }
 
-function nextContentCharacter(
+function nextContent(
   text: string,
   start: number,
   followingText: string | undefined,
   linkSuffixes: Int32Array,
   brackets: Int32Array,
-): string | undefined {
-  const current = nextContentCharacterIn(text, start, linkSuffixes, brackets)
+): NextContent | undefined {
+  const current = nextContentIn(text, start, linkSuffixes, brackets, true)
   if (current !== undefined || followingText === undefined) return current
 
   const followingDelimiters = markdownDelimiterEnds(followingText)
-  return nextContentCharacterIn(
+  return nextContentIn(
     followingText,
     0,
     followingDelimiters.linkSuffixes,
     followingDelimiters.brackets,
+    false,
   )
 }
 
 function initialIntroducesName(text: string, initialStart: number): boolean {
   const previousWord = /([\p{L}]+)\s*$/u.exec(text.slice(0, initialStart))?.[1]
-  return !LETTER_DESIGNATORS.has(previousWord?.toLocaleLowerCase("en-US") ?? "")
+  return !STANDALONE_INITIAL_CONTEXTS.has(
+    previousWord?.toLocaleLowerCase("en-US") ?? "",
+  )
 }
 
 function abbreviationIsInternal(
@@ -221,15 +232,19 @@ function abbreviationIsInternal(
   const initialStart = capitalInitialStartAtPeriod(text, periodIndex)
   if (listed === undefined && initialStart === undefined) return false
 
-  const nextCharacter = nextContentCharacter(
+  const next = nextContent(
     boundaryText,
     periodIndex + 1,
     followingBoundaryText,
     linkSuffixes,
     brackets,
   )
-  if (nextCharacter === undefined || !/[A-Z]/u.test(nextCharacter)) return true
+  if (next === undefined || !/[A-Z]/u.test(next.character)) return true
+  if (QUOTATION_CLOSERS.has(boundaryText[periodIndex + 1] ?? "")) return false
   if (listed !== undefined) {
+    if (CODE_DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) {
+      return /^[A-Z][A-Z0-9_-]*$/u.test(next.word)
+    }
     return CAPITALIZED_CONTINUATION_ABBREVIATIONS.has(listed.abbreviation)
   }
   return initialStart !== undefined && initialIntroducesName(text, initialStart)
