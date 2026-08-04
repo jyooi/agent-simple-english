@@ -20,13 +20,12 @@ Unknown properties cause validation to fail.
 - `entries[].unapproved` lists exact case-insensitive word forms or phrases.
   Forms can contain letters, numbers, internal apostrophes, internal hyphens, and horizontal whitespace between words.
 - `entries[].suggestions` is a required list of rule responses.
-  The dictionary rule reports all values as approved alternatives, the phrasal-verb rule uses the first value, and the hedging and marketing rules ignore this field.
+  The dictionary rule reports all values as approved alternatives, the phrasal-verb rule uses the first value, and the hedging, marketing, and adjectival-participle checks ignore this field.
 - `entries[].partsOfSpeech`, when present, lists the POS tags for which the forms are unapproved.
   Only the `dictionary-not-approved-word` rule uses this field.
 
-For `adjectival-participle` rule data, each `entries[].unapproved` value is one allowed surface form.
+For `adjectival-participle` rule data, each `entries[].unapproved` value represents one allowed tagged-token surface form.
 Matching is exact and case-insensitive.
-The verb-form rules ignore `suggestions` and `partsOfSpeech` in this data.
 
 For the `dictionary-not-approved-word` rule, matching is token based.
 A hyphenated form matches only that exact hyphenated token.
@@ -34,7 +33,7 @@ A phrase can span horizontal whitespace or a soft line break in the same Markdow
 Fenced and indented Markdown code is excluded from matching.
 The rule checks an entry with `partsOfSpeech` only when an injected tagger returns one of those tags for the form's first token.
 The rule checks an entry without `partsOfSpeech` by word or phrase alone.
-The root [README](../../README.md) documents match details for the three list-backed rules and their config extension paths.
+The root [README](../../README.md) owns user-facing matching behavior and configuration.
 
 ## Approved-word list
 
@@ -70,4 +69,4 @@ It also excludes raw content in `pre`, `script`, `style`, and `textarea` HTML fl
 See the root [Configuration](../../README.md#configuration) section for list selection, precedence, and load errors.
 The pure engine receives validated dictionary data and does not read this file.
 
-See [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for the bundled data source, conversion scope, and license details.
+See [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for the third-party bundled dictionary source, conversion scope, and license details.

@@ -310,11 +310,11 @@ The enabled pi Adapter gates fail closed after this error.
 Claude Code Hook mode reports a warning and allows the event, as it does for other load errors.
 Unknown keys, unknown rule IDs, and invalid values cause a config error.
 
-`ruleDataExtensions` maps each list-backed rule to more JSON data files.
+`ruleDataExtensions` maps each list-backed data set to more JSON data files.
 The loader adds entries from these files after the bundled entries.
 The loader resolves relative paths from the current working directory.
 Each file must use the [package dictionary data format](src/dictionary/README.md).
-An `adjectival-participle` extension adds exact forms that the verb-form rules allow after a form of `be`.
+An `adjectival-participle` extension adds exact tagged-token forms that the progressive and passive rules allow after a form of `be`.
 A lint command reports an extension load error and continues with the bundled rule data.
 The enabled pi Adapter fails closed after that error, while Claude Code Hook mode allows the event and adds a warning.
 
@@ -367,13 +367,14 @@ The default maximum is 25 words.
 
 Default: hard.
 Reports a form of `be` followed by an `-ing` verb, with optional adverbs or `not` between them.
-Forms in the adjectival-participle allowlist are exempt.
 
 #### `verb-passive`
 
 Default: soft.
 Reports a form of `be` followed by a past participle, with optional adverbs or `not` between them.
-Forms in the adjectival-participle allowlist are exempt.
+
+Before either rule reports a finding, it checks the exact tagged token against the [bundled adjectival-participle allowlist](src/dictionary/data/adjectival-participles.json).
+The `ruleDataExtensions.adjectival-participle` configuration extends that allowlist.
 
 #### `verb-perfect`
 
