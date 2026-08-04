@@ -43,7 +43,6 @@ interface ProseRun extends ExtractedProse {
 
 interface PreparedProse {
   readonly lines: readonly string[]
-  readonly dictionaryLines: readonly string[]
   readonly structuralLines: readonly string[]
   readonly wordingLines: readonly string[]
   readonly wordingDictionaryLines: readonly string[]
@@ -124,16 +123,23 @@ const prepareProse = (
     exemptBlockQuotes,
   )
   const lines = blankIdentifiers(markdown.lines)
-  const wordingLines = blankIdentifiers(markdown.wordingLines)
+  const structuralLines = blankIdentifiers(markdown.structuralLines)
+  const wordingLines = exemptBlockQuotes ? blankIdentifiers(markdown.wordingLines) : lines
+  const wordingStructuralLines = exemptBlockQuotes
+    ? blankIdentifiers(markdown.wordingStructuralLines)
+    : structuralLines
+  const wordingDictionaryLines = approvedWordMode
+    ? blankIdentifiers(
+        exemptBlockQuotes ? markdown.wordingDictionaryLines : markdown.dictionaryLines,
+      )
+    : wordingLines
+
   return {
     lines,
-    dictionaryLines: approvedWordMode ? blankIdentifiers(markdown.dictionaryLines) : lines,
-    structuralLines: blankIdentifiers(markdown.structuralLines),
+    structuralLines,
     wordingLines,
-    wordingDictionaryLines: approvedWordMode
-      ? blankIdentifiers(markdown.wordingDictionaryLines)
-      : wordingLines,
-    wordingStructuralLines: blankIdentifiers(markdown.wordingStructuralLines),
+    wordingDictionaryLines,
+    wordingStructuralLines,
     structuralBlanks: markdown.structuralBlanks,
   }
 }

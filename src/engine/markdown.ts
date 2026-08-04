@@ -31,7 +31,7 @@ interface AnalysisState {
   readonly structuralMask: Uint8Array
   readonly dictionaryMask: Uint8Array
   readonly containerMask: Uint8Array
-  readonly blockQuoteMask: Uint8Array
+  readonly blockQuoteMask: Uint8Array | undefined
   readonly structuralBlanks: boolean[]
 }
 
@@ -118,7 +118,11 @@ const markRange = (mask: Uint8Array, start: number, end: number): void => {
   mask.fill(1, Math.max(0, start), Math.min(mask.length, end))
 }
 
-const createAnalysisState = (source: string, parseLines: readonly string[]): AnalysisState => {
+const createAnalysisState = (
+  source: string,
+  parseLines: readonly string[],
+  exemptBlockQuotes: boolean,
+): AnalysisState => {
   const sourceLineStarts: number[] = []
   const lineAtOffset = new Int32Array(source.length + 1)
   let offset = 0
@@ -139,7 +143,7 @@ const createAnalysisState = (source: string, parseLines: readonly string[]): Ana
     structuralMask: new Uint8Array(source.length),
     dictionaryMask: new Uint8Array(source.length),
     containerMask: new Uint8Array(source.length),
-    blockQuoteMask: new Uint8Array(source.length),
+    blockQuoteMask: exemptBlockQuotes ? new Uint8Array(source.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
   }
 }
@@ -345,7 +349,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
   for (const [phase, token] of events) {
     if (phase !== "enter") continue
 
-    if (token.type === "blockQuote") {
+    if (token.type === "blockQuote" && state.blockQuoteMask !== undefined) {
       markRange(state.blockQuoteMask, token.start.offset, token.end.offset)
     }
     if (NON_PROSE_BLOCK_TOKENS.has(token.type)) {
@@ -430,7 +434,7 @@ const analyzeMarkdown = (
   )
   const parseLines = lines.map((line, index) => line.slice(starts[index]))
   const source = parseLines.join("\n")
-  const state = createAnalysisState(source, parseLines)
+  const state = createAnalysisState(source, parseLines, exemptBlockQuotes)
   analyzeEvents(state, includeDictionary)
 
   const proseLines = applyMask(lines, starts, parseLines, state.sourceLineStarts, state.proseMask)
@@ -448,7 +452,7 @@ const analyzeMarkdown = (
     state.sourceLineStarts,
     state.dictionaryMask,
   )
-  const wordingMask = exemptBlockQuotes ? state.blockQuoteMask : undefined
+  const wordingMask = state.blockQuoteMask
 
   return {
     lines: proseLines,
