@@ -268,6 +268,9 @@ const parseHeredoc = (line: string, start: number): ParsedHeredoc | null => {
 const isShellCommentStart = (line: string, index: number): boolean =>
   index === 0 || /[\s;|&()]/.test(line[index - 1] ?? "")
 
+const isYamlCommentStart = (line: string, index: number): boolean =>
+  index === 0 || /[ \t]/.test(line[index - 1] ?? "")
+
 interface YamlBlockScalar {
   readonly parentIndent: number
   readonly explicitIndent: number | undefined
@@ -302,6 +305,7 @@ export function extractHashComments(
   let multilineQuote: "'''" | '"""' | null = null
   let shellQuote: "'" | '"' | null = null
   let continuedLineQuote: "'" | '"' | null = null
+  let yamlQuote: "'" | '"' | null = null
   let parameterDepth = 0
   let arithmeticDepth = 0
   const heredocs: Heredoc[] = []
@@ -352,7 +356,7 @@ export function extractHashComments(
     const out = new Array<string>(line.length).fill(" ")
     const pendingHeredocs: Heredoc[] = []
     let contentStart = line.length
-    let lineQuote = continuedLineQuote
+    let lineQuote = yaml ? yamlQuote : continuedLineQuote
     continuedLineQuote = null
     let i = 0
 
@@ -443,7 +447,8 @@ export function extractHashComments(
         parameterDepth === 0 &&
         arithmeticDepth === 0 &&
         line[i - 1] !== "$" &&
-        (!shell || isShellCommentStart(line, i))
+        (!shell || isShellCommentStart(line, i)) &&
+        (!yaml || isYamlCommentStart(line, i))
       ) {
         const markerStart = i
         let j = i + 1
@@ -462,7 +467,8 @@ export function extractHashComments(
       i++
     }
 
-    if (lineQuote !== null && hasEscapedLineBreak(line)) continuedLineQuote = lineQuote
+    if (yaml) yamlQuote = lineQuote
+    else if (lineQuote !== null && hasEscapedLineBreak(line)) continuedLineQuote = lineQuote
     heredocs.push(...pendingHeredocs)
     contentStarts.push(contentStart)
     return out.join("")

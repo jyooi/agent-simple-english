@@ -143,6 +143,26 @@ describe("lint: inline suppression directives", () => {
     },
   )
 
+  test.each([
+    ["plain", "url: https://example.com/#ste-disable-next-line unknown"],
+    [
+      "double-quoted multiline",
+      ['text: "first line', "  # ste-disable-next-line unknown", '  last line"'].join("\n"),
+    ],
+    [
+      "single-quoted multiline",
+      ["text: 'first line", "  # ste-disable-next-line unknown", "  last line'"].join("\n"),
+    ],
+  ])("directive text inside a %s YAML scalar is not a hash comment", (_kind, scalar) => {
+    const text = [
+      scalar,
+      "# ste-disable-next-line marketing",
+      "# The robust method works.",
+    ].join("\n")
+
+    expect(lint("hash-source", text, { sourceDialect: "yaml" }).violations).toHaveLength(0)
+  })
+
   test("a directive in an indented code block does not suppress prose", () => {
     const text = ["    <!-- ste-disable-next-line marketing -->", "The robust method works."].join(
       "\n",
