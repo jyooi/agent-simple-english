@@ -1,6 +1,7 @@
 import { parser as htmlParser } from "@lezer/html"
 import { parser as commonMarkParser } from "@lezer/markdown"
 import { parse, postprocess, preprocess } from "micromark"
+import { frontmatter } from "micromark-extension-frontmatter"
 import { gfmTable } from "micromark-extension-gfm-table"
 import { normalizeIdentifier } from "micromark-util-normalize-identifier"
 import { markdownSyntaxExtension } from "./markdown-syntax.ts"
@@ -57,7 +58,7 @@ const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
   return events
 }
 
-const MARKDOWN_EXTENSIONS = [markdownSyntaxExtension, gfmTable()]
+const MARKDOWN_EXTENSIONS = [markdownSyntaxExtension, frontmatter(), gfmTable()]
 
 const markdownEvents = (source: string) => {
   const input = parserInput(source)
@@ -72,7 +73,7 @@ const markdownEvents = (source: string) => {
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
 
-const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table"])
+const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table", "yaml"])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
 const DICTIONARY_TOKENS = new Set([
   "atxHeadingSequence",
