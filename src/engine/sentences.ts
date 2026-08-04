@@ -114,15 +114,37 @@ function markdownDelimiterEnds(text: string): {
 }
 
 const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
+const CAPITALIZED_CONTINUATION_ABBREVIATIONS = new Set([
+  "e.g.",
+  "i.e.",
+  "vs.",
+  "Fig.",
+  "No.",
+])
+const LETTER_DESIGNATORS = new Set([
+  "appendix",
+  "class",
+  "figure",
+  "item",
+  "model",
+  "no",
+  "option",
+  "part",
+  "section",
+  "step",
+  "type",
+])
 
-function listedAbbreviationStartAtPeriod(
+type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
+
+function listedAbbreviationAtPeriod(
   text: string,
   periodIndex: number,
-): number | undefined {
+): { readonly abbreviation: ListedAbbreviation; readonly start: number } | undefined {
   for (const abbreviation of ABBREVIATIONS) {
     const start = periodIndex - abbreviation.length + 1
     if (start < 0 || text.slice(start, periodIndex + 1) !== abbreviation) continue
-    if (!/[\p{L}\p{N}_.]/u.test(text[start - 1] ?? "")) return start
+    if (!/[\p{L}\p{N}_.]/u.test(text[start - 1] ?? "")) return { abbreviation, start }
   }
 
   return undefined
@@ -136,22 +158,55 @@ function capitalInitialStartAtPeriod(text: string, periodIndex: number): number 
     : undefined
 }
 
-function nextContentCharacter(
+function nextContentCharacterIn(
   text: string,
   start: number,
-  followingText: string | undefined,
+  linkSuffixes: Int32Array,
+  brackets: Int32Array,
 ): string | undefined {
-  for (const remainder of [text.slice(start), followingText ?? ""]) {
-    for (const character of remainder) {
-      if (!/\s/u.test(character) && !CLOSING_DELIMITERS.has(character)) return character
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index] ?? ""
+    if (/\s/u.test(character) || CLOSING_DELIMITERS.has(character)) continue
+
+    const linkSuffixEnd = sentinelAt(linkSuffixes, index)
+    if (linkSuffixEnd >= 0) {
+      index = linkSuffixEnd - 1
+      continue
     }
+
+    const bracketEnd = sentinelAt(brackets, index)
+    if (character === "[" && bracketEnd >= 0) {
+      index = bracketEnd - 1
+      continue
+    }
+
+    return character
   }
   return undefined
 }
 
+function nextContentCharacter(
+  text: string,
+  start: number,
+  followingText: string | undefined,
+  linkSuffixes: Int32Array,
+  brackets: Int32Array,
+): string | undefined {
+  const current = nextContentCharacterIn(text, start, linkSuffixes, brackets)
+  if (current !== undefined || followingText === undefined) return current
+
+  const followingDelimiters = markdownDelimiterEnds(followingText)
+  return nextContentCharacterIn(
+    followingText,
+    0,
+    followingDelimiters.linkSuffixes,
+    followingDelimiters.brackets,
+  )
+}
+
 function initialIntroducesName(text: string, initialStart: number): boolean {
   const previousWord = /([\p{L}]+)\s*$/u.exec(text.slice(0, initialStart))?.[1]
-  return /^[A-Z]/u.test(previousWord ?? "")
+  return !LETTER_DESIGNATORS.has(previousWord?.toLocaleLowerCase("en-US") ?? "")
 }
 
 function abbreviationIsInternal(
@@ -159,17 +214,24 @@ function abbreviationIsInternal(
   boundaryText: string,
   periodIndex: number,
   followingBoundaryText: string | undefined,
+  linkSuffixes: Int32Array,
+  brackets: Int32Array,
 ): boolean {
-  const listedStart = listedAbbreviationStartAtPeriod(boundaryText, periodIndex)
+  const listed = listedAbbreviationAtPeriod(boundaryText, periodIndex)
   const initialStart = capitalInitialStartAtPeriod(text, periodIndex)
-  if (listedStart === undefined && initialStart === undefined) return false
+  if (listed === undefined && initialStart === undefined) return false
 
   const nextCharacter = nextContentCharacter(
     boundaryText,
     periodIndex + 1,
     followingBoundaryText,
+    linkSuffixes,
+    brackets,
   )
   if (nextCharacter === undefined || !/[A-Z]/u.test(nextCharacter)) return true
+  if (listed !== undefined) {
+    return CAPITALIZED_CONTINUATION_ABBREVIATIONS.has(listed.abbreviation)
+  }
   return initialStart !== undefined && initialIntroducesName(text, initialStart)
 }
 
@@ -181,9 +243,9 @@ function restoreAbbreviations(text: string, boundaryText: string): string {
 
   for (let index = 0; index < boundaryText.length; index++) {
     if (boundaryText[index] !== "." || text[index] !== ".") continue
-    const start = listedAbbreviationStartAtPeriod(boundaryText, index)
-    if (start === undefined) continue
-    for (let characterIndex = start; characterIndex <= index; characterIndex++) {
+    const listed = listedAbbreviationAtPeriod(boundaryText, index)
+    if (listed === undefined) continue
+    for (let characterIndex = listed.start; characterIndex <= index; characterIndex++) {
       characters[characterIndex] = boundaryText[characterIndex] ?? ""
     }
     changed = true
@@ -240,7 +302,14 @@ function sentenceTerminatorEnds(
     if (
       punctuationEnd === index + 1 &&
       text[index] === "." &&
-      abbreviationIsInternal(text, boundaryText, index, followingBoundaryText)
+      abbreviationIsInternal(
+        text,
+        boundaryText,
+        index,
+        followingBoundaryText,
+        linkSuffixes,
+        brackets,
+      )
     ) {
       continue
     }

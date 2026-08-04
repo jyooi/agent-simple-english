@@ -42,6 +42,27 @@ describe("lint prose-file: paragraph-length rule", () => {
   })
 
   test.each([
+    ["e.g.", "Use e.g. Model A for comparison."],
+    ["i.e.", "Use i.e. Input mode for the test."],
+    ["vs.", "Compare Model A vs. Model B."],
+    ["Fig.", "See Fig. A for details."],
+    ["No.", "Use part No. AX for assembly."],
+  ])("keeps a capitalized continuation after %s", (_label, sentence) => {
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain(
+      "paragraph-length",
+    )
+  })
+
+  test.each([
+    ["a lowercase title", "Ask technician J. Smith for details."],
+    ["a wrapped name", "Ask technician J.\nSmith for details."],
+  ])("keeps a capital initial inside %s", (_label, sentence) => {
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain(
+      "paragraph-length",
+    )
+  })
+
+  test.each([
     ["list item", "- One. Two. Three. Four. Five. Use e.g. model two."],
     ["block quote", "> One. Two. Three. Four. Five. Use e.g. model two."],
     ["quoted list item", "> - One. Two. Three. Four. Five. Use e.g. model two."],
@@ -70,6 +91,8 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
     ["capital initial", "Select option J. Continue with the procedure."],
     ["wrapped capital initial", "Select option J.\nContinue with the procedure."],
+    ["linked abbreviation", "[Include screws, etc.](url) Continue with the procedure."],
+    ["referenced abbreviation", "Include screws, etc.[^1] Continue with the procedure."],
   ])("preserves a true boundary after a %s", (_label, text) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${text}`)).toContain("paragraph-length")
   })
