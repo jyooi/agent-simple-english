@@ -415,6 +415,7 @@ See [Configuration](#configuration) for list selection, precedence, and load err
 Default: hard.
 Reports a prose paragraph that has more than six sentences.
 Markdown block boundaries and list items start separate paragraphs.
+Sentence counts use the [`sentence-length`](#sentence-length) segmentation rules.
 
 #### `phrasal-verb`
 
@@ -435,6 +436,10 @@ Reports each prose semicolon and asks for two sentences.
 Default: hard.
 Reports a sentence above `maxSentenceWords`.
 The default maximum is 25 words.
+Sentence segmentation recognizes only `e.g.`, `i.e.`, `etc.`, `vs.`, `Fig.`, `No.`, and a single capital letter followed by a period as abbreviation forms.
+It keeps an abbreviation in the current sentence when lowercase prose follows it.
+It preserves a sentence boundary before capitalized prose, except after a single capital letter or before a short `Fig.` or `No.` designator such as `Fig. A` or `No. 7`.
+Markdown block boundaries stop abbreviation lookahead.
 
 #### `verb-progressive`
 
