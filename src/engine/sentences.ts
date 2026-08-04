@@ -1,3 +1,5 @@
+import type { Tagger } from "./tagger.ts"
+
 export interface Sentence {
   readonly text: string
   readonly line: number
@@ -102,29 +104,9 @@ function markdownDelimiterEnds(text: string): {
 }
 
 const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
-const COPULAR_VERBS = new Set(["am", "are", "be", "been", "being", "is", "was", "were"])
-const CAPITALIZED_SENTENCE_STARTERS = new Set([
-  "check",
-  "close",
-  "connect",
-  "continue",
-  "disconnect",
-  "do",
-  "install",
-  "open",
-  "proceed",
-  "put",
-  "remove",
-  "repeat",
-  "set",
-  "start",
-  "stop",
-  "turn",
-  "use",
-  "wait",
-])
-
 type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
+
+const DESIGNATOR_ABBREVIATIONS: ReadonlySet<ListedAbbreviation> = new Set(["Fig.", "No."])
 
 function isEscaped(text: string, index: number): boolean {
   let backslashes = 0
@@ -195,6 +177,7 @@ function capitalInitialStartAtPeriod(text: string, periodIndex: number): number 
 interface NextContent {
   readonly character: string
   readonly word: string
+  readonly text: string
 }
 
 function nextContentIn(
@@ -226,9 +209,11 @@ function nextContentIn(
     }
     if (character === "[" || OPENING_PROSE_DELIMITERS.has(character)) continue
 
+    const remaining = text.slice(index)
     return {
       character,
-      word: /^[\p{L}\p{N}_-]+/u.exec(text.slice(index))?.[0] ?? character,
+      word: /^[\p{L}\p{N}_-]+/u.exec(remaining)?.[0] ?? character,
+      text: remaining,
     }
   }
   return undefined
@@ -254,29 +239,31 @@ function nextContent(
   )
 }
 
-function precedingWord(text: string, tokenStart: number): string {
-  return (
-    /([\p{L}]+)[^\p{L}]*$/u.exec(text.slice(0, tokenStart))?.[1]?.toLocaleLowerCase("en-US") ?? ""
-  )
+function closesFormattedToken(text: string, periodIndex: number): boolean {
+  return text[periodIndex + 1] === "_" || text[periodIndex + 1] === "*"
 }
 
-function followsCopularVerb(text: string, tokenStart: number): boolean {
-  return COPULAR_VERBS.has(precedingWord(text, tokenStart))
+function isCodeDesignator(word: string): boolean {
+  return /^[A-Z0-9](?:[A-Z0-9-]{0,2})$/u.test(word)
 }
 
-function initialIntroducesName(nextWord: string): boolean {
-  return !CAPITALIZED_SENTENCE_STARTERS.has(nextWord.toLocaleLowerCase("en-US"))
+function initialIntroducesName(next: NextContent, tagger: Tagger | undefined): boolean {
+  if (tagger === undefined) return true
+  const token = tagger(next.text).find((candidate) => /[\p{L}\p{N}]/u.test(candidate.text))
+  return token?.pos === "NNP" || token?.pos === "NNPS"
 }
 
 function abbreviationIsInternal(
   text: string,
   boundaryText: string,
+  recognitionText: string,
   periodIndex: number,
   followingBoundaryText: string | undefined,
   linkSuffixes: Int32Array,
   brackets: Int32Array,
+  tagger: Tagger | undefined,
 ): boolean {
-  const listed = listedAbbreviationAtPeriod(boundaryText, periodIndex)
+  const listed = listedAbbreviationAtPeriod(recognitionText, periodIndex)
   const initialStart = capitalInitialStartAtPeriod(text, periodIndex)
   if (listed === undefined && initialStart === undefined) return false
 
@@ -290,10 +277,12 @@ function abbreviationIsInternal(
   if (next === undefined || !/[A-Z]/u.test(next.character)) return true
   if (QUOTATION_CLOSERS.has(boundaryText[periodIndex + 1] ?? "")) return false
   if (listed !== undefined) {
-    if (followsCopularVerb(boundaryText, listed.start)) return false
-    return listed.abbreviation !== "etc."
+    if (closesFormattedToken(boundaryText, periodIndex)) return false
+    if (listed.abbreviation === "etc.") return false
+    if (DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) return isCodeDesignator(next.word)
+    return true
   }
-  return initialStart !== undefined && initialIntroducesName(next.word)
+  return initialStart !== undefined && initialIntroducesName(next, tagger)
 }
 
 // Identifier masking blanks dotted abbreviations but leaves their final periods.
@@ -318,7 +307,9 @@ function restoreAbbreviations(text: string, boundaryText: string): string {
 function sentenceTerminatorEnds(
   text: string,
   boundaryText: string,
-  followingBoundaryText?: string,
+  recognitionText: string,
+  followingBoundaryText: string | undefined,
+  tagger: Tagger | undefined,
 ): number[] {
   const { parentheses, brackets, linkSuffixes } = markdownDelimiterEnds(text)
   const closingRuns = new Uint32Array(text.length + 1)
@@ -366,10 +357,12 @@ function sentenceTerminatorEnds(
       abbreviationIsInternal(
         text,
         boundaryText,
+        recognitionText,
         index,
         followingBoundaryText,
         linkSuffixes,
         brackets,
+        tagger,
       )
     ) {
       continue
@@ -409,6 +402,7 @@ export function segmentSentences(
   sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
   boundaryLines: readonly string[] = lines,
+  tagger?: Tagger,
 ): Sentence[] {
   const sentences: Sentence[] = []
   const lineOffsets = [0]
@@ -460,18 +454,26 @@ export function segmentSentences(
       return
     }
     const boundaryRaw = boundaryLines[index] ?? maskedRaw
-    const raw = restoreAbbreviations(maskedRaw, boundaryRaw)
-    let followingBoundaryRaw: string | undefined
+    const followingBoundaryLines: string[] = []
     for (let followingIndex = index + 1; followingIndex < lines.length; followingIndex++) {
       if (structuralBlanks[followingIndex] ?? true) break
-      const candidate = boundaryLines[followingIndex] ?? lines[followingIndex] ?? ""
-      if (candidate.trim() !== "") {
-        followingBoundaryRaw = candidate
-        break
-      }
+      followingBoundaryLines.push(boundaryLines[followingIndex] ?? lines[followingIndex] ?? "")
     }
+    const followingBoundaryText =
+      followingBoundaryLines.length === 0 ? undefined : followingBoundaryLines.join("\n")
+    const boundaryContext =
+      followingBoundaryText === undefined
+        ? boundaryRaw
+        : `${boundaryRaw}\n${followingBoundaryText}`
+    const raw = restoreAbbreviations(maskedRaw, boundaryContext)
     let offset = 0
-    for (const end of sentenceTerminatorEnds(raw, boundaryRaw, followingBoundaryRaw)) {
+    for (const end of sentenceTerminatorEnds(
+      raw,
+      boundaryRaw,
+      boundaryContext,
+      followingBoundaryText,
+      tagger,
+    )) {
       const part = raw.slice(offset, end)
       if (!open) {
         const indent = part.length - part.trimStart().length
