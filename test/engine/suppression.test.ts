@@ -72,6 +72,17 @@ describe("lint: inline suppression directives", () => {
     ])
   })
 
+  test("a Markdown directive inside an HTML flow suppresses the next line", () => {
+    const text = [
+      "<div>",
+      "<!-- ste-disable-next-line marketing -->",
+      "The robust method works.",
+      "</div>",
+    ].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
   test.each([
     ["> ", "> "],
     ["- ", "- "],

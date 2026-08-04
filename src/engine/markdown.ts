@@ -93,37 +93,66 @@ export interface MarkdownHtmlComment {
   readonly text: string
 }
 
-export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComment[] =>
-  markdownEvents(source).flatMap(([phase, token]) => {
-    if (
-      phase !== "enter" ||
-      (token.type !== "htmlFlow" && token.type !== "htmlText") ||
-      token.start.line !== token.end.line
-    ) {
-      return []
+export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComment[] => {
+  const comments: MarkdownHtmlComment[] = []
+  const seen = new Set<string>()
+  const lineStarts = [0]
+  for (let offset = 0; offset < source.length; offset++) {
+    if (source.charCodeAt(offset) === 0x0a) lineStarts.push(offset + 1)
+  }
+
+  const lineIndexAt = (offset: number): number => {
+    let low = 0
+    let high = lineStarts.length
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2)
+      if ((lineStarts[middle] ?? 0) <= offset) low = middle
+      else high = middle
+    }
+    return low
+  }
+
+  for (const [phase, token] of markdownEvents(source)) {
+    if (phase !== "enter" || (token.type !== "htmlFlow" && token.type !== "htmlText")) {
+      continue
     }
 
     const tokenText = source.slice(token.start.offset, token.end.offset)
-    const start = tokenText.indexOf("<!--")
-    const end = tokenText.lastIndexOf("-->") + 3
-    if (
-      start < 0 ||
-      end < 3 ||
-      tokenText.slice(0, start).trim() !== "" ||
-      tokenText.slice(end).trim() !== ""
-    ) {
-      return []
-    }
+    htmlParser.parse(tokenText).iterate({
+      enter(ref) {
+        if (ref.name !== "Comment") return
 
-    return [
-      {
-        line: token.start.line,
-        startColumn: token.start.column - 1 + start,
-        endColumn: token.start.column - 1 + end,
-        text: tokenText.slice(start, end),
+        const start = token.start.offset + ref.from
+        const end = token.start.offset + ref.to
+        const lineIndex = lineIndexAt(start)
+        if (lineIndexAt(Math.max(start, end - 1)) !== lineIndex) return
+
+        const lineStart = lineStarts[lineIndex] ?? 0
+        const lineEnd = source.indexOf("\n", start)
+        const tokenLineStart = Math.max(token.start.offset, lineStart)
+        const tokenLineEnd = Math.min(token.end.offset, lineEnd < 0 ? source.length : lineEnd)
+        if (
+          source.slice(tokenLineStart, start).trim() !== "" ||
+          source.slice(end, tokenLineEnd).trim() !== ""
+        ) {
+          return
+        }
+
+        const key = `${start}:${end}`
+        if (seen.has(key)) return
+        seen.add(key)
+        comments.push({
+          line: lineIndex + 1,
+          startColumn: start - lineStart,
+          endColumn: end - lineStart,
+          text: source.slice(start, end),
+        })
       },
-    ]
-  })
+    })
+  }
+
+  return comments
+}
 
 const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table", "yaml"])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
