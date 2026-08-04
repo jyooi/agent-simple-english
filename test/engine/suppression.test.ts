@@ -154,6 +154,27 @@ describe("lint: inline suppression directives", () => {
     expect(lint("slash-source", text).violations).toHaveLength(0)
   })
 
+  test("a directive inside a JavaScript template expression is validated", () => {
+    const classification = classifyPath("example.js")
+    const text = "const value = `${input\n// ste-disable-next-line unknown\n}`"
+
+    expect(
+      lint(classification.kind, text, { sourceDialect: classification.sourceDialect }).violations,
+    ).toEqual([expect.objectContaining({ ruleId: "invalid-suppression", line: 2, column: 1 })])
+  })
+
+  test.each(["rs", "swift", "kt", "scala"])(
+    "directive text inside a nested .%s block comment is not a line comment",
+    (extension) => {
+      const classification = classifyPath(`example.${extension}`)
+      const text = "/* outer /* inner */\n// ste-disable-next-line unknown\n*/"
+
+      expect(
+        lint(classification.kind, text, { sourceDialect: classification.sourceDialect }).violations,
+      ).toHaveLength(0)
+    },
+  )
+
   test.each(["yaml", "yml"])(
     "directive text inside a .%s block scalar is not a hash comment",
     (extension) => {
@@ -184,6 +205,7 @@ describe("lint: inline suppression directives", () => {
     ["double-quoted string", 'message = "first\n# ste-disable-next-line unknown\nlast"'],
     ["single-quoted string", "message = 'first\n# ste-disable-next-line unknown\nlast'"],
     ["heredoc", "message = <<~TEXT\n# ste-disable-next-line unknown\nTEXT"],
+    ["percent regex", "message = %r{# ste-disable-next-line unknown}"],
   ])("directive text inside a Ruby %s is not a hash comment", (_kind, scalar) => {
     const classification = classifyPath("example.rb")
     const text = `${scalar}\n# ste-disable-next-line unknown`
@@ -192,8 +214,21 @@ describe("lint: inline suppression directives", () => {
     expect(
       lint(classification.kind, text, { sourceDialect: classification.sourceDialect }).violations,
     ).toEqual([
-      expect.objectContaining({ ruleId: "invalid-suppression", line: 4, column: 1 }),
+      expect.objectContaining({
+        ruleId: "invalid-suppression",
+        line: scalar.split("\n").length + 1,
+        column: 1,
+      }),
     ])
+  })
+
+  test("directive text inside a Perl heredoc is not a hash comment", () => {
+    const classification = classifyPath("example.pl")
+    const text = "my $message = <<'TEXT';\n# ste-disable-next-line unknown\nTEXT"
+
+    expect(
+      lint(classification.kind, text, { sourceDialect: classification.sourceDialect }).violations,
+    ).toHaveLength(0)
   })
 
   test.each([

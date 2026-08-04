@@ -79,10 +79,21 @@ const multilineLiteralAt = (
   return null
 }
 
-export function extractSlashComments(text: string): ExtractedComments {
-  let inBlock = false
+interface TemplateContext {
+  mode: "text" | "expression"
+  braceDepth: number
+}
+
+export function extractSlashComments(
+  text: string,
+  dialect: SourceDialect = "general",
+): ExtractedComments {
+  let blockDepth = 0
   let multilineLiteral: MultilineLiteral | null = null
   let continuedLineQuote: "'" | '"' | null = null
+  const templateStack: TemplateContext[] = []
+  const javascript = dialect === "javascript"
+  const nestedBlocks = dialect === "nested-slash"
   let previousComment: "line" | "block" | null = null
   const contentStarts: number[] = []
   const proseBreaks: ProseBreak[] = []
@@ -106,7 +117,7 @@ export function extractSlashComments(text: string): ExtractedComments {
       previousComment = kind
     }
 
-    if (inBlock) {
+    if (blockDepth > 0) {
       while (line[i] === " " || line[i] === "\t") i++
       if (line[i] === "*" && line[i + 1] !== "/") i++
       i = consumeSeparator(line, i)
@@ -117,9 +128,14 @@ export function extractSlashComments(text: string): ExtractedComments {
       const ch = line[i] as string
       const next = line[i + 1]
 
-      if (inBlock) {
+      if (blockDepth > 0) {
+        if (nestedBlocks && ch === "/" && next === "*") {
+          blockDepth++
+          i += 2
+          continue
+        }
         if (ch === "*" && next === "/") {
-          inBlock = false
+          blockDepth--
           i += 2
           continue
         }
@@ -155,6 +171,23 @@ export function extractSlashComments(text: string): ExtractedComments {
         continue
       }
 
+      const template = templateStack.at(-1)
+      if (template?.mode === "text") {
+        if (ch === "\\") {
+          i += 2
+          continue
+        }
+        if (line.startsWith("${", i)) {
+          template.mode = "expression"
+          template.braceDepth = 0
+          i += 2
+          continue
+        }
+        if (ch === "`") templateStack.pop()
+        i++
+        continue
+      }
+
       if (lineQuote !== null) {
         if (ch === "\\") {
           i += 2
@@ -163,6 +196,20 @@ export function extractSlashComments(text: string): ExtractedComments {
         if (ch === lineQuote) lineQuote = null
         i++
         continue
+      }
+
+      if (template?.mode === "expression") {
+        if (ch === "{") {
+          template.braceDepth++
+          i++
+          continue
+        }
+        if (ch === "}") {
+          if (template.braceDepth === 0) template.mode = "text"
+          else template.braceDepth--
+          i++
+          continue
+        }
       }
 
       const boundedLiteral = multilineLiteralAt(line, i)
@@ -177,7 +224,8 @@ export function extractSlashComments(text: string): ExtractedComments {
         continue
       }
       if (ch === "`") {
-        multilineLiteral = { kind: "escaped", terminator: "`" }
+        if (javascript) templateStack.push({ mode: "text", braceDepth: 0 })
+        else multilineLiteral = { kind: "escaped", terminator: "`" }
         i++
         continue
       }
@@ -203,7 +251,7 @@ export function extractSlashComments(text: string): ExtractedComments {
         break
       }
       if (ch === "/" && next === "*") {
-        inBlock = true
+        blockDepth = 1
         i += 2
         while (line[i] === "*" && line[i + 1] !== "/") i++
         i = consumeSeparator(line, i)
@@ -311,6 +359,34 @@ const YAML_QUOTED_SCALAR_CONTEXT =
 const isYamlQuotedScalarStart = (line: string, index: number): boolean =>
   YAML_QUOTED_SCALAR_CONTEXT.test(line.slice(0, index))
 
+interface DelimitedLiteral {
+  readonly open: string | null
+  readonly close: string
+  depth: number
+}
+
+const RUBY_PERCENT_LITERAL_TYPES = new Set(["q", "Q", "w", "W", "i", "I", "x", "r", "s"])
+const PAIRED_DELIMITERS: Readonly<Record<string, string>> = {
+  "(": ")",
+  "[": "]",
+  "{": "}",
+  "<": ">",
+}
+
+const rubyPercentLiteralAt = (
+  line: string,
+  index: number,
+): { readonly literal: DelimitedLiteral; readonly end: number } | null => {
+  if (line[index] !== "%" || !RUBY_PERCENT_LITERAL_TYPES.has(line[index + 1] ?? "")) return null
+  const delimiter = line[index + 2]
+  if (delimiter === undefined || /[A-Za-z0-9\s]/u.test(delimiter)) return null
+  const close = PAIRED_DELIMITERS[delimiter] ?? delimiter
+  return {
+    literal: { open: close === delimiter ? null : delimiter, close, depth: 1 },
+    end: index + 3,
+  }
+}
+
 const yamlBlockScalarAt = (
   line: string,
   index: number,
@@ -336,11 +412,13 @@ export function extractHashComments(
   let shellQuote: "'" | '"' | null = null
   let continuedLineQuote: "'" | '"' | null = null
   let yamlQuote: "'" | '"' | null = null
+  let rubyPercentLiteral: DelimitedLiteral | null = null
   let parameterDepth = 0
   let arithmeticDepth = 0
   const heredocs: Heredoc[] = []
   const contentStarts: number[] = []
   const lineComments: LineCommentSpan[] = []
+  const perl = dialect === "perl"
   const ruby = dialect === "ruby"
   const shell = dialect === "shell"
   const yaml = dialect === "yaml"
@@ -409,6 +487,24 @@ export function extractHashComments(
         continue
       }
 
+      if (rubyPercentLiteral !== null) {
+        if (ch === "\\") {
+          i += 2
+          continue
+        }
+        if (rubyPercentLiteral.open !== null && ch === rubyPercentLiteral.open) {
+          rubyPercentLiteral.depth++
+          i++
+          continue
+        }
+        if (ch === rubyPercentLiteral.close) {
+          rubyPercentLiteral.depth--
+          if (rubyPercentLiteral.depth === 0) rubyPercentLiteral = null
+        }
+        i++
+        continue
+      }
+
       if (shellQuote !== null) {
         if (ch === "\\" && shellQuote === '"') {
           i += 2
@@ -437,10 +533,17 @@ export function extractHashComments(
         !shell &&
         !yaml &&
         !ruby &&
+        !perl &&
         (line.startsWith("'''", i) || line.startsWith('"""', i))
       ) {
         multilineQuote = line.slice(i, i + 3) as "'''" | '"""'
         i += 3
+        continue
+      }
+      const percentLiteral = ruby ? rubyPercentLiteralAt(line, i) : null
+      if (percentLiteral !== null) {
+        rubyPercentLiteral = percentLiteral.literal
+        i = percentLiteral.end
         continue
       }
       if (ch === '"' || ch === "'") {
@@ -470,12 +573,12 @@ export function extractHashComments(
         continue
       }
       if (
-        (shell || ruby) &&
+        (shell || ruby || perl) &&
         parameterDepth === 0 &&
         arithmeticDepth === 0 &&
         line.startsWith("<<", i)
       ) {
-        const heredoc = shell ? parseHeredoc(line, i) : parseRubyHeredoc(line, i)
+        const heredoc = ruby ? parseRubyHeredoc(line, i) : parseHeredoc(line, i)
         if (heredoc !== null) {
           pendingHeredocs.push({
             delimiter: heredoc.delimiter,
@@ -521,7 +624,7 @@ export function extractHashComments(
     }
 
     if (yaml) yamlQuote = lineQuote
-    else if (ruby || (lineQuote !== null && hasEscapedLineBreak(line))) {
+    else if (ruby || perl || (lineQuote !== null && hasEscapedLineBreak(line))) {
       continuedLineQuote = lineQuote
     }
     heredocs.push(...pendingHeredocs)

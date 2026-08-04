@@ -114,7 +114,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
 }
 
 const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedProse => {
-  if (kind === "slash-source") return extractSlashComments(text)
+  if (kind === "slash-source") return extractSlashComments(text, options.sourceDialect)
   if (kind === "hash-source") return extractHashComments(text, options.sourceDialect)
   return wholeText(text)
 }
