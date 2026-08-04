@@ -39,3 +39,22 @@ A soft violation only produces a warning.
 **Strict mode**:
 The mode that applies the host's strongest available reply gate to hard violations.
 Host support follows the [per-host enforcement ceilings](docs/adr/0001-per-host-enforcement-ceiling.md).
+
+**Observation**:
+One logged record of one lint decision at an enforcement boundary.
+An Observation embeds zero or more Findings.
+_Avoid_: log entry, event (too generic)
+
+**Finding**:
+One violation as captured inside an Observation, with a stable identity for later review.
+A Finding is the reviewable copy of an engine violation.
+_Avoid_: hit, match
+
+**Verdict**:
+A human judgment on one Finding: true positive or false positive.
+Verdicts are separate records.
+The latest Verdict for a Finding wins.
+
+**False positive**:
+A Finding whose latest Verdict says the rule fired incorrectly.
+Without a Verdict, a Finding is unjudged, not a false positive.
