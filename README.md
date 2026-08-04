@@ -354,7 +354,6 @@ A phrase match stays on one source line.
 
 Default: hard.
 Reports each prose semicolon and asks for two sentences.
-It ignores semicolons inside inline Markdown code.
 
 #### `sentence-length`
 
