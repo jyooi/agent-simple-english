@@ -1,6 +1,11 @@
 import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
-import { type ProseBreak, extractHashComments, extractSlashComments } from "./comments.ts"
+import {
+  type LineCommentSpan,
+  type ProseBreak,
+  extractHashComments,
+  extractSlashComments,
+} from "./comments.ts"
 import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
 import { blankIdentifiers } from "./identifiers.ts"
@@ -16,6 +21,7 @@ import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
 import { type Sentence, segmentSentences } from "./sentences.ts"
+import { type SuppressionRange, analyzeSuppressions } from "./suppression.ts"
 import type { Tagger } from "./tagger.ts"
 import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 
@@ -33,9 +39,13 @@ interface ExtractedProse {
   readonly lines: readonly string[]
   readonly contentStarts: readonly number[]
   readonly proseBreaks: readonly ProseBreak[]
+  readonly lineComments: readonly LineCommentSpan[]
 }
 
-interface ProseRun extends ExtractedProse {
+interface ProseRun {
+  readonly lines: readonly string[]
+  readonly contentStarts: readonly number[]
+  readonly proseBreaks: readonly ProseBreak[]
   readonly lineOffset: number
   readonly firstColumnOffset: number
   readonly sourceOffset: number
@@ -58,7 +68,7 @@ interface SentenceScopeIndex {
 
 const wholeText = (text: string): ExtractedProse => {
   const lines = text.split("\n")
-  return { lines, contentStarts: lines.map(() => 0), proseBreaks: [] }
+  return { lines, contentStarts: lines.map(() => 0), proseBreaks: [], lineComments: [] }
 }
 
 const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
@@ -104,9 +114,32 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
 }
 
 const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedProse => {
-  if (kind === "slash-source") return extractSlashComments(text)
+  if (kind === "slash-source") return extractSlashComments(text, options.sourceDialect)
   if (kind === "hash-source") return extractHashComments(text, options.sourceDialect)
   return wholeText(text)
+}
+
+const blankDirectiveRanges = (
+  extracted: ExtractedProse,
+  directiveRanges: readonly SuppressionRange[],
+): ExtractedProse => {
+  const rangesByLine = new Map<number, SuppressionRange[]>()
+  for (const range of directiveRanges) {
+    const ranges = rangesByLine.get(range.line) ?? []
+    ranges.push(range)
+    rangesByLine.set(range.line, ranges)
+  }
+
+  return {
+    ...extracted,
+    lines: extracted.lines.map((line, index) => {
+      const characters = line.split("")
+      for (const range of rangesByLine.get(index + 1) ?? []) {
+        characters.fill(" ", range.startColumn, range.endColumn)
+      }
+      return characters.join("")
+    }),
+  }
 }
 
 const isApprovedWordMode = (dictionary: CompiledDictionary | undefined): boolean =>
@@ -378,17 +411,27 @@ function evaluate(
   options: LintOptions,
   resolved: ResolvedOptions,
 ): ScopedViolation[] {
-  return splitProseRuns(extract(kind, text, options))
-    .flatMap((run) =>
-      lintExtracted(run, resolved).map((finding) => ({
-        ...finding,
-        violation: {
-          ...finding.violation,
-          line: finding.violation.line + run.lineOffset,
-          column:
-            finding.violation.column + (finding.violation.line === 1 ? run.firstColumnOffset : 0),
-        },
-      })),
+  const extractedText = extract(kind, text, options)
+  const suppressions = analyzeSuppressions(kind, text, extractedText.lineComments)
+  const extracted = blankDirectiveRanges(extractedText, suppressions.directiveRanges)
+  const proseFindings = splitProseRuns(extracted).flatMap((run) =>
+    lintExtracted(run, resolved).map((finding) => ({
+      ...finding,
+      violation: {
+        ...finding.violation,
+        line: finding.violation.line + run.lineOffset,
+        column:
+          finding.violation.column + (finding.violation.line === 1 ? run.firstColumnOffset : 0),
+      },
+    })),
+  )
+
+  return [...proseFindings, ...suppressions.invalidFindings]
+    .filter(
+      (finding) =>
+        !suppressions.ruleIdsByTargetLine
+          .get(finding.violation.line)
+          ?.has(finding.violation.ruleId),
     )
     .flatMap((finding) => {
       const configured = configuredFinding(finding, options)

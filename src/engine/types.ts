@@ -23,7 +23,14 @@ export interface ReportViolation extends Violation {
   readonly snippet: string
 }
 
-export type SourceDialect = "general" | "shell"
+export type SourceDialect =
+  | "general"
+  | "javascript"
+  | "nested-slash"
+  | "perl"
+  | "ruby"
+  | "shell"
+  | "yaml"
 
 export interface LintOptions {
   readonly rules?: Partial<Record<RuleId, RuleSetting>>

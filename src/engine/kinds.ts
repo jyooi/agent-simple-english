@@ -21,6 +21,8 @@ const SLASH_EXTENSIONS = new Set([
   "scala",
 ])
 
+const JAVASCRIPT_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"])
+const NESTED_SLASH_EXTENSIONS = new Set(["rs", "swift", "kt", "scala"])
 const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
 
 export interface PathClassification {
@@ -34,9 +36,24 @@ export const classifyPath = (path: string): PathClassification => {
     return { kind: "prose-file", sourceDialect: "general" }
   }
   const extension = path.slice(dot + 1).toLowerCase()
-  if (SLASH_EXTENSIONS.has(extension)) return { kind: "slash-source", sourceDialect: "general" }
+  if (SLASH_EXTENSIONS.has(extension)) {
+    const sourceDialect = JAVASCRIPT_EXTENSIONS.has(extension)
+      ? "javascript"
+      : NESTED_SLASH_EXTENSIONS.has(extension)
+        ? "nested-slash"
+        : "general"
+    return { kind: "slash-source", sourceDialect }
+  }
   if (HASH_EXTENSIONS.has(extension)) {
-    const sourceDialect = ["sh", "bash", "zsh"].includes(extension) ? "shell" : "general"
+    const sourceDialect = ["sh", "bash", "zsh"].includes(extension)
+      ? "shell"
+      : ["yaml", "yml"].includes(extension)
+        ? "yaml"
+        : extension === "rb"
+          ? "ruby"
+          : extension === "pl"
+            ? "perl"
+            : "general"
     return { kind: "hash-source", sourceDialect }
   }
   return { kind: "prose-file", sourceDialect: "general" }

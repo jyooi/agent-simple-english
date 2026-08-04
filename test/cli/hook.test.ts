@@ -285,7 +285,7 @@ describe("simple-english CLI hook mode", () => {
 
     expect(status.code).toBe(0)
     expect(status.stdout).toContain("Mode: disabled")
-    expect(status.stdout).toContain("Rules: 6 hard, 4 soft, 1 off")
+    expect(status.stdout).toContain("Rules: 7 hard, 4 soft, 1 off")
     expect(status.stdout).toContain("Dictionary: loaded")
 
     const failedDictionary = await runSessionCommand(

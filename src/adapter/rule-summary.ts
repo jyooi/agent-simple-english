@@ -7,6 +7,7 @@ const DEFAULT_RULE_SETTINGS: Readonly<Record<RuleId, RuleSetting>> = {
   contraction: "hard",
   "dictionary-not-approved-word": "hard",
   hedging: "soft",
+  "invalid-suppression": "hard",
   marketing: "soft",
   "paragraph-length": "hard",
   "phrasal-verb": "hard",
@@ -21,6 +22,7 @@ export const RULE_SUMMARIES: Readonly<Record<RuleId, string>> = {
   contraction: "Do not use contractions. Write the words in full.",
   "dictionary-not-approved-word": "Use approved words from the STE dictionary.",
   hedging: "Remove hedging phrases.",
+  "invalid-suppression": "Name registered rule IDs in suppression directives.",
   marketing: "Use factual language instead of marketing language.",
   "paragraph-length": "Use no more than six sentences in one paragraph.",
   "phrasal-verb": "Use an approved single-word verb instead of a phrasal verb.",
@@ -64,6 +66,7 @@ export function formatStatusSummary(
 }
 
 const HOUSE_STYLE_RULE_IDS: ReadonlySet<RuleId> = new Set(["hedging", "marketing"])
+const DIRECTIVE_RULE_IDS: ReadonlySet<RuleId> = new Set(["invalid-suppression"])
 
 function formatRuleGroup(
   heading: string,
@@ -90,7 +93,15 @@ export function ruleSummary(config: SteConfig): string {
   const sections = [
     formatRuleGroup(
       "Rules derived from ASD-STE100 Simplified Technical English",
-      ruleIds.filter((ruleId) => !HOUSE_STYLE_RULE_IDS.has(ruleId)),
+      ruleIds.filter(
+        (ruleId) => !HOUSE_STYLE_RULE_IDS.has(ruleId) && !DIRECTIVE_RULE_IDS.has(ruleId),
+      ),
+      config,
+      maxSentenceWords,
+    ),
+    formatRuleGroup(
+      "Directive validation",
+      ruleIds.filter((ruleId) => DIRECTIVE_RULE_IDS.has(ruleId)),
       config,
       maxSentenceWords,
     ),

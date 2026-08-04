@@ -281,9 +281,39 @@ It is the default for standard input, extensionless paths, and file types that h
 `commit-message` checks the complete input as a commit message.
 
 File extension matching does not depend on letter case.
-Source kinds ignore comment markers inside string literals.
+Source kinds ignore comment markers inside supported string literal forms.
 All kinds preserve the original line and column.
 They ignore identifiers, YAML frontmatter, valid GFM tables, and fenced, indented, and inline Markdown code.
+
+### Inline suppression
+
+A suppression directive names one or more registered rule IDs and applies only to the next physical line.
+Use this Markdown comment form in prose files:
+
+```md
+<!-- ste-disable-next-line marketing -->
+The robust estimator uses this sample.
+```
+
+Use the matching plain comment form in slash and hash source files:
+
+```ts
+// ste-disable-next-line marketing
+// The robust estimator uses this sample.
+```
+
+```py
+# ste-disable-next-line marketing
+# The robust estimator uses this sample.
+```
+
+Separate multiple rule IDs with whitespace.
+Commas are also accepted as separators.
+A missing or unknown rule ID produces an `invalid-suppression` violation, which is hard by default.
+
+Directive recognition uses lightweight per-language comment extraction rather than full language parsers.
+Known accepted losses are JavaScript regular expressions inside template expressions, Ruby and Perl regular-expression literals containing directive text, Perl `<<~` heredocs, adjacent multiline YAML flow scalars, and compact nested YAML block scalars with explicit indentation.
+Engine fixtures pin these limitations pending per-language lexers.
 
 ## Configuration
 
@@ -322,6 +352,7 @@ This example contains every config key and every rule:
     "contraction": "hard",
     "dictionary-not-approved-word": "hard",
     "hedging": "soft",
+    "invalid-suppression": "hard",
     "marketing": "soft",
     "paragraph-length": "hard",
     "phrasal-verb": "hard",
@@ -424,6 +455,13 @@ Default: hard.
 Reports auxiliary `have` followed by a past participle, with optional adverbs or `not` between them.
 
 The three verb rules and applicable dictionary entries use the bundled English part-of-speech tagger.
+
+### Directive validation
+
+#### `invalid-suppression`
+
+Default: hard.
+Reports a suppression directive that has no rule ID or names an unknown rule ID.
 
 ### House-style rules
 

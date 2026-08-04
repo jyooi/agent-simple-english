@@ -2,6 +2,7 @@ export const ruleIds = [
   "contraction",
   "dictionary-not-approved-word",
   "hedging",
+  "invalid-suppression",
   "marketing",
   "paragraph-length",
   "phrasal-verb",

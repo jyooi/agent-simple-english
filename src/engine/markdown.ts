@@ -79,6 +79,65 @@ const markdownEvents = (source: string) => {
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
 
+export interface MarkdownHtmlComment {
+  readonly line: number
+  readonly startColumn: number
+  readonly endColumn: number
+  readonly text: string
+}
+
+export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComment[] => {
+  const comments: MarkdownHtmlComment[] = []
+  const seen = new Set<string>()
+  const lineStarts = [0]
+  for (let offset = 0; offset < source.length; offset++) {
+    if (source.charCodeAt(offset) === 0x0a) lineStarts.push(offset + 1)
+  }
+
+  const lineIndexAt = (offset: number): number => {
+    let low = 0
+    let high = lineStarts.length
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2)
+      if ((lineStarts[middle] ?? 0) <= offset) low = middle
+      else high = middle
+    }
+    return low
+  }
+
+  const events = markdownEvents(source)
+  for (const [phase, token] of events) {
+    if (phase !== "enter" || (token.type !== "htmlFlow" && token.type !== "htmlText")) {
+      continue
+    }
+
+    const tokenText = source.slice(token.start.offset, token.end.offset)
+    htmlParser.parse(tokenText).iterate({
+      enter(ref) {
+        if (ref.name !== "Comment") return
+
+        const start = token.start.offset + ref.from
+        const end = token.start.offset + ref.to
+        const lineIndex = lineIndexAt(start)
+        if (lineIndexAt(Math.max(start, end - 1)) !== lineIndex) return
+
+        const lineStart = lineStarts[lineIndex] ?? 0
+        const key = `${start}:${end}`
+        if (seen.has(key)) return
+        seen.add(key)
+        comments.push({
+          line: lineIndex + 1,
+          startColumn: start - lineStart,
+          endColumn: end - lineStart,
+          text: source.slice(start, end),
+        })
+      },
+    })
+  }
+
+  return comments
+}
+
 const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table", "yaml"])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
 const DICTIONARY_TOKENS = new Set([
