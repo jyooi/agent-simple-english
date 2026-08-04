@@ -27,6 +27,28 @@ describe("lint prose-file: sentence-length rule", () => {
     expect(report.violations).toHaveLength(0)
   })
 
+  test("flags an overlong sentence across an abbreviation", () => {
+    const report = lint("prose-file", `${words(15)}, e.g. ${words(15)}.`)
+
+    expect(report.violations).toContainEqual(
+      expect.objectContaining({
+        ruleId: "sentence-length",
+        severity: "hard",
+        message: "Sentence has 31 words; the maximum is 25.",
+        line: 1,
+        column: 1,
+      }),
+    )
+  })
+
+  test("does not flag 25 words across an abbreviation", () => {
+    const report = lint("prose-file", `${words(12)}, e.g. ${words(12)}.`)
+
+    expect(report.violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "sentence-length" }),
+    )
+  })
+
   test("does not flag short sentences", () => {
     const report = lint("prose-file", "Remove the bolt. Turn the handle to the left.")
 

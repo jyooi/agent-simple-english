@@ -113,7 +113,42 @@ function markdownDelimiterEnds(text: string): {
   return { parentheses, brackets, linkSuffixes }
 }
 
-function sentenceTerminatorEnds(text: string): number[] {
+const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
+
+function abbreviationStartAtPeriod(text: string, periodIndex: number): number | undefined {
+  for (const abbreviation of ABBREVIATIONS) {
+    const start = periodIndex - abbreviation.length + 1
+    if (start < 0 || text.slice(start, periodIndex + 1) !== abbreviation) continue
+    if (!/[\p{L}\p{N}_.]/u.test(text[start - 1] ?? "")) return start
+  }
+
+  const initial = text[periodIndex - 1] ?? ""
+  const beforeInitial = text[periodIndex - 2] ?? ""
+  return /[A-Z]/u.test(initial) && !/[\p{L}\p{N}_]/u.test(beforeInitial)
+    ? periodIndex - 1
+    : undefined
+}
+
+// Identifier masking blanks dotted abbreviations but leaves their final periods.
+// Restore only listed abbreviations from the equal-length pre-identifier line.
+function restoreAbbreviations(text: string, boundaryText: string): string {
+  const characters = text.split("")
+  let changed = false
+
+  for (let index = 0; index < boundaryText.length; index++) {
+    if (boundaryText[index] !== "." || text[index] !== ".") continue
+    const start = abbreviationStartAtPeriod(boundaryText, index)
+    if (start === undefined) continue
+    for (let characterIndex = start; characterIndex <= index; characterIndex++) {
+      characters[characterIndex] = boundaryText[characterIndex] ?? ""
+    }
+    changed = true
+  }
+
+  return changed ? characters.join("") : text
+}
+
+function sentenceTerminatorEnds(text: string, boundaryText: string): number[] {
   const { parentheses, brackets, linkSuffixes } = markdownDelimiterEnds(text)
   const closingRuns = new Uint32Array(text.length + 1)
   const closingBracketCounts = new Uint32Array(text.length + 1)
@@ -154,6 +189,13 @@ function sentenceTerminatorEnds(text: string): number[] {
     ) {
       punctuationEnd += 1
     }
+    if (
+      punctuationEnd === index + 1 &&
+      text[index] === "." &&
+      abbreviationStartAtPeriod(boundaryText, index) !== undefined
+    ) {
+      continue
+    }
 
     let end = valueAt(closingRuns, punctuationEnd)
     const closedLinkLabel =
@@ -188,6 +230,7 @@ export function segmentSentences(
   lines: readonly string[],
   sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
+  boundaryLines: readonly string[] = lines,
 ): Sentence[] {
   const sentences: Sentence[] = []
   const lineOffsets = [0]
@@ -233,13 +276,15 @@ export function segmentSentences(
     open = null
   }
 
-  lines.forEach((raw, index) => {
-    if (raw.trim() === "") {
+  lines.forEach((maskedRaw, index) => {
+    if (maskedRaw.trim() === "") {
       if (structuralBlanks[index] ?? true) close()
       return
     }
+    const boundaryRaw = boundaryLines[index] ?? maskedRaw
+    const raw = restoreAbbreviations(maskedRaw, boundaryRaw)
     let offset = 0
-    for (const end of sentenceTerminatorEnds(raw)) {
+    for (const end of sentenceTerminatorEnds(raw, boundaryRaw)) {
       const part = raw.slice(offset, end)
       if (!open) {
         const indent = part.length - part.trimStart().length

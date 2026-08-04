@@ -22,6 +22,39 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor("One. Two. Three. Four. Five. Six.")).not.toContain("paragraph-length")
   })
 
+  test("counts e.g. and i.e. within four sentences", () => {
+    const text =
+      "Use the pump, e.g. model two. Check the seal, i.e. the ring. Test it, e.g. daily. Log it, i.e. in full."
+
+    expect(idsFor(text)).not.toContain("paragraph-length")
+  })
+
+  test.each([
+    ["e.g.", "Use the pump, e.g. model two."],
+    ["i.e.", "Use the seal, i.e. the outer ring."],
+    ["etc.", "Use bolts, etc. for assembly."],
+    ["vs.", "Compare model one vs. model two."],
+    ["Fig.", "See Fig. 4 for details."],
+    ["No.", "Use part No. 7 for assembly."],
+    ["a capital initial", "Ask J. Smith for details."],
+  ])("does not count %s as a sentence boundary", (_label, sentence) => {
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
+  })
+
+  test.each([
+    ["list item", "- One. Two. Three. Four. Five. Use e.g. model two."],
+    ["block quote", "> One. Two. Three. Four. Five. Use e.g. model two."],
+    ["quoted list item", "> - One. Two. Three. Four. Five. Use e.g. model two."],
+  ])("does not count abbreviations within a %s", (_label, text) => {
+    expect(idsFor(text)).not.toContain("paragraph-length")
+  })
+
+  test("preserves a true sentence boundary before a capitalized word", () => {
+    const text = "One. Two. Three. Four. Five. The answer is no. Continue."
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
   test("flags a paragraph of quoted sentences", () => {
     const text = '"One." "Two." “Three.” ‘Four.’ "Five?" “Six!” "Seven."'
 
