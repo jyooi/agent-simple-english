@@ -53,6 +53,7 @@ describe("lint prose-file: paragraph-length rule", () => {
 
   test.each([
     ["a lowercase title", "Ask technician J. Smith for details."],
+    ["a recipient name", "Send the report to J. Smith for approval."],
     ["a wrapped name", "Ask technician J.\nSmith for details."],
   ])("keeps a capital initial inside %s", (_label, sentence) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
@@ -96,10 +97,12 @@ describe("lint prose-file: paragraph-length rule", () => {
 
   test.each([
     ["listed abbreviation", "Include screws, etc. Continue with the procedure."],
+    ["mentioned abbreviation", "The abbreviation is _e.g._ Continue."],
     ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
     ["number abbreviation", "The answer is No. Continue with the procedure."],
     ["number abbreviation before capitals", "The answer is No. STOP the machine."],
     ["figure abbreviation before capitals", "The result is Fig. STOP the machine."],
+    ["number abbreviation before a command", "The answer is No. Use the other part."],
     ["capital initial", "Select option J. Continue with the procedure."],
     ["selected capital initial", "I selected J. Continue."],
     ["assigned capital initial", "Set the selector to J. Continue with the test."],
@@ -111,6 +114,13 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["wrapped parenthetical sentence", "Include screws, etc.\n(Continue with the procedure.)"],
   ])("preserves a true boundary after a %s", (_label, text) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${text}`)).toContain("paragraph-length")
+  })
+
+  test.each([
+    ["a figure reference", "Review Fig. A for details."],
+    ["a part number", "Install No. AX in the assembly."],
+  ])("keeps %s after an unlisted preceding word", (_label, sentence) => {
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
 
   test.each(["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."])(

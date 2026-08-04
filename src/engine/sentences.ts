@@ -102,33 +102,29 @@ function markdownDelimiterEnds(text: string): {
 }
 
 const ABBREVIATIONS = ["e.g.", "i.e.", "etc.", "vs.", "Fig.", "No."] as const
-const CAPITALIZED_CONTINUATION_ABBREVIATIONS = new Set(["e.g.", "i.e.", "vs."])
-const PERSON_NAME_CONTEXTS = new Set([
-  "ask",
-  "call",
-  "contact",
-  "doctor",
-  "dr",
-  "engineer",
-  "manager",
-  "mr",
-  "mrs",
-  "ms",
-  "operator",
-  "professor",
-  "technician",
+const COPULAR_VERBS = new Set(["am", "are", "be", "been", "being", "is", "was", "were"])
+const CAPITALIZED_SENTENCE_STARTERS = new Set([
+  "check",
+  "close",
+  "connect",
+  "continue",
+  "disconnect",
+  "do",
+  "install",
+  "open",
+  "proceed",
+  "put",
+  "remove",
+  "repeat",
+  "set",
+  "start",
+  "stop",
+  "turn",
+  "use",
+  "wait",
 ])
 
 type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
-
-const CODE_DESIGNATOR_CONTEXTS: Readonly<Record<ListedAbbreviation, ReadonlySet<string>>> = {
-  "e.g.": new Set(),
-  "i.e.": new Set(),
-  "etc.": new Set(),
-  "vs.": new Set(),
-  "Fig.": new Set(["compare", "from", "in", "refer", "see", "shown", "to"]),
-  "No.": new Set(["item", "model", "order", "part", "reference", "serial", "use"]),
-}
 
 function isEscaped(text: string, index: number): boolean {
   let backslashes = 0
@@ -264,20 +260,12 @@ function precedingWord(text: string, tokenStart: number): string {
   )
 }
 
-function initialIntroducesName(text: string, initialStart: number): boolean {
-  return PERSON_NAME_CONTEXTS.has(precedingWord(text, initialStart))
+function followsCopularVerb(text: string, tokenStart: number): boolean {
+  return COPULAR_VERBS.has(precedingWord(text, tokenStart))
 }
 
-function codeDesignatorIsInternal(
-  text: string,
-  abbreviation: ListedAbbreviation,
-  abbreviationStart: number,
-  nextWord: string,
-): boolean {
-  return (
-    /^[A-Z][A-Z0-9_-]*$/u.test(nextWord) &&
-    CODE_DESIGNATOR_CONTEXTS[abbreviation].has(precedingWord(text, abbreviationStart))
-  )
+function initialIntroducesName(nextWord: string): boolean {
+  return !CAPITALIZED_SENTENCE_STARTERS.has(nextWord.toLocaleLowerCase("en-US"))
 }
 
 function abbreviationIsInternal(
@@ -302,12 +290,10 @@ function abbreviationIsInternal(
   if (next === undefined || !/[A-Z]/u.test(next.character)) return true
   if (QUOTATION_CLOSERS.has(boundaryText[periodIndex + 1] ?? "")) return false
   if (listed !== undefined) {
-    if (listed.abbreviation === "Fig." || listed.abbreviation === "No.") {
-      return codeDesignatorIsInternal(boundaryText, listed.abbreviation, listed.start, next.word)
-    }
-    return CAPITALIZED_CONTINUATION_ABBREVIATIONS.has(listed.abbreviation)
+    if (followsCopularVerb(boundaryText, listed.start)) return false
+    return listed.abbreviation !== "etc."
   }
-  return initialStart !== undefined && initialIntroducesName(text, initialStart)
+  return initialStart !== undefined && initialIntroducesName(next.word)
 }
 
 // Identifier masking blanks dotted abbreviations but leaves their final periods.
