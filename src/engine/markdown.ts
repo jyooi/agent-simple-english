@@ -79,6 +79,45 @@ const markdownEvents = (source: string) => {
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
 
+export interface MarkdownHtmlComment {
+  readonly line: number
+  readonly startColumn: number
+  readonly endColumn: number
+  readonly text: string
+}
+
+export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComment[] =>
+  markdownEvents(source).flatMap(([phase, token]) => {
+    if (
+      phase !== "enter" ||
+      (token.type !== "htmlFlow" && token.type !== "htmlText") ||
+      token.start.line !== token.end.line
+    ) {
+      return []
+    }
+
+    const tokenText = source.slice(token.start.offset, token.end.offset)
+    const start = tokenText.indexOf("<!--")
+    const end = tokenText.lastIndexOf("-->") + 3
+    if (
+      start < 0 ||
+      end < 3 ||
+      tokenText.slice(0, start).trim() !== "" ||
+      tokenText.slice(end).trim() !== ""
+    ) {
+      return []
+    }
+
+    return [
+      {
+        line: token.start.line,
+        startColumn: token.start.column - 1 + start,
+        endColumn: token.start.column - 1 + end,
+        text: tokenText.slice(start, end),
+      },
+    ]
+  })
+
 const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table", "yaml"])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
 const DICTIONARY_TOKENS = new Set([

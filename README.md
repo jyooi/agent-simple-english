@@ -285,6 +285,32 @@ Source kinds ignore comment markers inside string literals.
 All kinds preserve the original line and column.
 They ignore identifiers, YAML frontmatter, valid GFM tables, and fenced, indented, and inline Markdown code.
 
+### Inline suppression
+
+A suppression directive names one or more rule IDs and applies only to the next physical line.
+Use this Markdown comment form in prose files:
+
+```md
+<!-- ste-disable-next-line marketing -->
+The robust estimator uses this sample.
+```
+
+Use the matching plain comment form in slash and hash source files:
+
+```ts
+// ste-disable-next-line marketing
+// The robust estimator uses this sample.
+```
+
+```py
+# ste-disable-next-line marketing
+# The robust estimator uses this sample.
+```
+
+Separate multiple rule IDs with whitespace.
+Commas are also accepted as separators.
+A missing or unknown rule ID produces a hard `invalid-suppression` violation.
+
 ## Configuration
 
 Configuration is an optional JSON object.
@@ -322,6 +348,7 @@ This example contains every config key and every rule:
     "contraction": "hard",
     "dictionary-not-approved-word": "hard",
     "hedging": "soft",
+    "invalid-suppression": "hard",
     "marketing": "soft",
     "paragraph-length": "hard",
     "phrasal-verb": "hard",
@@ -424,6 +451,13 @@ Default: hard.
 Reports auxiliary `have` followed by a past participle, with optional adverbs or `not` between them.
 
 The three verb rules and applicable dictionary entries use the bundled English part-of-speech tagger.
+
+### Directive validation
+
+#### `invalid-suppression`
+
+Default: hard.
+Reports a suppression directive that has no rule ID or names an unknown rule ID.
 
 ### House-style rules
 

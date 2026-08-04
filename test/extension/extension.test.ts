@@ -430,12 +430,17 @@ describe.sequential("pi extension wiring", () => {
     expect(systemPrompt).toContain("git commit messages reject hard violations")
 
     const steStart = systemPrompt.indexOf("### Rules derived from ASD-STE100")
+    const directiveStart = systemPrompt.indexOf("### Directive validation")
     const houseStart = systemPrompt.indexOf("### House-style rules")
     expect(steStart).toBeGreaterThan(-1)
-    expect(houseStart).toBeGreaterThan(steStart)
+    expect(directiveStart).toBeGreaterThan(steStart)
+    expect(houseStart).toBeGreaterThan(directiveStart)
 
-    const steRules = systemPrompt.slice(steStart, houseStart)
+    const steRules = systemPrompt.slice(steStart, directiveStart)
+    const directiveRules = systemPrompt.slice(directiveStart, houseStart)
     const houseRules = systemPrompt.slice(houseStart)
+    expect(steRules).not.toContain("suppression directives")
+    expect(directiveRules).toContain("registered rule IDs")
     expect(steRules).not.toContain("Remove hedging phrases")
     expect(steRules).not.toContain("marketing language")
     expect(houseRules).toContain("Remove hedging phrases")
@@ -703,7 +708,7 @@ describe.sequential("pi extension wiring", () => {
       level: "info",
       message: expect.stringContaining("Mode: enabled"),
     })
-    expect(notifications.at(-1)?.message).toContain("Rules: 6 hard, 4 soft, 1 off")
+    expect(notifications.at(-1)?.message).toContain("Rules: 7 hard, 4 soft, 1 off")
     expect(notifications.at(-1)?.message).toContain("Dictionary: loaded")
 
     await pi.runCommand("ste", "off", context)

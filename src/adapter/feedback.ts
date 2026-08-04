@@ -10,6 +10,7 @@ function suggestedFix(violation: Violation): string {
     contraction: "Write the contracted words in full.",
     "dictionary-not-approved-word": "Use a word from the approved-word list.",
     hedging: "Delete the hedging phrase.",
+    "invalid-suppression": "Name one or more registered rule IDs.",
     marketing: "Replace the phrase with factual language.",
     "paragraph-length": "Split the paragraph into shorter paragraphs.",
     "phrasal-verb": "Replace the phrasal verb with one approved verb.",
