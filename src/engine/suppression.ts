@@ -102,7 +102,11 @@ const invalidFinding = (
         : undefined
   if (message === undefined) return undefined
 
-  const identity = line.replace(/\s+/gu, " ").trim()
+  const directiveStart = directive.column - 1
+  const identity = line
+    .slice(directiveStart, directive.endColumn)
+    .replace(/\s+/gu, " ")
+    .trim()
   return {
     violation: {
       ruleId: "invalid-suppression",
@@ -114,11 +118,11 @@ const invalidFinding = (
     scope: {
       kind: "sentence",
       identity,
-      startOffset: lineOffset,
-      endOffset: lineOffset + line.length,
+      startOffset: lineOffset + directiveStart,
+      endOffset: lineOffset + directive.endColumn,
     },
     sentenceIdentity: identity,
-    occurrenceOffset: lineOffset + directive.column - 1,
+    occurrenceOffset: lineOffset + directiveStart,
   }
 }
 

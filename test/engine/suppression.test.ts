@@ -2,6 +2,28 @@ import { describe, expect, test } from "vitest"
 import { classifyPath } from "../../src/engine/kinds.ts"
 import { lint } from "../../src/engine/lint.ts"
 
+interface YamlSuppressionVerdict {
+  readonly name: string
+  readonly text: string
+  readonly expectedRuleIds: readonly string[]
+  readonly note: string
+}
+
+const yamlSuppressionVerdicts: readonly YamlSuppressionVerdict[] = [
+  {
+    name: "adjacent flow quoted scalar",
+    text: '{"key":"first\n # ste-disable-next-line unknown\n last"}',
+    expectedRuleIds: ["invalid-suppression"],
+    note: "accepted false positive pending a YAML tokenizer",
+  },
+  {
+    name: "compact nested explicit indentation",
+    text: "- - |2\n scalar\n # ste-disable-next-line unknown",
+    expectedRuleIds: ["invalid-suppression"],
+    note: "accepted parserless verdict pending a YAML tokenizer",
+  },
+]
+
 describe("lint: inline suppression directives", () => {
   test("a Markdown directive suppresses one named rule on the next line only", () => {
     const text = [
@@ -186,6 +208,18 @@ describe("lint: inline suppression directives", () => {
     expect(lint("hash-source", text, { sourceDialect: "yaml" }).violations).toHaveLength(0)
   })
 
+  describe("pinned YAML suppression verdicts", () => {
+    for (const fixture of yamlSuppressionVerdicts) {
+      test(`${fixture.name}: ${fixture.note}`, () => {
+        const ruleIds = lint("hash-source", fixture.text, {
+          sourceDialect: "yaml",
+        }).violations.map((violation) => violation.ruleId)
+
+        expect(ruleIds).toEqual(fixture.expectedRuleIds)
+      })
+    }
+  })
+
   test("a directive in an indented code block does not suppress prose", () => {
     const text = ["    <!-- ste-disable-next-line marketing -->", "The robust method works."].join(
       "\n",
@@ -286,6 +320,41 @@ describe("lint: inline suppression directives", () => {
     const text = ["<!-- ste-disable-next-line marketing -->", "The robust method works."].join("\n")
 
     expect(lint("prose-file", text, { previousText }).violations).toHaveLength(0)
+  })
+
+  test.each([
+    [
+      "slash-source" as const,
+      "const old = 1 // ste-disable-next-line unknown",
+      "const new = 1 // ste-disable-next-line unknown",
+    ],
+    [
+      "hash-source" as const,
+      "value = old # ste-disable-next-line unknown",
+      "value = new # ste-disable-next-line unknown",
+    ],
+    [
+      "prose-file" as const,
+      '<div class="old"><!-- ste-disable-next-line unknown --></div>',
+      '<div class="new"><!-- ste-disable-next-line unknown --></div>',
+    ],
+  ])(
+    "editing text outside an invalid %s directive does not report it again",
+    (kind, previousText, text) => {
+      expect(lint(kind, text, { previousText }).violations).toHaveLength(0)
+    },
+  )
+
+  test("editing an invalid directive reports the changed finding", () => {
+    const previousText = "const value = 1 // ste-disable-next-line old-rule"
+    const text = "const value = 1 // ste-disable-next-line new-rule"
+
+    expect(lint("slash-source", text, { previousText }).violations).toEqual([
+      expect.objectContaining({
+        ruleId: "invalid-suppression",
+        message: 'Suppression directive names unknown rule ids: "new-rule".',
+      }),
+    ])
   })
 
   test("removing a directive reports the finding that it suppressed", () => {
