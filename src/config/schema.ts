@@ -33,6 +33,7 @@ const RuleDataExtensionsSchema = Schema.partial(
     "phrasal-verb": Schema.Array(Schema.NonEmptyTrimmedString),
     hedging: Schema.Array(Schema.NonEmptyTrimmedString),
     marketing: Schema.Array(Schema.NonEmptyTrimmedString),
+    "adjectival-participle": Schema.Array(Schema.NonEmptyTrimmedString),
   }),
 )
 

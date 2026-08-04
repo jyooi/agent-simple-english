@@ -16,6 +16,9 @@ export const BUNDLED_RULE_DATA_PATHS: Readonly<Record<RuleDataId, string>> = {
   "phrasal-verb": fileURLToPath(new URL("./data/phrasal-verbs.json", import.meta.url)),
   hedging: fileURLToPath(new URL("./data/hedging.json", import.meta.url)),
   marketing: fileURLToPath(new URL("./data/marketing.json", import.meta.url)),
+  "adjectival-participle": fileURLToPath(
+    new URL("./data/adjectival-participles.json", import.meta.url),
+  ),
 }
 
 type DictionaryLoadLabel = "STE dictionary" | "rule data"
@@ -121,4 +124,9 @@ export const loadRuleData = (
     "phrasal-verb": loadExtendedRuleData("phrasal-verb", extensions["phrasal-verb"] ?? [], cwd),
     hedging: loadExtendedRuleData("hedging", extensions.hedging ?? [], cwd),
     marketing: loadExtendedRuleData("marketing", extensions.marketing ?? [], cwd),
+    "adjectival-participle": loadExtendedRuleData(
+      "adjectival-participle",
+      extensions["adjectival-participle"] ?? [],
+      cwd,
+    ),
   })

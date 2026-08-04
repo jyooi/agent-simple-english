@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { BUNDLED_RULE_DATA } from "../../src/dictionary/bundled-rule-data.ts"
 import { lint } from "../../src/engine/lint.ts"
 import { makeWinkTagger } from "../../src/tagger/wink.ts"
 
@@ -48,6 +49,11 @@ const perfects: readonly Fixture[] = [
   { text: "We have removed the old filter.", expected: ["verb-perfect"] },
 ]
 
+const adjectivalParticiples: readonly (Fixture & { readonly form: string })[] = [
+  { form: "deprecated", text: "The endpoint is deprecated.", expected: [] },
+  { form: "missing", text: "Two files are missing.", expected: [] },
+]
+
 const tricky: readonly Fixture[] = [
   {
     text: "The door is closed.",
@@ -84,6 +90,16 @@ const tricky: readonly Fixture[] = [
     expected: [],
     note: "main-verb have is not a perfect auxiliary",
   },
+  {
+    text: "The first step is running the installer.",
+    expected: ["verb-progressive"],
+    note: "gerund complement stays flagged until the tagger supplies syntax context",
+  },
+  {
+    text: "The build is going to fail without this flag.",
+    expected: ["verb-progressive"],
+    note: "going-to future stays flagged until the tagger supplies syntax context",
+  },
 ]
 
 const suites: readonly [string, readonly Fixture[]][] = [
@@ -91,10 +107,19 @@ const suites: readonly [string, readonly Fixture[]][] = [
   ["active voice", actives],
   ["progressive tense", progressives],
   ["perfect tense", perfects],
+  ["adjectival-participle allowlist", adjectivalParticiples],
   ["tricky pinned verdicts", tricky],
 ]
 
 describe("verb-form rules against the real wink-nlp tagger", () => {
+  test("pins every bundled adjectival-participle form", () => {
+    const bundledForms = BUNDLED_RULE_DATA["adjectival-participle"]?.entries.flatMap(
+      (entry) => entry.unapproved,
+    )
+
+    expect(bundledForms).toEqual(adjectivalParticiples.map((fixture) => fixture.form))
+  })
+
   for (const [name, fixtures] of suites) {
     describe(name, () => {
       for (const fixture of fixtures) {

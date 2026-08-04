@@ -1,3 +1,5 @@
+import type { Dictionary } from "../../dictionary/schema.ts"
+import { caseFoldKey } from "../case-fold.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
 
@@ -20,6 +22,22 @@ const isProgressiveVerb = (token: TaggedToken) =>
 const isPastParticiple = (token: TaggedToken) =>
   token.pos === "VERB" && !token.text.toLowerCase().endsWith("ing")
 
+const allowlistByDictionary = new WeakMap<Dictionary, ReadonlySet<string>>()
+
+const allowlistFor = (dictionary: Dictionary): ReadonlySet<string> => {
+  const cached = allowlistByDictionary.get(dictionary)
+  if (cached !== undefined) return cached
+
+  const allowlist = new Set(
+    dictionary.entries.flatMap((entry) => entry.unapproved).map(caseFoldKey),
+  )
+  allowlistByDictionary.set(dictionary, allowlist)
+  return allowlist
+}
+
+const isAllowlisted = (token: TaggedToken, dictionary: Dictionary | undefined): boolean =>
+  dictionary !== undefined && allowlistFor(dictionary).has(caseFoldKey(token.text))
+
 function nextContentToken(tokens: readonly TaggedToken[], start: number): TaggedToken | undefined {
   for (let i = start; i < tokens.length; i++) {
     const token = tokens[i]
@@ -30,7 +48,11 @@ function nextContentToken(tokens: readonly TaggedToken[], start: number): Tagged
   return undefined
 }
 
-export function verbForm(lines: readonly string[], tag: Tagger): Violation[] {
+export function verbForm(
+  lines: readonly string[],
+  tag: Tagger,
+  adjectivalParticiples?: Dictionary,
+): Violation[] {
   const violations: Violation[] = []
 
   lines.forEach((line, index) => {
@@ -46,15 +68,16 @@ export function verbForm(lines: readonly string[], tag: Tagger): Violation[] {
       }
       const found = line.slice(token.offset, head.offset + head.text.length)
       const position = { line: index + 1, column: token.offset + 1 }
+      const allowlisted = isAllowlisted(head, adjectivalParticiples)
 
-      if (isBeForm(token) && isProgressiveVerb(head)) {
+      if (isBeForm(token) && isProgressiveVerb(head) && !allowlisted) {
         violations.push({
           ruleId: "verb-progressive",
           severity: "hard",
           message: `Use a simple tense. Do not use the progressive. Found: "${found}".`,
           ...position,
         })
-      } else if (isBeForm(token) && isPastParticiple(head)) {
+      } else if (isBeForm(token) && isPastParticiple(head) && !allowlisted) {
         violations.push({
           ruleId: "verb-passive",
           severity: "soft",
