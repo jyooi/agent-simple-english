@@ -1,6 +1,7 @@
 import { parser as htmlParser } from "@lezer/html"
 import { parser as commonMarkParser } from "@lezer/markdown"
 import { parse, postprocess, preprocess } from "micromark"
+import { gfmTable } from "micromark-extension-gfm-table"
 import { normalizeIdentifier } from "micromark-util-normalize-identifier"
 import { markdownSyntaxExtension } from "./markdown-syntax.ts"
 
@@ -56,10 +57,12 @@ const translateParserOffsets = <Events extends ReturnType<typeof postprocess>>(
   return events
 }
 
+const MARKDOWN_EXTENSIONS = [markdownSyntaxExtension, gfmTable()]
+
 const markdownEvents = (source: string) => {
   const input = parserInput(source)
   const events = postprocess(
-    parse({ extensions: [markdownSyntaxExtension] })
+    parse({ extensions: MARKDOWN_EXTENSIONS })
       .document()
       .write(preprocess()(input.source, undefined, true)),
   )
@@ -69,7 +72,7 @@ const markdownEvents = (source: string) => {
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
 
-const CODE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented"])
+const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table"])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
 const DICTIONARY_TOKENS = new Set([
   "atxHeadingSequence",
@@ -155,11 +158,11 @@ const markContainerOnlyLinesAsBlank = (state: AnalysisState): void => {
   }
 }
 
-const markCode = (state: AnalysisState, token: MarkdownToken, block: boolean): void => {
+const markNonProseBlock = (state: AnalysisState, token: MarkdownToken): void => {
   markRange(state.proseMask, token.start.offset, token.end.offset)
   markRange(state.structuralMask, token.start.offset, token.end.offset)
   markRange(state.dictionaryMask, token.start.offset, token.end.offset)
-  if (!block || token.end.offset <= token.start.offset) return
+  if (token.end.offset <= token.start.offset) return
 
   const firstLine = state.lineAtOffset[Math.min(token.start.offset, state.source.length)] ?? 0
   const lastOffset = Math.max(token.start.offset, token.end.offset - 1)
@@ -336,8 +339,8 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
   for (const [phase, token] of events) {
     if (phase !== "enter") continue
 
-    if (CODE_BLOCK_TOKENS.has(token.type)) {
-      markCode(state, token, true)
+    if (NON_PROSE_BLOCK_TOKENS.has(token.type)) {
+      markNonProseBlock(state, token)
       continue
     }
     if (CONTAINER_TOKENS.has(token.type)) {

@@ -19,5 +19,13 @@ All cells must stay at Yes.
 | `verb-passive` | Yes. `flags passive voice as a soft violation with a rewrite hint`. | Yes. `does not flag active voice`. | Yes. `detects passive across an intervening adverb`. |
 | `verb-perfect` | Yes. `flags perfect tense as a hard violation`. | Yes. `does not flag simple past as perfect`. | Yes. `does not flag main-verb have`. |
 
+## Markdown masking accuracy
+
+Cross-cutting Markdown masks use the same finding, clean, and boundary audit at the Engine seam.
+
+| Feature | Finding | Clean | Boundary |
+| --- | --- | --- | --- |
+| GFM tables | Yes. `lints prose around a table at its original positions`. | Yes. `masks a valid multi-row GFM table from all prose rules`. | Yes. `does not mask table-like text with mismatched delimiter cells`. |
+
 Diff-only behavior has a separate engine seam in `diff-match.test.ts`.
 Tests at that seam call `newFindings` directly.
