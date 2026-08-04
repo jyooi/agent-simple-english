@@ -104,6 +104,18 @@ describe("lint prose-file: block quote exemption", () => {
     ])
   })
 
+  test("does not report retained outside wording after a quote-only edit", () => {
+    const outside = "# Outside can't be approximately correct."
+
+    const report = lint("prose-file", `> Revised quote\n${outside}`, {
+      dictionary,
+      exemptBlockQuotes: true,
+      previousText: `> Old quote\n${outside}`,
+    })
+
+    expect(report.violations).toEqual([])
+  })
+
   test("lints prose outside quotes at its original position", () => {
     const text = "> We're seamless.\n\nOutside prose can't be seamless."
 

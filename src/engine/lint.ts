@@ -257,6 +257,17 @@ const lintProse = (
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
+  const wordingSentenceIndex = options.exemptBlockQuotes
+    ? indexSentenceScopes(
+        segmentSentences(
+          prepared.wordingLines,
+          prepared.wordingLines.join("\n"),
+          prepared.structuralBlanks,
+        ),
+        prepared.wordingLines.length,
+        sourceOffset,
+      )
+    : sentenceIndex
   const approvedWordMode = isApprovedWordMode(options.dictionary)
   const dictionarySentenceIndex = approvedWordMode
     ? indexSentenceScopes(
@@ -268,7 +279,7 @@ const lintProse = (
         prepared.wordingDictionaryLines.length,
         sourceOffset,
       )
-    : sentenceIndex
+    : wordingSentenceIndex
   const sentenceFindings = (
     violations: readonly Violation[],
     findingSentenceIndex: SentenceScopeIndex = sentenceIndex,
@@ -289,6 +300,12 @@ const lintProse = (
         occurrenceOffset: sourceOffset + (offsets[violation.line - 1] ?? 0) + violation.column - 1,
       }
     })
+  const wordingFindings = (violations: readonly Violation[]): ScopedViolation[] =>
+    sentenceFindings(
+      violations,
+      wordingSentenceIndex,
+      options.exemptBlockQuotes ? prepared.wordingLines : prepared.structuralLines,
+    )
 
   return [
     ...sentences.flatMap((sentence) =>
@@ -303,17 +320,17 @@ const lintProse = (
         scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
       })),
     ),
-    ...sentenceFindings(contraction(prepared.wordingLines)),
+    ...wordingFindings(contraction(prepared.wordingLines)),
     ...sentenceFindings(semicolon(prepared.lines)),
     ...(options.ruleData?.["phrasal-verb"] === undefined
       ? []
-      : sentenceFindings(phrasalVerb(prepared.wordingLines, options.ruleData["phrasal-verb"]))),
+      : wordingFindings(phrasalVerb(prepared.wordingLines, options.ruleData["phrasal-verb"]))),
     ...(options.ruleData?.hedging === undefined
       ? []
-      : sentenceFindings(hedging(prepared.wordingLines, options.ruleData.hedging))),
+      : wordingFindings(hedging(prepared.wordingLines, options.ruleData.hedging))),
     ...(options.ruleData?.marketing === undefined
       ? []
-      : sentenceFindings(marketing(prepared.wordingLines, options.ruleData.marketing))),
+      : wordingFindings(marketing(prepared.wordingLines, options.ruleData.marketing))),
     ...(options.dictionary === undefined
       ? []
       : sentenceFindings(
