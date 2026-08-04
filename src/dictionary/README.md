@@ -30,7 +30,7 @@ Matching is exact and case-insensitive.
 For the `dictionary-not-approved-word` rule, matching is token based.
 A hyphenated form matches only that exact hyphenated token.
 A phrase can span horizontal whitespace or a soft line break in the same Markdown paragraph, but it cannot span Markdown block boundaries or hard line breaks.
-Fenced and indented Markdown code is excluded from matching.
+Fenced and indented Markdown code and valid GFM tables are excluded from matching.
 The rule checks an entry with `partsOfSpeech` only when an injected tagger returns one of those tags for the form's first token.
 The rule checks an entry without `partsOfSpeech` by word or phrase alone.
 The root [README](../../README.md) owns user-facing matching behavior and configuration.
@@ -63,7 +63,7 @@ Add each permitted word form as a separate item.
 A listed hyphenated form approves only that exact hyphenated token.
 
 The rule checks visible Markdown prose, including link and image labels.
-It excludes identifiers, Markdown code, link destinations and reference definitions, autolinks, character references, and HTML syntax.
+It excludes identifiers, valid GFM tables, Markdown code, link destinations and reference definitions, autolinks, character references, and HTML syntax.
 It also excludes raw content in `pre`, `script`, `style`, and `textarea` HTML flow blocks.
 
 See the root [Configuration](../../README.md#configuration) section for list selection, precedence, and load errors.
