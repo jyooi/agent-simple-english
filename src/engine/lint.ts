@@ -302,7 +302,6 @@ const lintProse = (
     sourceText,
     prepared.structuralBlanks,
     prepared.boundaryLines,
-    options.tagger,
   )
   const paragraphs = segmentParagraphs(
     prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
@@ -320,7 +319,6 @@ const lintProse = (
           prepared.wordingLines.join("\n"),
           prepared.wordingStructuralBlanks,
           prepared.wordingBoundaryLines,
-          options.tagger,
         ),
         prepared.wordingLines.length,
         sourceOffset,
@@ -334,7 +332,6 @@ const lintProse = (
           prepared.wordingDictionaryLines.join("\n"),
           prepared.wordingStructuralBlanks,
           prepared.wordingDictionaryBoundaryLines,
-          options.tagger,
         ),
         prepared.wordingDictionaryLines.length,
         sourceOffset,
@@ -375,7 +372,7 @@ const lintProse = (
       })),
     ),
     ...paragraphs.flatMap((paragraph) =>
-      paragraphLength([paragraph], options.tagger).map((violation) => ({
+      paragraphLength([paragraph]).map((violation) => ({
         violation,
         scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
       })),

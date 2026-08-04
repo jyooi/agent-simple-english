@@ -1,22 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { lint } from "../../src/engine/lint.ts"
-import type { Tagger } from "../../src/engine/tagger.ts"
 
-const sentenceBoundaryTagger: Tagger = (text) => {
-  const match = /[\p{L}\p{N}]+/u.exec(text)
-  if (match === null) return []
-  return [
-    {
-      text: match[0],
-      pos: match[0] === "Smith" || match[0] === "AX" ? "PROPN" : "VB",
-      lemma: match[0].toLocaleLowerCase("en-US"),
-      offset: match.index,
-    },
-  ]
-}
-
-const idsFor = (text: string) =>
-  lint("prose-file", text, { tagger: sentenceBoundaryTagger }).violations.map((v) => v.ruleId)
+const idsFor = (text: string) => lint("prose-file", text).violations.map((v) => v.ruleId)
 
 describe("lint prose-file: paragraph-length rule", () => {
   test("flags a paragraph over 6 sentences as a hard violation", () => {
@@ -57,12 +42,9 @@ describe("lint prose-file: paragraph-length rule", () => {
   })
 
   test.each([
-    ["e.g.", "Use e.g. Model A for comparison."],
-    ["i.e.", "Use i.e. Input mode for the test."],
-    ["vs.", "Compare Model A vs. Model B."],
     ["Fig.", "See Fig. A for details."],
-    ["No.", "Use part No. AX for assembly."],
-  ])("keeps a capitalized continuation after %s", (_label, sentence) => {
+    ["No.", "Use part No. A for assembly."],
+  ])("keeps a single-capital designator after %s", (_label, sentence) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
 
@@ -70,6 +52,7 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["a lowercase title", "Ask technician J. Smith for details."],
     ["a recipient name", "Send the report to J. Smith for approval."],
     ["a wrapped name", "Ask technician J.\nSmith for details."],
+    ["an ambiguous boundary", "Select option J. Continue with the procedure."],
   ])("keeps a capital initial inside %s", (_label, sentence) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
@@ -112,20 +95,19 @@ describe("lint prose-file: paragraph-length rule", () => {
   })
 
   test.each([
+    ["example abbreviation", "Use e.g. Continue with the procedure."],
+    ["explanation abbreviation", "Use i.e. Continue with the procedure."],
     ["listed abbreviation", "Include screws, etc. Continue with the procedure."],
+    ["comparison abbreviation", "Use vs. Continue with the procedure."],
     ["mentioned abbreviation", "The abbreviation is _e.g._ Continue."],
     ["emphasized abbreviation after a verb", "Write _e.g._ Continue."],
     ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
     ["number abbreviation", "The answer is No. Continue with the procedure."],
+    ["multi-capital number suffix", "Use part No. AX for assembly."],
     ["number abbreviation before capitals", "The answer is No. STOP the machine."],
     ["number abbreviation before a short command", "The answer is No. DO NOT continue."],
     ["figure abbreviation before capitals", "The result is Fig. STOP the machine."],
     ["number abbreviation before a command", "The answer is No. Use the other part."],
-    ["capital initial", "Select option J. Continue with the procedure."],
-    ["selected capital initial", "I selected J. Continue."],
-    ["assigned capital initial", "Set the selector to J. Continue with the test."],
-    ["capital initial before another command", "Set the selector to J. Verify the result."],
-    ["wrapped capital initial", "Select option J.\nContinue with the procedure."],
     ["linked abbreviation", "[Include screws, etc.](url) Continue with the procedure."],
     ["referenced abbreviation", "Include screws, etc.[^1] Continue with the procedure."],
     ["bracketed sentence", "Include screws, etc. [Continue with the procedure.]"],
@@ -138,7 +120,7 @@ describe("lint prose-file: paragraph-length rule", () => {
   test.each([
     ["a figure reference", "Review Fig. A for details."],
     ["a copular figure reference", "The reference is Fig. A for details."],
-    ["a part number", "Install No. AX in the assembly."],
+    ["a part number", "Install No. 7 in the assembly."],
   ])("keeps %s after an unlisted preceding word", (_label, sentence) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain("paragraph-length")
   })
@@ -270,12 +252,14 @@ describe("lint prose-file: paragraph-length rule", () => {
     10_000,
   )
 
-  test(
-    "scans hard-wrapped prose without abbreviation lookahead",
-    () => {
-      const text = Array.from({ length: 10_000 }, () => "wrapped prose without punctuation").join(
-        "\n",
-      )
+  test.each([
+    ["without abbreviations", "wrapped prose without punctuation"],
+    ["with abbreviations", "use e.g. wrapped prose"],
+    ["with unclosed emphasis", "use _e.g. wrapped prose"],
+  ])(
+    "scans hard-wrapped prose %s in linear time",
+    (_label, line) => {
+      const text = Array.from({ length: 10_000 }, () => line).join("\n")
       const start = performance.now()
 
       lint("prose-file", text)

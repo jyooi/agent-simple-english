@@ -1,5 +1,3 @@
-import type { Tagger } from "./tagger.ts"
-
 export interface Sentence {
   readonly text: string
   readonly line: number
@@ -108,20 +106,117 @@ type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
 
 const DESIGNATOR_ABBREVIATIONS: ReadonlySet<ListedAbbreviation> = new Set(["Fig.", "No."])
 
-function containsAbbreviationCandidate(text: string, boundaryText: string): boolean {
-  return (
-    ABBREVIATIONS.some((abbreviation) => boundaryText.includes(abbreviation)) ||
-    /(?:^|[^\p{L}\p{N}_.])[A-Z]\./u.test(text)
-  )
+interface BoundaryAnalysis {
+  readonly escaped: Uint8Array
+  readonly nextAttachedContent: Int32Array
+  readonly underscoreClosers: readonly [Int32Array, Int32Array, Int32Array]
 }
 
-function isEscaped(text: string, index: number): boolean {
+function escapedCharacters(text: string): Uint8Array {
+  const escaped = new Uint8Array(text.length)
   let backslashes = 0
-  for (let current = index - 1; text[current] === "\\"; current -= 1) backslashes += 1
-  return backslashes % 2 === 1
+  for (let index = 0; index < text.length; index += 1) {
+    escaped[index] = backslashes % 2
+    backslashes = text[index] === "\\" ? backslashes + 1 : 0
+  }
+  return escaped
 }
 
-function hasUnderscoreEmphasisOpening(text: string, tokenStart: number, tokenEnd: number): boolean {
+function underscoreEmphasisClosers(
+  text: string,
+  escaped: Uint8Array,
+): readonly [Int32Array, Int32Array, Int32Array] {
+  const closers = [1, 2, 3].map(() => new Int32Array(text.length + 1).fill(-1)) as unknown as [
+    Int32Array,
+    Int32Array,
+    Int32Array,
+  ]
+  const nearest = [-1, -1, -1]
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    if (text[index] === "_" && text[index - 1] !== "_") {
+      let runEnd = index + 1
+      while (text[runEnd] === "_") runEnd += 1
+      const delimiterLength = runEnd - index
+      if (
+        delimiterLength <= 3 &&
+        escaped[index] === 0 &&
+        !/\s/u.test(text[index - 1] ?? "") &&
+        !/[\p{L}\p{N}_]/u.test(text[runEnd] ?? "")
+      ) {
+        nearest[delimiterLength - 1] = index
+      }
+    }
+    for (let length = 0; length < closers.length; length += 1) {
+      const closer = closers[length]
+      if (closer !== undefined) closer[index] = nearest[length] ?? -1
+    }
+  }
+  return closers
+}
+
+function contentLookahead(
+  text: string,
+  brackets: Int32Array,
+  linkSuffixes: Int32Array,
+): Int32Array {
+  const attached = new Int32Array(text.length + 1).fill(-1)
+  const detached = new Int32Array(text.length + 1).fill(-1)
+
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const character = text[index] ?? ""
+    if (/\s/u.test(character)) {
+      attached[index] = sentinelAt(detached, index + 1)
+      detached[index] = sentinelAt(detached, index + 1)
+      continue
+    }
+    if (CLOSING_DELIMITERS.has(character)) {
+      attached[index] = sentinelAt(attached, index + 1)
+      detached[index] = sentinelAt(detached, index + 1)
+      continue
+    }
+
+    const linkSuffixEnd = sentinelAt(linkSuffixes, index)
+    if (linkSuffixEnd >= 0) {
+      attached[index] = sentinelAt(attached, linkSuffixEnd)
+      detached[index] = sentinelAt(detached, linkSuffixEnd)
+      continue
+    }
+
+    const bracketEnd = sentinelAt(brackets, index)
+    if (character === "[" && bracketEnd >= 0) {
+      attached[index] = sentinelAt(attached, bracketEnd)
+      detached[index] = sentinelAt(detached, index + 1)
+      continue
+    }
+    if (character === "[" || OPENING_PROSE_DELIMITERS.has(character)) {
+      attached[index] = sentinelAt(attached, index + 1)
+      detached[index] = sentinelAt(detached, index + 1)
+      continue
+    }
+
+    attached[index] = index
+    detached[index] = index
+  }
+
+  return attached
+}
+
+function analyzeBoundaryText(text: string): BoundaryAnalysis {
+  const { brackets, linkSuffixes } = markdownDelimiterEnds(text)
+  const escaped = escapedCharacters(text)
+  return {
+    escaped,
+    nextAttachedContent: contentLookahead(text, brackets, linkSuffixes),
+    underscoreClosers: underscoreEmphasisClosers(text, escaped),
+  }
+}
+
+function hasUnderscoreEmphasisOpening(
+  text: string,
+  tokenStart: number,
+  tokenEnd: number,
+  analysis: BoundaryAnalysis,
+): boolean {
   if (text[tokenStart - 1] !== "_") return false
 
   let openingStart = tokenStart - 1
@@ -129,190 +224,137 @@ function hasUnderscoreEmphasisOpening(text: string, tokenStart: number, tokenEnd
   const delimiterLength = tokenStart - openingStart
   if (
     delimiterLength > 3 ||
-    isEscaped(text, openingStart) ||
-    /[\p{L}\p{N}_]/u.test(text[openingStart - 1] ?? "")
+    /[\p{L}\p{N}_]/u.test(text[openingStart - 1] ?? "") ||
+    analysis.escaped[openingStart] === 1
   ) {
     return false
   }
 
-  for (let index = tokenEnd + 1; index < text.length; index += 1) {
-    if (text[index] !== "_" || isEscaped(text, index)) continue
-    let closingEnd = index
-    while (text[closingEnd] === "_") closingEnd += 1
-    if (
-      closingEnd - index >= delimiterLength &&
-      !/\s/u.test(text[index - 1] ?? "") &&
-      !/[\p{L}\p{N}_]/u.test(text[index + delimiterLength] ?? "")
-    ) {
-      return true
-    }
-    index = closingEnd - 1
-  }
-
-  return false
+  const closers = analysis.underscoreClosers[delimiterLength - 1]
+  return closers !== undefined && (closers[tokenEnd + 1] ?? -1) >= 0
 }
 
-function hasTokenStartBoundary(text: string, tokenStart: number, tokenEnd: number): boolean {
+function hasTokenStartBoundary(
+  text: string,
+  tokenStart: number,
+  tokenEnd: number,
+  analysis: BoundaryAnalysis,
+): boolean {
   const previous = text[tokenStart - 1] ?? ""
   return (
     !/[\p{L}\p{N}_.]/u.test(previous) ||
-    (previous === "_" && hasUnderscoreEmphasisOpening(text, tokenStart, tokenEnd))
+    (previous === "_" && hasUnderscoreEmphasisOpening(text, tokenStart, tokenEnd, analysis))
   )
 }
 
 function listedAbbreviationAtPeriod(
   text: string,
   periodIndex: number,
+  analysis: BoundaryAnalysis,
 ): { readonly abbreviation: ListedAbbreviation; readonly start: number } | undefined {
   for (const abbreviation of ABBREVIATIONS) {
     const start = periodIndex - abbreviation.length + 1
     if (start < 0 || text.slice(start, periodIndex + 1) !== abbreviation) continue
-    if (hasTokenStartBoundary(text, start, periodIndex)) return { abbreviation, start }
+    if (hasTokenStartBoundary(text, start, periodIndex, analysis)) {
+      return { abbreviation, start }
+    }
   }
 
   return undefined
 }
 
-function capitalInitialStartAtPeriod(text: string, periodIndex: number): number | undefined {
-  const initialStart = periodIndex - 1
-  const initial = text[initialStart] ?? ""
-  return /[A-Z]/u.test(initial) && hasTokenStartBoundary(text, initialStart, periodIndex)
-    ? initialStart
-    : undefined
+function isCapitalInitialAtPeriod(
+  maskedText: string,
+  localPeriodIndex: number,
+  boundaryText: string,
+  boundaryPeriodIndex: number,
+  analysis: BoundaryAnalysis,
+): boolean {
+  const localInitialStart = localPeriodIndex - 1
+  const boundaryInitialStart = boundaryPeriodIndex - 1
+  return (
+    /[A-Z]/u.test(maskedText[localInitialStart] ?? "") &&
+    hasTokenStartBoundary(boundaryText, boundaryInitialStart, boundaryPeriodIndex, analysis)
+  )
 }
 
 interface NextContent {
   readonly character: string
   readonly word: string
-  readonly text: string
 }
 
 function nextContentIn(
   text: string,
   start: number,
-  linkSuffixes: Int32Array,
-  brackets: Int32Array,
-  suffixCanBeAttached: boolean,
+  end: number,
+  nextAttachedContent: Int32Array,
 ): NextContent | undefined {
-  let canSkipAttachedSuffix = suffixCanBeAttached
-  for (let index = start; index < text.length; index += 1) {
-    const character = text[index] ?? ""
-    if (/\s/u.test(character)) {
-      canSkipAttachedSuffix = false
-      continue
-    }
-    if (CLOSING_DELIMITERS.has(character)) continue
+  const index = sentinelAt(nextAttachedContent, start)
+  if (index < 0 || index >= end) return undefined
 
-    const linkSuffixEnd = sentinelAt(linkSuffixes, index)
-    if (linkSuffixEnd >= 0) {
-      index = linkSuffixEnd - 1
-      continue
-    }
-
-    const bracketEnd = sentinelAt(brackets, index)
-    if (character === "[" && bracketEnd >= 0 && canSkipAttachedSuffix) {
-      index = bracketEnd - 1
-      continue
-    }
-    if (character === "[" || OPENING_PROSE_DELIMITERS.has(character)) continue
-
-    const remaining = text.slice(index)
-    return {
-      character,
-      word: /^[\p{L}\p{N}_-]+/u.exec(remaining)?.[0] ?? character,
-      text: remaining,
-    }
-  }
-  return undefined
+  const character = text[index] ?? ""
+  let wordEnd = index
+  while (wordEnd < end && /[\p{L}\p{N}_-]/u.test(text[wordEnd] ?? "")) wordEnd += 1
+  return { character, word: text.slice(index, wordEnd) || character }
 }
 
-function nextContent(
-  text: string,
-  start: number,
-  followingText: string | undefined,
-  linkSuffixes: Int32Array,
-  brackets: Int32Array,
-): NextContent | undefined {
-  const current = nextContentIn(text, start, linkSuffixes, brackets, true)
-  if (current !== undefined || followingText === undefined) return current
-
-  const followingDelimiters = markdownDelimiterEnds(followingText)
-  return nextContentIn(
-    followingText,
-    0,
-    followingDelimiters.linkSuffixes,
-    followingDelimiters.brackets,
-    false,
-  )
-}
-
-function closesFormattedToken(text: string, periodIndex: number): boolean {
-  return text[periodIndex + 1] === "_" || text[periodIndex + 1] === "*"
-}
-
-function firstContentToken(next: NextContent, tagger: Tagger): ReturnType<Tagger>[number] | undefined {
-  return tagger(next.text).find((candidate) => /[\p{L}\p{N}]/u.test(candidate.text))
-}
-
-function isProperNamePos(pos: string | undefined): boolean {
-  return pos === "PROPN" || pos === "NNP" || pos === "NNPS"
-}
-
-function isCodeDesignator(next: NextContent, tagger: Tagger | undefined): boolean {
-  if (!/^[A-Z0-9](?:[A-Z0-9-]{0,2})$/u.test(next.word)) return false
-  if (next.word.length === 1 || /\d/u.test(next.word) || tagger === undefined) return true
-  return isProperNamePos(firstContentToken(next, tagger)?.pos)
-}
-
-function initialIntroducesName(next: NextContent, tagger: Tagger | undefined): boolean {
-  if (tagger === undefined) return true
-  return isProperNamePos(firstContentToken(next, tagger)?.pos)
+function isCodeDesignator(abbreviation: ListedAbbreviation, next: NextContent): boolean {
+  if (/\d/u.test(next.word)) return /^[A-Z0-9](?:[A-Z0-9-]{0,2})$/u.test(next.word)
+  if (abbreviation === "No.") return /^[A-Z]$/u.test(next.word)
+  return /^[A-Z](?:[A-Z-]{0,2})$/u.test(next.word)
 }
 
 function abbreviationIsInternal(
-  text: string,
+  maskedText: string,
+  localPeriodIndex: number,
   boundaryText: string,
-  recognitionText: string,
-  periodIndex: number,
-  followingBoundaryText: string | undefined,
-  linkSuffixes: Int32Array,
-  brackets: Int32Array,
-  tagger: Tagger | undefined,
+  boundaryPeriodIndex: number,
+  paragraphEnd: number,
+  analysis: BoundaryAnalysis,
 ): boolean {
-  const listed = listedAbbreviationAtPeriod(recognitionText, periodIndex)
-  const initialStart = capitalInitialStartAtPeriod(text, periodIndex)
-  if (listed === undefined && initialStart === undefined) return false
-
-  const next = nextContent(
+  const listed = listedAbbreviationAtPeriod(boundaryText, boundaryPeriodIndex, analysis)
+  const isInitial = isCapitalInitialAtPeriod(
+    maskedText,
+    localPeriodIndex,
     boundaryText,
-    periodIndex + 1,
-    followingBoundaryText,
-    linkSuffixes,
-    brackets,
+    boundaryPeriodIndex,
+    analysis,
+  )
+  if (listed === undefined && !isInitial) return false
+
+  const next = nextContentIn(
+    boundaryText,
+    boundaryPeriodIndex + 1,
+    paragraphEnd,
+    analysis.nextAttachedContent,
   )
   if (next === undefined || !/[A-Z]/u.test(next.character)) return true
-  if (QUOTATION_CLOSERS.has(boundaryText[periodIndex + 1] ?? "")) return false
-  if (listed !== undefined) {
-    if (closesFormattedToken(boundaryText, periodIndex)) return false
-    if (listed.abbreviation === "etc.") return false
-    if (DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) return isCodeDesignator(next, tagger)
-    return true
+  if (QUOTATION_CLOSERS.has(boundaryText[boundaryPeriodIndex + 1] ?? "")) return false
+  if (listed !== undefined && DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) {
+    return isCodeDesignator(listed.abbreviation, next)
   }
-  return initialStart !== undefined && initialIntroducesName(next, tagger)
+  return isInitial
 }
 
 // Identifier masking blanks dotted abbreviations but leaves their final periods.
 // Restore only listed abbreviations from the equal-length pre-identifier line.
-function restoreAbbreviations(text: string, boundaryText: string): string {
+function restoreAbbreviations(
+  text: string,
+  boundaryLine: string,
+  boundaryText: string,
+  boundaryOffset: number,
+  analysis: BoundaryAnalysis,
+): string {
   const characters = text.split("")
   let changed = false
 
-  for (let index = 0; index < boundaryText.length; index++) {
-    if (boundaryText[index] !== "." || text[index] !== ".") continue
-    const listed = listedAbbreviationAtPeriod(boundaryText, index)
+  for (let index = 0; index < boundaryLine.length; index += 1) {
+    if (boundaryLine[index] !== "." || text[index] !== ".") continue
+    const listed = listedAbbreviationAtPeriod(boundaryText, boundaryOffset + index, analysis)
     if (listed === undefined) continue
-    for (let characterIndex = listed.start; characterIndex <= index; characterIndex++) {
-      characters[characterIndex] = boundaryText[characterIndex] ?? ""
+    const localStart = listed.start - boundaryOffset
+    for (let characterIndex = localStart; characterIndex <= index; characterIndex += 1) {
+      characters[characterIndex] = boundaryLine[characterIndex] ?? ""
     }
     changed = true
   }
@@ -323,9 +365,9 @@ function restoreAbbreviations(text: string, boundaryText: string): string {
 function sentenceTerminatorEnds(
   text: string,
   boundaryText: string,
-  recognitionText: string,
-  followingBoundaryText: string | undefined,
-  tagger: Tagger | undefined,
+  boundaryOffset: number,
+  paragraphEnd: number,
+  boundaryAnalysis: BoundaryAnalysis,
 ): number[] {
   const { parentheses, brackets, linkSuffixes } = markdownDelimiterEnds(text)
   const closingRuns = new Uint32Array(text.length + 1)
@@ -372,13 +414,11 @@ function sentenceTerminatorEnds(
       text[index] === "." &&
       abbreviationIsInternal(
         text,
-        boundaryText,
-        recognitionText,
         index,
-        followingBoundaryText,
-        linkSuffixes,
-        brackets,
-        tagger,
+        boundaryText,
+        boundaryOffset + index,
+        paragraphEnd,
+        boundaryAnalysis,
       )
     ) {
       continue
@@ -418,12 +458,26 @@ export function segmentSentences(
   sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
   boundaryLines: readonly string[] = lines,
-  tagger?: Tagger,
 ): Sentence[] {
   const sentences: Sentence[] = []
   const lineOffsets = [0]
-  for (let index = 0; index < sourceText.length; index++) {
+  for (let index = 0; index < sourceText.length; index += 1) {
     if (sourceText[index] === "\n") lineOffsets.push(index + 1)
+  }
+  const effectiveBoundaryLines = lines.map((line, index) => boundaryLines[index] ?? line)
+  const boundaryText = effectiveBoundaryLines.join("\n")
+  const boundaryAnalysis = analyzeBoundaryText(boundaryText)
+  const boundaryOffsets: number[] = []
+  const paragraphEnds: number[] = []
+  let boundaryOffset = 0
+  for (const line of effectiveBoundaryLines) {
+    boundaryOffsets.push(boundaryOffset)
+    boundaryOffset += line.length + 1
+  }
+  let paragraphEnd = boundaryText.length
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (structuralBlanks[index] ?? true) paragraphEnd = boundaryOffsets[index] ?? paragraphEnd
+    paragraphEnds[index] = paragraphEnd
   }
   let open: {
     line: number
@@ -469,28 +523,22 @@ export function segmentSentences(
       if (structuralBlanks[index] ?? true) close()
       return
     }
-    const boundaryRaw = boundaryLines[index] ?? maskedRaw
-    let followingBoundaryText: string | undefined
-    if (containsAbbreviationCandidate(maskedRaw, boundaryRaw)) {
-      const followingBoundaryLines: string[] = []
-      for (let followingIndex = index + 1; followingIndex < lines.length; followingIndex++) {
-        if (structuralBlanks[followingIndex] ?? true) break
-        followingBoundaryLines.push(boundaryLines[followingIndex] ?? lines[followingIndex] ?? "")
-      }
-      if (followingBoundaryLines.length > 0) followingBoundaryText = followingBoundaryLines.join("\n")
-    }
-    const boundaryContext =
-      followingBoundaryText === undefined
-        ? boundaryRaw
-        : `${boundaryRaw}\n${followingBoundaryText}`
-    const raw = restoreAbbreviations(maskedRaw, boundaryContext)
+    const boundaryRaw = effectiveBoundaryLines[index] ?? maskedRaw
+    const currentBoundaryOffset = boundaryOffsets[index] ?? 0
+    const raw = restoreAbbreviations(
+      maskedRaw,
+      boundaryRaw,
+      boundaryText,
+      currentBoundaryOffset,
+      boundaryAnalysis,
+    )
     let offset = 0
     for (const end of sentenceTerminatorEnds(
       raw,
-      boundaryRaw,
-      boundaryContext,
-      followingBoundaryText,
-      tagger,
+      boundaryText,
+      currentBoundaryOffset,
+      paragraphEnds[index] ?? boundaryText.length,
+      boundaryAnalysis,
     )) {
       const part = raw.slice(offset, end)
       if (!open) {

@@ -1,21 +1,16 @@
 import type { Paragraph } from "../paragraphs.ts"
 import { segmentSentences } from "../sentences.ts"
-import type { Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
 
 const MAX_SENTENCES = 6
 
-export function paragraphLength(
-  paragraphs: readonly Paragraph[],
-  tagger?: Tagger,
-): Violation[] {
+export function paragraphLength(paragraphs: readonly Paragraph[]): Violation[] {
   return paragraphs.flatMap((paragraph) => {
     const count = segmentSentences(
       paragraph.lines,
       paragraph.lines.join("\n"),
       undefined,
       paragraph.boundaryLines,
-      tagger,
     ).length
     if (count <= MAX_SENTENCES) {
       return []
