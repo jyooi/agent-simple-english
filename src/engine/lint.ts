@@ -305,7 +305,9 @@ const lintProse = (
         )),
     ...(options.tagger === undefined
       ? []
-      : sentenceFindings(verbForm(prepared.lines, options.tagger))),
+      : sentenceFindings(
+          verbForm(prepared.lines, options.tagger, options.ruleData?.["adjectival-participle"]),
+        )),
   ]
 }
 

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "source": {
+    "name": "HUF-167 adjectival-participle audit",
+    "repository": "https://linear.app/huffman",
+    "commit": "HUF-167",
+    "path": "issue/HUF-167"
+  },
+  "entries": [
+    {
+      "unapproved": ["deprecated", "missing"],
+      "suggestions": ["allow"]
+    }
+  ]
+}

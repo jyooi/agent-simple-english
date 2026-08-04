@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { decodeDictionaryData } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 import type { TaggedToken, Tagger } from "../../src/engine/tagger.ts"
 
@@ -114,6 +115,69 @@ describe("lint prose-file: verb-form rules (stub tagger)", () => {
     expect(lint("prose-file", text, { tagger }).violations).not.toContainEqual(
       expect.objectContaining({ ruleId: "verb-progressive" }),
     )
+  })
+
+  test("does not flag a bundled adjectival participle", () => {
+    const text = "Two files are missing."
+    const tagger = stubTagger({
+      [text]: "Two/NUM/two files/NOUN/file are/AUX/be missing/VERB/miss ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).toHaveLength(0)
+  })
+
+  test("does not flag an allowlisted passive participle", () => {
+    const text = "The endpoint is deprecated."
+    const tagger = stubTagger({
+      [text]: "The/DET/the endpoint/NOUN/endpoint is/AUX/be deprecated/VERB/deprecate ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).toHaveLength(0)
+  })
+
+  test("uses a validated rule-data extension as an allowlist", () => {
+    const text = "The door is closed."
+    const tagger = stubTagger({
+      [text]: "The/DET/the door/NOUN/door is/AUX/be closed/VERB/close ./PUNCT/.",
+    })
+    const extension = decodeDictionaryData({
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "adjectival-participles.json",
+      },
+      entries: [{ unapproved: ["CLOSED"], suggestions: ["allow"] }],
+    })
+
+    const report = lint("prose-file", text, {
+      tagger,
+      ruleData: { "adjectival-participle": extension },
+    })
+
+    expect(report.violations).toHaveLength(0)
+  })
+
+  test("allows a listed participle after an intervening adverb", () => {
+    const text = "The files are still missing."
+    const tagger = stubTagger({
+      [text]: "The/DET/the files/NOUN/file are/AUX/be still/ADV/still missing/VERB/miss ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).toHaveLength(0)
+  })
+
+  test("keeps an unlisted gerund complement flagged", () => {
+    const text = "The first step is running the installer."
+    const tagger = stubTagger({
+      [text]:
+        "The/DET/the first/ADJ/first step/NOUN/step is/AUX/be running/VERB/run the/DET/the installer/NOUN/installer ./PUNCT/.",
+    })
+
+    expect(lint("prose-file", text, { tagger }).violations).toEqual([
+      expect.objectContaining({ ruleId: "verb-progressive", severity: "hard", column: 16 }),
+    ])
   })
 
   test("does not flag simple past as perfect", () => {

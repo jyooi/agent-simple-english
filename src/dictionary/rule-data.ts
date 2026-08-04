@@ -1,6 +1,11 @@
 import type { Dictionary } from "./schema.ts"
 
-export const ruleDataIds = ["phrasal-verb", "hedging", "marketing"] as const
+export const ruleDataIds = [
+  "phrasal-verb",
+  "hedging",
+  "marketing",
+  "adjectival-participle",
+] as const
 
 export type RuleDataId = (typeof ruleDataIds)[number]
 export type RuleData = Readonly<Partial<Record<RuleDataId, Dictionary>>>

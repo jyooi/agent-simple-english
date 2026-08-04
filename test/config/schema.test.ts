@@ -16,6 +16,9 @@ describe("config schema", () => {
       rules: { "sentence-length": "soft" },
       maxSentenceWords: 20,
       approvedWordsPath: "config/approved-words.json",
+      ruleDataExtensions: {
+        "adjectival-participle": ["config/adjectival-participles.json"],
+      },
     })
 
     expect(result._tag).toBe("Right")
@@ -24,6 +27,9 @@ describe("config schema", () => {
         rules: { "sentence-length": "soft" },
         maxSentenceWords: 20,
         approvedWordsPath: "config/approved-words.json",
+        ruleDataExtensions: {
+          "adjectival-participle": ["config/adjectival-participles.json"],
+        },
       })
     }
   })

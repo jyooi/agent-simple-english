@@ -3,6 +3,7 @@
 The JSON files in `data/` use the package-owned format that `schema.ts` defines and Effect Schema validates.
 The CLI and Adapters load all bundled data through `load.ts`.
 The bundled dictionary and rule-data files use the not-approved form.
+The adjectival-participle rule data interprets its forms as allowed exceptions.
 A user-owned approved-word list uses the approved form.
 
 ## Shared fields
@@ -22,6 +23,10 @@ Unknown properties cause validation to fail.
   The dictionary rule reports all values as approved alternatives, the phrasal-verb rule uses the first value, and the hedging and marketing rules ignore this field.
 - `entries[].partsOfSpeech`, when present, lists the POS tags for which the forms are unapproved.
   Only the `dictionary-not-approved-word` rule uses this field.
+
+For `adjectival-participle` rule data, each `entries[].unapproved` value is one allowed surface form.
+Matching is exact and case-insensitive.
+The verb-form rules ignore `suggestions` and `partsOfSpeech` in this data.
 
 For the `dictionary-not-approved-word` rule, matching is token based.
 A hyphenated form matches only that exact hyphenated token.

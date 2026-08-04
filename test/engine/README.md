@@ -15,8 +15,8 @@ All cells must stay at Yes.
 | `phrasal-verb` | Yes. `flags a phrasal verb as a hard violation with the approved alternative`. | Yes. `does not flag the bare verb without its particle`. | Yes. `does not match within a token`. |
 | `semicolon` | Yes. `flags a semicolon as a hard violation at its column`. | Yes. `ignores semicolons inside inline code`. | Yes. `flags a prose semicolon beside inline code at its original column`. |
 | `sentence-length` | Yes. `flags a sentence over 25 words as a hard violation`. | Yes. `does not flag short sentences`. | Yes. `does not flag a sentence of exactly 25 words`. |
-| `verb-progressive` | Yes. `flags progressive tense as a hard violation`. | Yes. `does not flag simple present as progressive`. | Yes. `does not flag an adjective that ends in ing as progressive`. |
-| `verb-passive` | Yes. `flags passive voice as a soft violation with a rewrite hint`. | Yes. `does not flag active voice`. | Yes. `detects passive across an intervening adverb`. |
+| `verb-progressive` | Yes. `flags progressive tense as a hard violation`. | Yes. `does not flag a bundled adjectival participle`. | Yes. `allows a listed participle after an intervening adverb`. |
+| `verb-passive` | Yes. `flags passive voice as a soft violation with a rewrite hint`. | Yes. `does not flag an allowlisted passive participle`. | Yes. `detects passive across an intervening adverb`. |
 | `verb-perfect` | Yes. `flags perfect tense as a hard violation`. | Yes. `does not flag simple past as perfect`. | Yes. `does not flag main-verb have`. |
 
 Diff-only behavior has a separate engine seam in `diff-match.test.ts`.

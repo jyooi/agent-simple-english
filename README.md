@@ -277,7 +277,8 @@ This example contains every config key and every rule:
   "ruleDataExtensions": {
     "phrasal-verb": ["config/phrasal-verbs.json"],
     "hedging": ["config/hedging.json"],
-    "marketing": ["config/marketing.json"]
+    "marketing": ["config/marketing.json"],
+    "adjectival-participle": ["config/adjectival-participles.json"]
   },
   "rules": {
     "contraction": "hard",
@@ -313,6 +314,7 @@ Unknown keys, unknown rule IDs, and invalid values cause a config error.
 The loader adds entries from these files after the bundled entries.
 The loader resolves relative paths from the current working directory.
 Each file must use the [package dictionary data format](src/dictionary/README.md).
+An `adjectival-participle` extension adds exact forms that the verb-form rules allow after a form of `be`.
 A lint command reports an extension load error and continues with the bundled rule data.
 The enabled pi Adapter fails closed after that error, while Claude Code Hook mode allows the event and adds a warning.
 
@@ -365,11 +367,13 @@ The default maximum is 25 words.
 
 Default: hard.
 Reports a form of `be` followed by an `-ing` verb, with optional adverbs or `not` between them.
+Forms in the adjectival-participle allowlist are exempt.
 
 #### `verb-passive`
 
 Default: soft.
 Reports a form of `be` followed by a past participle, with optional adverbs or `not` between them.
+Forms in the adjectival-participle allowlist are exempt.
 
 #### `verb-perfect`
 
