@@ -122,6 +122,34 @@ describe("lint prose-file: block quote exemption", () => {
     expect(report.violations).toEqual([])
   })
 
+  test("keeps an outside finding retained across a later edit separated by a quote", () => {
+    const outside = "Outside can't proceed"
+    const quote = "> # Quoted heading."
+
+    const report = lint("prose-file", `${outside}\n${quote}\nRevised text.`, {
+      exemptBlockQuotes: true,
+      previousText: `${outside}\n${quote}\nFollowing text.`,
+    })
+
+    expect(report.violations).toEqual([])
+  })
+
+  test("keeps an outside approved-word finding retained across a separated edit", () => {
+    const quote = "> Quoted heading."
+    const approvedWordFixture = {
+      ...approvedWords,
+      approvedWords: ["following", "revised", "text"],
+    } satisfies ApprovedWordList
+
+    const report = lint("prose-file", `Unknown\n${quote}\nRevised text.`, {
+      dictionary: approvedWordFixture,
+      exemptBlockQuotes: true,
+      previousText: `Unknown\n${quote}\nFollowing text.`,
+    })
+
+    expect(report.violations).toEqual([])
+  })
+
   test("lints prose outside quotes at its original position", () => {
     const text = "> We're seamless.\n\nOutside prose can't be seamless."
 

@@ -14,6 +14,7 @@ interface MarkdownAnalysis {
   readonly wordingStructuralLines: string[]
   readonly wordingDictionaryLines: string[]
   readonly structuralBlanks: boolean[]
+  readonly wordingStructuralBlanks: boolean[]
 }
 
 export interface MarkdownCodeResult {
@@ -32,6 +33,7 @@ interface AnalysisState {
   readonly dictionaryMask: Uint8Array
   readonly containerMask: Uint8Array
   readonly blockQuoteMask: Uint8Array | undefined
+  readonly blockQuoteLines: Uint8Array | undefined
   readonly structuralBlanks: boolean[]
 }
 
@@ -144,6 +146,7 @@ const createAnalysisState = (
     dictionaryMask: new Uint8Array(source.length),
     containerMask: new Uint8Array(source.length),
     blockQuoteMask: exemptBlockQuotes ? new Uint8Array(source.length) : undefined,
+    blockQuoteLines: exemptBlockQuotes ? new Uint8Array(parseLines.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
   }
 }
@@ -166,6 +169,16 @@ const markContainerOnlyLinesAsBlank = (state: AnalysisState): void => {
 
     if (hasContainer && !hasOtherContent) state.structuralBlanks[line] = true
   }
+}
+
+const markBlockQuote = (state: AnalysisState, token: MarkdownToken): void => {
+  if (state.blockQuoteMask === undefined || state.blockQuoteLines === undefined) return
+
+  markRange(state.blockQuoteMask, token.start.offset, token.end.offset)
+  const firstLine = state.lineAtOffset[Math.min(token.start.offset, state.source.length)] ?? 0
+  const lastOffset = Math.max(token.start.offset, token.end.offset - 1)
+  const lastLine = state.lineAtOffset[Math.min(lastOffset, state.source.length)] ?? firstLine
+  state.blockQuoteLines.fill(1, firstLine, lastLine + 1)
 }
 
 const markNonProseBlock = (state: AnalysisState, token: MarkdownToken): void => {
@@ -350,9 +363,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
   for (const [phase, token] of events) {
     if (token.type === "blockQuote" && state.blockQuoteMask !== undefined) {
       if (phase === "enter") {
-        if (blockQuoteDepth === 0) {
-          markRange(state.blockQuoteMask, token.start.offset, token.end.offset)
-        }
+        if (blockQuoteDepth === 0) markBlockQuote(state, token)
         blockQuoteDepth++
       } else {
         blockQuoteDepth--
@@ -434,6 +445,7 @@ const analyzeMarkdown = (
       wordingStructuralLines: [],
       wordingDictionaryLines: [],
       structuralBlanks: [],
+      wordingStructuralBlanks: [],
     }
   }
 
@@ -500,6 +512,12 @@ const analyzeMarkdown = (
             wordingMask,
           ),
     structuralBlanks: state.structuralBlanks,
+    wordingStructuralBlanks:
+      state.blockQuoteLines === undefined
+        ? state.structuralBlanks
+        : state.structuralBlanks.map(
+            (blank, lineIndex) => blank || state.blockQuoteLines?.[lineIndex] === 1,
+          ),
   }
 }
 
