@@ -12,7 +12,7 @@ export interface Sentence {
 }
 
 const QUOTATION_CLOSERS = new Set(['"', "'", "’", "”", "»", "›"])
-const OPENING_PROSE_DELIMITERS = new Set(["(", "{"])
+const OPENING_PROSE_DELIMITERS = new Set(["(", "{", "‘", "“", "«", "‹"])
 const CLOSING_DELIMITERS = new Set([...QUOTATION_CLOSERS, ")", "]", "}", "*", "_", "~", "`"])
 
 function valueAt(values: Int32Array | Uint32Array, index: number): number {
@@ -154,6 +154,34 @@ function underscoreEmphasisClosers(
   return closers
 }
 
+function atxHeadingPrefixes(text: string): Uint8Array {
+  const prefixes = new Uint8Array(text.length)
+  let lineStart = 0
+
+  for (let lineEnd = 0; lineEnd <= text.length; lineEnd += 1) {
+    if (lineEnd < text.length && text[lineEnd] !== "\n") continue
+
+    let markerStart = lineStart
+    while (markerStart < lineEnd && markerStart - lineStart < 3 && text[markerStart] === " ") {
+      markerStart += 1
+    }
+    let markerEnd = markerStart
+    while (markerEnd < lineEnd && markerEnd - markerStart < 6 && text[markerEnd] === "#") {
+      markerEnd += 1
+    }
+    if (
+      markerEnd > markerStart &&
+      text[markerEnd] !== "#" &&
+      (markerEnd === lineEnd || /[ \t]/u.test(text[markerEnd] ?? ""))
+    ) {
+      prefixes.fill(1, markerStart, markerEnd)
+    }
+    lineStart = lineEnd + 1
+  }
+
+  return prefixes
+}
+
 function contentLookahead(
   text: string,
   brackets: Int32Array,
@@ -161,10 +189,11 @@ function contentLookahead(
 ): Int32Array {
   const attached = new Int32Array(text.length + 1).fill(-1)
   const detached = new Int32Array(text.length + 1).fill(-1)
+  const headingPrefixes = atxHeadingPrefixes(text)
 
   for (let index = text.length - 1; index >= 0; index -= 1) {
     const character = text[index] ?? ""
-    if (/\s/u.test(character)) {
+    if (/\s/u.test(character) || headingPrefixes[index] === 1) {
       attached[index] = sentinelAt(detached, index + 1)
       detached[index] = sentinelAt(detached, index + 1)
       continue

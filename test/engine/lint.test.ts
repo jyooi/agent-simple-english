@@ -49,6 +49,14 @@ describe("lint prose-file: sentence-length rule", () => {
     )
   })
 
+  test("does not combine a sentence with a following heading", () => {
+    const report = lint("prose-file", `${words(24)}, etc.\n# Continue.`)
+
+    expect(report.violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "sentence-length" }),
+    )
+  })
+
   test("does not flag short sentences", () => {
     const report = lint("prose-file", "Remove the bolt. Turn the handle to the left.")
 

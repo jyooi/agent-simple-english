@@ -113,6 +113,8 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["bracketed sentence", "Include screws, etc. [Continue with the procedure.]"],
     ["parenthetical sentence", "Include screws, etc. (Continue with the procedure.)"],
     ["wrapped parenthetical sentence", "Include screws, etc.\n(Continue with the procedure.)"],
+    ["quoted sentence", "Include screws, etc. “Continue with the procedure.”"],
+    ["wrapped quoted sentence", "Include screws, etc.\n“Continue with the procedure.”"],
   ])("preserves a true boundary after a %s", (_label, text) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${text}`)).toContain("paragraph-length")
   })
