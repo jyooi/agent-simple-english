@@ -15,6 +15,7 @@ interface MarkdownAnalysis {
   readonly wordingDictionaryLines: string[]
   readonly structuralBlanks: boolean[]
   readonly wordingStructuralBlanks: boolean[]
+  readonly sentenceBoundaryLines: boolean[]
 }
 
 export interface MarkdownCodeResult {
@@ -35,6 +36,7 @@ interface AnalysisState {
   readonly blockQuoteMask: Uint8Array | undefined
   readonly blockQuoteLines: Uint8Array | undefined
   readonly structuralBlanks: boolean[]
+  readonly sentenceBoundaryLines: boolean[]
 }
 
 interface SourceRange {
@@ -139,6 +141,17 @@ export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComme
 }
 
 const NON_PROSE_BLOCK_TOKENS = new Set(["codeFenced", "codeIndented", "table", "yaml"])
+const SENTENCE_BOUNDARY_TOKENS = new Set([
+  "atxHeading",
+  "codeFenced",
+  "codeIndented",
+  "definition",
+  "htmlFlow",
+  "htmlRawFlow",
+  "paragraph",
+  "setextHeading",
+  "thematicBreak",
+])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
 const DICTIONARY_TOKENS = new Set([
   "atxHeadingSequence",
@@ -207,6 +220,7 @@ const createAnalysisState = (
     blockQuoteMask: exemptBlockQuotes ? new Uint8Array(source.length) : undefined,
     blockQuoteLines: exemptBlockQuotes ? new Uint8Array(parseLines.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
+    sentenceBoundaryLines: parseLines.map(() => false),
   }
 }
 
@@ -430,6 +444,9 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     }
     if (phase !== "enter") continue
 
+    if (SENTENCE_BOUNDARY_TOKENS.has(token.type)) {
+      state.sentenceBoundaryLines[token.start.line - 1] = true
+    }
     if (NON_PROSE_BLOCK_TOKENS.has(token.type)) {
       markNonProseBlock(state, token)
       continue
@@ -505,6 +522,7 @@ const analyzeMarkdown = (
       wordingDictionaryLines: [],
       structuralBlanks: [],
       wordingStructuralBlanks: [],
+      sentenceBoundaryLines: [],
     }
   }
 
@@ -577,6 +595,7 @@ const analyzeMarkdown = (
         : state.structuralBlanks.map(
             (blank, lineIndex) => blank || state.blockQuoteLines?.[lineIndex] === 1,
           ),
+    sentenceBoundaryLines: state.sentenceBoundaryLines,
   }
 }
 

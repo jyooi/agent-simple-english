@@ -359,7 +359,8 @@ function abbreviationIsInternal(
     paragraphEnd,
     analysis.nextAttachedContent,
   )
-  if (next === undefined || !/[A-Z]/u.test(next.character)) return true
+  if (next === undefined) return paragraphEnd >= boundaryText.length
+  if (!/[A-Z]/u.test(next.character)) return true
   if (QUOTATION_CLOSERS.has(boundaryText[boundaryPeriodIndex + 1] ?? "")) return false
   if (listed !== undefined && DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) {
     return isCodeDesignator(listed.abbreviation, next)
@@ -489,6 +490,7 @@ export function segmentSentences(
   sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
   boundaryLines: readonly string[] = lines,
+  sentenceBoundaryLines: readonly boolean[] = lines.map(() => false),
 ): Sentence[] {
   const sentences: Sentence[] = []
   const lineOffsets = [0]
@@ -500,10 +502,11 @@ export function segmentSentences(
   const boundaryAnalysis = analyzeBoundaryText(boundaryText)
   const boundaryOffsets: number[] = []
   const paragraphEnds: number[] = []
-  const paragraphBoundaryLines = effectiveBoundaryLines.map(isParagraphBoundaryLine)
-  const paragraphBreaks = lines.map(
-    (_, index) =>
-      (structuralBlanks[index] ?? true) || (paragraphBoundaryLines[index] ?? false),
+  const lookaheadBreaks = effectiveBoundaryLines.map(
+    (line, index) =>
+      (structuralBlanks[index] ?? true) ||
+      (sentenceBoundaryLines[index] ?? false) ||
+      isParagraphBoundaryLine(line),
   )
   let boundaryOffset = 0
   for (const line of effectiveBoundaryLines) {
@@ -513,7 +516,7 @@ export function segmentSentences(
   let paragraphEnd = boundaryText.length
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     paragraphEnds[index] = paragraphEnd
-    if (paragraphBreaks[index] ?? true) paragraphEnd = boundaryOffsets[index] ?? paragraphEnd
+    if (lookaheadBreaks[index] ?? true) paragraphEnd = boundaryOffsets[index] ?? paragraphEnd
   }
   let open: {
     line: number
@@ -555,8 +558,6 @@ export function segmentSentences(
   }
 
   lines.forEach((maskedRaw, index) => {
-    const isParagraphBoundary = paragraphBoundaryLines[index] ?? false
-    if (isParagraphBoundary) close()
     if (maskedRaw.trim() === "") {
       if (structuralBlanks[index] ?? true) close()
       return
@@ -616,7 +617,6 @@ export function segmentSentences(
       open.endLine = index + 1
       appendPart(rest, (lineOffsets[index] ?? 0) + offset)
     }
-    if (isParagraphBoundary) close()
   })
   close()
 

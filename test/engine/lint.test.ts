@@ -57,16 +57,16 @@ describe("lint prose-file: sentence-length rule", () => {
     )
   })
 
-  test("does not combine a sentence with a following table row", () => {
-    const report = lint("prose-file", `${words(24)}, etc.\n| Continue |`)
+  test("does not combine a sentence across a thematic break", () => {
+    const report = lint("prose-file", `${words(24)}, etc.\n- - -\nContinue.`)
 
     expect(report.violations).not.toContainEqual(
       expect.objectContaining({ ruleId: "sentence-length" }),
     )
   })
 
-  test("does not combine a table row with a following sentence", () => {
-    const report = lint("prose-file", `| Continue |\n${words(25)}.`)
+  test("does not combine a sentence with a following table row", () => {
+    const report = lint("prose-file", `${words(24)}, etc.\n| Continue |`)
 
     expect(report.violations).not.toContainEqual(
       expect.objectContaining({ ruleId: "sentence-length" }),
@@ -97,6 +97,14 @@ describe("lint prose-file: sentence-length rule", () => {
 
     expect(report.violations).toHaveLength(1)
     expect(report.violations[0]).toMatchObject({ line: 3, column: 20 })
+  })
+
+  test("preserves positions across structural Markdown without abbreviations", () => {
+    const report = lint("prose-file", `Lead in\n# ${words(26)}.`)
+
+    expect(report.violations).toContainEqual(
+      expect.objectContaining({ ruleId: "sentence-length", line: 1, column: 1 }),
+    )
   })
 
   test("does not rescan punctuation inside a Markdown sentence suffix", () => {

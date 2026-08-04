@@ -63,6 +63,7 @@ interface PreparedProse {
   readonly wordingStructuralLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
   readonly wordingStructuralBlanks: readonly boolean[]
+  readonly sentenceBoundaryLines: readonly boolean[]
 }
 
 interface SentenceScopeIndex {
@@ -188,6 +189,7 @@ const prepareProse = (
     wordingStructuralLines,
     structuralBlanks: markdown.structuralBlanks,
     wordingStructuralBlanks: markdown.wordingStructuralBlanks,
+    sentenceBoundaryLines: markdown.sentenceBoundaryLines,
   }
 }
 
@@ -302,6 +304,7 @@ const lintProse = (
     sourceText,
     prepared.structuralBlanks,
     prepared.boundaryLines,
+    prepared.sentenceBoundaryLines,
   )
   const paragraphs = segmentParagraphs(
     prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
@@ -319,6 +322,7 @@ const lintProse = (
           prepared.wordingLines.join("\n"),
           prepared.wordingStructuralBlanks,
           prepared.wordingBoundaryLines,
+          prepared.sentenceBoundaryLines,
         ),
         prepared.wordingLines.length,
         sourceOffset,
@@ -332,6 +336,7 @@ const lintProse = (
           prepared.wordingDictionaryLines.join("\n"),
           prepared.wordingStructuralBlanks,
           prepared.wordingDictionaryBoundaryLines,
+          prepared.sentenceBoundaryLines,
         ),
         prepared.wordingDictionaryLines.length,
         sourceOffset,
