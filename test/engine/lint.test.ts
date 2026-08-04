@@ -57,6 +57,22 @@ describe("lint prose-file: sentence-length rule", () => {
     )
   })
 
+  test("does not combine a sentence with a following table row", () => {
+    const report = lint("prose-file", `${words(24)}, etc.\n| Continue |`)
+
+    expect(report.violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "sentence-length" }),
+    )
+  })
+
+  test("does not combine a table row with a following sentence", () => {
+    const report = lint("prose-file", `| Continue |\n${words(25)}.`)
+
+    expect(report.violations).not.toContainEqual(
+      expect.objectContaining({ ruleId: "sentence-length" }),
+    )
+  })
+
   test("does not flag short sentences", () => {
     const report = lint("prose-file", "Remove the bolt. Turn the handle to the left.")
 

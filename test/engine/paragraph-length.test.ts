@@ -136,6 +136,13 @@ describe("lint prose-file: paragraph-length rule", () => {
     },
   )
 
+  test("documents the bold-wrapped quoted abbreviation accepted loss", () => {
+    const text =
+      'One. Two. Three. Four. Five. The abbreviation is "**No.**" A different part is required.'
+
+    expect(idsFor(text)).not.toContain("paragraph-length")
+  })
+
   test("does not restore a capital initial from a masked dotted identifier", () => {
     const text = "One. Two. Three. Four. Five. Use x.Y. Continue."
 

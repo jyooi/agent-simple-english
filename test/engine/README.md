@@ -15,7 +15,7 @@ All cells must stay at Yes.
 | `paragraph-length` | Yes. `flags a paragraph over 6 sentences as a hard violation`. | Yes. `counts e.g. and i.e. within four sentences`; `keeps a single-capital designator after %s`; `keeps underscore-emphasized %s inside a sentence`; `keeps %s after an unlisted preceding word`. | Yes. `preserves a true boundary after a %s`; `preserves a true boundary after quoted %s`; `preserves a true boundary after a quoted sentence`; `does not restore a capital initial from a masked dotted identifier`. |
 | `phrasal-verb` | Yes. `flags a phrasal verb as a hard violation with the approved alternative`. | Yes. `does not flag the bare verb without its particle`. | Yes. `does not match within a token`. |
 | `semicolon` | Yes. `flags a semicolon as a hard violation at its column`. | Yes. `ignores semicolons inside inline code`. | Yes. `flags a prose semicolon beside inline code at its original column`. |
-| `sentence-length` | Yes. `flags an overlong sentence across an abbreviation`. | Yes. `does not flag short sentences`. | Yes. `does not flag 25 words across an abbreviation`; `does not combine a sentence with a following heading`. |
+| `sentence-length` | Yes. `flags an overlong sentence across an abbreviation`. | Yes. `does not flag short sentences`. | Yes. `does not flag 25 words across an abbreviation`; `does not combine a sentence with a following heading`; `does not combine a sentence with a following table row`; `does not combine a table row with a following sentence`. |
 | `verb-progressive` | Yes. `flags progressive tense as a hard violation`. | Yes. `does not flag a bundled adjectival participle`. | Yes. `allows a listed participle after an intervening adverb`. |
 | `verb-passive` | Yes. `flags passive voice as a soft violation with a rewrite hint`. | Yes. `does not flag an allowlisted passive participle`. | Yes. `detects passive across an intervening adverb`. |
 | `verb-perfect` | Yes. `flags perfect tense as a hard violation`. | Yes. `does not flag simple past as perfect`. | Yes. `does not flag main-verb have`. |
@@ -34,6 +34,8 @@ Cross-cutting Markdown masks use the same finding, clean, and boundary audit at 
 | Option | Finding | Clean | Boundary |
 | --- | --- | --- | --- |
 | `exemptBlockQuotes` | Yes. `keeps structural rules active in quoted content`. | Yes. `exempts quoted content from all wording rules`. | Yes. `lints prose outside quotes at its original position`. |
+
+The `documents the bold-wrapped quoted abbreviation accepted loss` fixture pins HUF165-32 without treating that constructed Markdown permutation as supported behavior.
 
 Diff-only behavior has a separate engine seam in `diff-match.test.ts`.
 Tests at that seam call `newFindings` directly.

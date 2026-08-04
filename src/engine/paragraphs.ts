@@ -29,10 +29,14 @@ function trimSharedIndent(line: string, boundaryLine: string): readonly [string,
   return [line.slice(indent), boundaryLine.slice(indent)]
 }
 
+export function isParagraphBoundaryLine(line: string): boolean {
+  return line.trim().startsWith("|") || ATX_HEADING.test(line)
+}
+
 function classify(line: string): LineKind {
   const trimmed = line.trim()
   if (trimmed === "") return "blank"
-  if (trimmed.startsWith("|") || ATX_HEADING.test(line)) return "block-boundary"
+  if (isParagraphBoundaryLine(line)) return "block-boundary"
   if (blockquoteContent(line) !== undefined) return "blockquote"
   if (listItemContent(line) !== undefined) return "list-item"
   return "prose"

@@ -1,3 +1,5 @@
+import { isParagraphBoundaryLine } from "./paragraphs.ts"
+
 export interface Sentence {
   readonly text: string
   readonly line: number
@@ -498,6 +500,11 @@ export function segmentSentences(
   const boundaryAnalysis = analyzeBoundaryText(boundaryText)
   const boundaryOffsets: number[] = []
   const paragraphEnds: number[] = []
+  const paragraphBoundaryLines = effectiveBoundaryLines.map(isParagraphBoundaryLine)
+  const paragraphBreaks = lines.map(
+    (_, index) =>
+      (structuralBlanks[index] ?? true) || (paragraphBoundaryLines[index] ?? false),
+  )
   let boundaryOffset = 0
   for (const line of effectiveBoundaryLines) {
     boundaryOffsets.push(boundaryOffset)
@@ -505,8 +512,8 @@ export function segmentSentences(
   }
   let paragraphEnd = boundaryText.length
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (structuralBlanks[index] ?? true) paragraphEnd = boundaryOffsets[index] ?? paragraphEnd
     paragraphEnds[index] = paragraphEnd
+    if (paragraphBreaks[index] ?? true) paragraphEnd = boundaryOffsets[index] ?? paragraphEnd
   }
   let open: {
     line: number
@@ -548,6 +555,8 @@ export function segmentSentences(
   }
 
   lines.forEach((maskedRaw, index) => {
+    const isParagraphBoundary = paragraphBoundaryLines[index] ?? false
+    if (isParagraphBoundary) close()
     if (maskedRaw.trim() === "") {
       if (structuralBlanks[index] ?? true) close()
       return
@@ -607,6 +616,7 @@ export function segmentSentences(
       open.endLine = index + 1
       appendPart(rest, (lineOffsets[index] ?? 0) + offset)
     }
+    if (isParagraphBoundary) close()
   })
   close()
 
