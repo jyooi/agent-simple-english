@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { classifyPath } from "../../src/engine/kinds.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 describe("lint: inline suppression directives", () => {
@@ -83,6 +84,17 @@ describe("lint: inline suppression directives", () => {
     expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 
+  test("a Markdown directive inside a blockquoted HTML flow suppresses the next line", () => {
+    const text = [
+      "> <div>",
+      "> <!-- ste-disable-next-line marketing -->",
+      "> The robust method works.",
+      "> </div>",
+    ].join("\n")
+
+    expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+
   test.each([
     ["> ", "> "],
     ["- ", "- "],
@@ -112,6 +124,24 @@ describe("lint: inline suppression directives", () => {
 
     expect(lint("slash-source", text).violations).toHaveLength(0)
   })
+
+  test.each(["yaml", "yml"])(
+    "directive text inside a .%s block scalar is not a hash comment",
+    (extension) => {
+      const classification = classifyPath(`example.${extension}`)
+      const text = [
+        "text: |",
+        " # ste-disable-next-line unknown",
+        "# ste-disable-next-line marketing",
+        "# The robust method works.",
+      ].join("\n")
+
+      expect(classification).toEqual({ kind: "hash-source", sourceDialect: "yaml" })
+      expect(
+        lint(classification.kind, text, { sourceDialect: classification.sourceDialect }).violations,
+      ).toHaveLength(0)
+    },
+  )
 
   test("a directive in an indented code block does not suppress prose", () => {
     const text = ["    <!-- ste-disable-next-line marketing -->", "The robust method works."].join(

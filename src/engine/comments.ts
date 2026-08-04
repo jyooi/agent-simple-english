@@ -268,6 +268,33 @@ const parseHeredoc = (line: string, start: number): ParsedHeredoc | null => {
 const isShellCommentStart = (line: string, index: number): boolean =>
   index === 0 || /[\s;|&()]/.test(line[index - 1] ?? "")
 
+interface YamlBlockScalar {
+  readonly parentIndent: number
+  readonly explicitIndent: number | undefined
+  readonly contentIndent: number | undefined
+}
+
+const leadingSpaces = (line: string): number => line.length - line.replace(/^ */u, "").length
+const YAML_BLOCK_SCALAR_CONTEXT =
+  /(?:^[ \t]*|^[ \t]*[-?:][ \t]+|:[ \t]+)(?:[&!][^\s]+[ \t]+)*$/u
+
+const yamlBlockScalarAt = (
+  line: string,
+  index: number,
+): { readonly explicitIndent: number | undefined } | null => {
+  if (line[index] !== "|" && line[index] !== ">") return null
+
+  const prefix = line.slice(0, index)
+  if (!YAML_BLOCK_SCALAR_CONTEXT.test(prefix)) return null
+
+  const suffix = line.slice(index + 1)
+  const match = suffix.match(/^((?:[+-][1-9]?|[1-9][+-]?)?)[ \t]*(?:#.*)?\r?$/u)
+  if (match === null) return null
+
+  const digit = match[1]?.match(/[1-9]/u)?.[0]
+  return { explicitIndent: digit === undefined ? undefined : Number(digit) }
+}
+
 export function extractHashComments(
   text: string,
   dialect: SourceDialect = "general",
@@ -281,8 +308,33 @@ export function extractHashComments(
   const contentStarts: number[] = []
   const lineComments: LineCommentSpan[] = []
   const shell = dialect === "shell"
+  const yaml = dialect === "yaml"
+  let yamlBlockScalar: YamlBlockScalar | null = null
 
   const lines = text.split("\n").map((line, lineIndex) => {
+    if (yamlBlockScalar !== null) {
+      if (line.trim() === "") {
+        contentStarts.push(line.length)
+        return blankLine(line)
+      }
+
+      const indent = leadingSpaces(line)
+      const requiredIndent =
+        yamlBlockScalar.explicitIndent === undefined
+          ? yamlBlockScalar.contentIndent
+          : yamlBlockScalar.parentIndent + yamlBlockScalar.explicitIndent
+      if (requiredIndent === undefined && indent > yamlBlockScalar.parentIndent) {
+        yamlBlockScalar = { ...yamlBlockScalar, contentIndent: indent }
+        contentStarts.push(line.length)
+        return blankLine(line)
+      }
+      if (requiredIndent !== undefined && indent >= requiredIndent) {
+        contentStarts.push(line.length)
+        return blankLine(line)
+      }
+      yamlBlockScalar = null
+    }
+
     const activeHeredoc = heredocs[0]
     if (activeHeredoc !== undefined) {
       const normalized = line.endsWith("\r") ? line.slice(0, -1) : line
@@ -374,6 +426,16 @@ export function extractHashComments(
           pendingHeredocs.push({ delimiter: heredoc.delimiter, stripTabs: heredoc.stripTabs })
           i = heredoc.end
           continue
+        }
+      }
+      if (yaml) {
+        const scalar = yamlBlockScalarAt(line, i)
+        if (scalar !== null) {
+          yamlBlockScalar = {
+            parentIndent: leadingSpaces(line),
+            explicitIndent: scalar.explicitIndent,
+            contentIndent: undefined,
+          }
         }
       }
       if (
