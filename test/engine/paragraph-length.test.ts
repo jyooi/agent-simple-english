@@ -63,6 +63,21 @@ describe("lint prose-file: paragraph-length rule", () => {
   })
 
   test.each([
+    ["an abbreviation", "Use _e.g._ model two."],
+    ["a capital initial", "Ask _J._ Smith for details."],
+  ])("keeps underscore-emphasized %s inside a sentence", (_label, sentence) => {
+    expect(idsFor(`One. Two. Three. Four. Five. ${sentence}`)).not.toContain(
+      "paragraph-length",
+    )
+  })
+
+  test("does not treat an identifier underscore as Markdown emphasis", () => {
+    const text = "One. Two. Three. Four. Five. Use prefix_e.g. Continue."
+
+    expect(idsFor(text)).toContain("paragraph-length")
+  })
+
+  test.each([
     ["list item", "- One. Two. Three. Four. Five. Use e.g. model two."],
     ["block quote", "> One. Two. Three. Four. Five. Use e.g. model two."],
     ["quoted list item", "> - One. Two. Three. Four. Five. Use e.g. model two."],
@@ -96,6 +111,8 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["linked abbreviation", "[Include screws, etc.](url) Continue with the procedure."],
     ["referenced abbreviation", "Include screws, etc.[^1] Continue with the procedure."],
     ["bracketed sentence", "Include screws, etc. [Continue with the procedure.]"],
+    ["parenthetical sentence", "Include screws, etc. (Continue with the procedure.)"],
+    ["wrapped parenthetical sentence", "Include screws, etc.\n(Continue with the procedure.)"],
   ])("preserves a true boundary after a %s", (_label, text) => {
     expect(idsFor(`One. Two. Three. Four. Five. ${text}`)).toContain("paragraph-length")
   })

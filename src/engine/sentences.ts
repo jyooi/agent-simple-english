@@ -12,6 +12,7 @@ export interface Sentence {
 }
 
 const QUOTATION_CLOSERS = new Set(['"', "'", "’", "”", "»", "›"])
+const OPENING_PROSE_DELIMITERS = new Set(["(", "{"])
 const CLOSING_DELIMITERS = new Set([
   ...QUOTATION_CLOSERS,
   ")",
@@ -130,6 +131,36 @@ const STANDALONE_INITIAL_CONTEXTS = new Set([
 
 type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
 
+function hasUnderscoreEmphasisDelimiters(
+  text: string,
+  tokenStart: number,
+  tokenEnd: number,
+): boolean {
+  if (text[tokenStart - 1] !== "_" || text[tokenEnd + 1] !== "_") return false
+
+  let openingStart = tokenStart - 1
+  while (text[openingStart - 1] === "_") openingStart -= 1
+  let closingEnd = tokenEnd + 1
+  while (text[closingEnd + 1] === "_") closingEnd += 1
+
+  const openingLength = tokenStart - openingStart
+  const closingLength = closingEnd - tokenEnd
+  return (
+    openingLength === closingLength &&
+    openingLength <= 3 &&
+    !/[\p{L}\p{N}_]/u.test(text[openingStart - 1] ?? "") &&
+    !/[\p{L}\p{N}_]/u.test(text[closingEnd + 1] ?? "")
+  )
+}
+
+function hasTokenStartBoundary(text: string, tokenStart: number, tokenEnd: number): boolean {
+  const previous = text[tokenStart - 1] ?? ""
+  return (
+    !/[\p{L}\p{N}_.]/u.test(previous) ||
+    (previous === "_" && hasUnderscoreEmphasisDelimiters(text, tokenStart, tokenEnd))
+  )
+}
+
 function listedAbbreviationAtPeriod(
   text: string,
   periodIndex: number,
@@ -137,17 +168,17 @@ function listedAbbreviationAtPeriod(
   for (const abbreviation of ABBREVIATIONS) {
     const start = periodIndex - abbreviation.length + 1
     if (start < 0 || text.slice(start, periodIndex + 1) !== abbreviation) continue
-    if (!/[\p{L}\p{N}_.]/u.test(text[start - 1] ?? "")) return { abbreviation, start }
+    if (hasTokenStartBoundary(text, start, periodIndex)) return { abbreviation, start }
   }
 
   return undefined
 }
 
 function capitalInitialStartAtPeriod(text: string, periodIndex: number): number | undefined {
-  const initial = text[periodIndex - 1] ?? ""
-  const beforeInitial = text[periodIndex - 2] ?? ""
-  return /[A-Z]/u.test(initial) && !/[\p{L}\p{N}_]/u.test(beforeInitial)
-    ? periodIndex - 1
+  const initialStart = periodIndex - 1
+  const initial = text[initialStart] ?? ""
+  return /[A-Z]/u.test(initial) && hasTokenStartBoundary(text, initialStart, periodIndex)
+    ? initialStart
     : undefined
 }
 
@@ -183,7 +214,7 @@ function nextContentIn(
       index = bracketEnd - 1
       continue
     }
-    if (character === "[") continue
+    if (character === "[" || OPENING_PROSE_DELIMITERS.has(character)) continue
 
     return {
       character,
