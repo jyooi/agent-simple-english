@@ -108,6 +108,13 @@ type ListedAbbreviation = (typeof ABBREVIATIONS)[number]
 
 const DESIGNATOR_ABBREVIATIONS: ReadonlySet<ListedAbbreviation> = new Set(["Fig.", "No."])
 
+function containsAbbreviationCandidate(text: string, boundaryText: string): boolean {
+  return (
+    ABBREVIATIONS.some((abbreviation) => boundaryText.includes(abbreviation)) ||
+    /(?:^|[^\p{L}\p{N}_.])[A-Z]\./u.test(text)
+  )
+}
+
 function isEscaped(text: string, index: number): boolean {
   let backslashes = 0
   for (let current = index - 1; text[current] === "\\"; current -= 1) backslashes += 1
@@ -243,14 +250,23 @@ function closesFormattedToken(text: string, periodIndex: number): boolean {
   return text[periodIndex + 1] === "_" || text[periodIndex + 1] === "*"
 }
 
-function isCodeDesignator(word: string): boolean {
-  return /^[A-Z0-9](?:[A-Z0-9-]{0,2})$/u.test(word)
+function firstContentToken(next: NextContent, tagger: Tagger): ReturnType<Tagger>[number] | undefined {
+  return tagger(next.text).find((candidate) => /[\p{L}\p{N}]/u.test(candidate.text))
+}
+
+function isProperNamePos(pos: string | undefined): boolean {
+  return pos === "PROPN" || pos === "NNP" || pos === "NNPS"
+}
+
+function isCodeDesignator(next: NextContent, tagger: Tagger | undefined): boolean {
+  if (!/^[A-Z0-9](?:[A-Z0-9-]{0,2})$/u.test(next.word)) return false
+  if (next.word.length === 1 || /\d/u.test(next.word) || tagger === undefined) return true
+  return isProperNamePos(firstContentToken(next, tagger)?.pos)
 }
 
 function initialIntroducesName(next: NextContent, tagger: Tagger | undefined): boolean {
   if (tagger === undefined) return true
-  const token = tagger(next.text).find((candidate) => /[\p{L}\p{N}]/u.test(candidate.text))
-  return token?.pos === "NNP" || token?.pos === "NNPS"
+  return isProperNamePos(firstContentToken(next, tagger)?.pos)
 }
 
 function abbreviationIsInternal(
@@ -279,7 +295,7 @@ function abbreviationIsInternal(
   if (listed !== undefined) {
     if (closesFormattedToken(boundaryText, periodIndex)) return false
     if (listed.abbreviation === "etc.") return false
-    if (DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) return isCodeDesignator(next.word)
+    if (DESIGNATOR_ABBREVIATIONS.has(listed.abbreviation)) return isCodeDesignator(next, tagger)
     return true
   }
   return initialStart !== undefined && initialIntroducesName(next, tagger)
@@ -454,13 +470,15 @@ export function segmentSentences(
       return
     }
     const boundaryRaw = boundaryLines[index] ?? maskedRaw
-    const followingBoundaryLines: string[] = []
-    for (let followingIndex = index + 1; followingIndex < lines.length; followingIndex++) {
-      if (structuralBlanks[followingIndex] ?? true) break
-      followingBoundaryLines.push(boundaryLines[followingIndex] ?? lines[followingIndex] ?? "")
+    let followingBoundaryText: string | undefined
+    if (containsAbbreviationCandidate(maskedRaw, boundaryRaw)) {
+      const followingBoundaryLines: string[] = []
+      for (let followingIndex = index + 1; followingIndex < lines.length; followingIndex++) {
+        if (structuralBlanks[followingIndex] ?? true) break
+        followingBoundaryLines.push(boundaryLines[followingIndex] ?? lines[followingIndex] ?? "")
+      }
+      if (followingBoundaryLines.length > 0) followingBoundaryText = followingBoundaryLines.join("\n")
     }
-    const followingBoundaryText =
-      followingBoundaryLines.length === 0 ? undefined : followingBoundaryLines.join("\n")
     const boundaryContext =
       followingBoundaryText === undefined
         ? boundaryRaw

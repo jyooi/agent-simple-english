@@ -8,7 +8,7 @@ const sentenceBoundaryTagger: Tagger = (text) => {
   return [
     {
       text: match[0],
-      pos: match[0] === "Smith" ? "NNP" : "VB",
+      pos: match[0] === "Smith" || match[0] === "AX" ? "PROPN" : "VB",
       lemma: match[0].toLocaleLowerCase("en-US"),
       offset: match.index,
     },
@@ -118,6 +118,7 @@ describe("lint prose-file: paragraph-length rule", () => {
     ["wrapped listed abbreviation", "Include screws, etc.\nContinue with the procedure."],
     ["number abbreviation", "The answer is No. Continue with the procedure."],
     ["number abbreviation before capitals", "The answer is No. STOP the machine."],
+    ["number abbreviation before a short command", "The answer is No. DO NOT continue."],
     ["figure abbreviation before capitals", "The result is Fig. STOP the machine."],
     ["number abbreviation before a command", "The answer is No. Use the other part."],
     ["capital initial", "Select option J. Continue with the procedure."],
@@ -260,6 +261,21 @@ describe("lint prose-file: paragraph-length rule", () => {
     "scans large malformed Markdown suffixes without stalling",
     (part) => {
       const text = part.repeat(30_000)
+      const start = performance.now()
+
+      lint("prose-file", text)
+
+      expect(performance.now() - start).toBeLessThan(5_000)
+    },
+    10_000,
+  )
+
+  test(
+    "scans hard-wrapped prose without abbreviation lookahead",
+    () => {
+      const text = Array.from({ length: 10_000 }, () => "wrapped prose without punctuation").join(
+        "\n",
+      )
       const start = performance.now()
 
       lint("prose-file", text)
