@@ -181,6 +181,22 @@ describe("lint: inline suppression directives", () => {
   })
 
   test.each([
+    ["double-quoted string", 'message = "first\n# ste-disable-next-line unknown\nlast"'],
+    ["single-quoted string", "message = 'first\n# ste-disable-next-line unknown\nlast'"],
+    ["heredoc", "message = <<~TEXT\n# ste-disable-next-line unknown\nTEXT"],
+  ])("directive text inside a Ruby %s is not a hash comment", (_kind, scalar) => {
+    const classification = classifyPath("example.rb")
+    const text = `${scalar}\n# ste-disable-next-line unknown`
+
+    expect(classification).toEqual({ kind: "hash-source", sourceDialect: "ruby" })
+    expect(
+      lint(classification.kind, text, { sourceDialect: classification.sourceDialect }).violations,
+    ).toEqual([
+      expect.objectContaining({ ruleId: "invalid-suppression", line: 4, column: 1 }),
+    ])
+  })
+
+  test.each([
     ["double-quoted", '- - "first\n # ste-disable-next-line unknown\n last"'],
     ["block", "- - |\n # ste-disable-next-line unknown"],
   ])(

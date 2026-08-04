@@ -40,7 +40,9 @@ export const classifyPath = (path: string): PathClassification => {
       ? "shell"
       : ["yaml", "yml"].includes(extension)
         ? "yaml"
-        : "general"
+        : extension === "rb"
+          ? "ruby"
+          : "general"
     return { kind: "hash-source", sourceDialect }
   }
   return { kind: "prose-file", sourceDialect: "general" }

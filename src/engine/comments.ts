@@ -224,7 +224,7 @@ export function extractSlashComments(text: string): ExtractedComments {
 
 interface Heredoc {
   readonly delimiter: string
-  readonly stripTabs: boolean
+  readonly terminatorIndent: "none" | "tabs" | "whitespace"
 }
 
 interface ParsedHeredoc extends Heredoc {
@@ -234,9 +234,9 @@ interface ParsedHeredoc extends Heredoc {
 const parseHeredoc = (line: string, start: number): ParsedHeredoc | null => {
   if (!line.startsWith("<<", start) || line[start + 2] === "<") return null
   let index = start + 2
-  let stripTabs = false
+  let terminatorIndent: Heredoc["terminatorIndent"] = "none"
   if (line[index] === "-") {
-    stripTabs = true
+    terminatorIndent = "tabs"
     index++
   }
   while (line[index] === " " || line[index] === "\t") index++
@@ -262,7 +262,33 @@ const parseHeredoc = (line: string, start: number): ParsedHeredoc | null => {
     index++
   }
 
-  return delimiter === "" ? null : { delimiter, stripTabs, end: index }
+  return delimiter === "" ? null : { delimiter, terminatorIndent, end: index }
+}
+
+const parseRubyHeredoc = (line: string, start: number): ParsedHeredoc | null => {
+  if (!line.startsWith("<<", start) || line[start + 2] === "<") return null
+  let index = start + 2
+  let terminatorIndent: Heredoc["terminatorIndent"] = "none"
+  if (line[index] === "-" || line[index] === "~") {
+    terminatorIndent = "whitespace"
+    index++
+  }
+
+  const quote =
+    line[index] === "'" || line[index] === '"' || line[index] === "`" ? line[index] : null
+  if (quote !== null) index++
+
+  const delimiterStart = index
+  while (/[A-Za-z0-9_]/.test(line[index] ?? "")) index++
+  const delimiter = line.slice(delimiterStart, index)
+  if (delimiter === "" || !/[A-Za-z_]/.test(delimiter[0] as string)) return null
+
+  if (quote !== null) {
+    if (line[index] !== quote) return null
+    index++
+  }
+
+  return { delimiter, terminatorIndent, end: index }
 }
 
 const isShellCommentStart = (line: string, index: number): boolean =>
@@ -315,6 +341,7 @@ export function extractHashComments(
   const heredocs: Heredoc[] = []
   const contentStarts: number[] = []
   const lineComments: LineCommentSpan[] = []
+  const ruby = dialect === "ruby"
   const shell = dialect === "shell"
   const yaml = dialect === "yaml"
   let yamlBlockScalar: YamlBlockScalar | null = null
@@ -346,7 +373,12 @@ export function extractHashComments(
     const activeHeredoc = heredocs[0]
     if (activeHeredoc !== undefined) {
       const normalized = line.endsWith("\r") ? line.slice(0, -1) : line
-      const candidate = activeHeredoc.stripTabs ? normalized.replace(/^\t+/, "") : normalized
+      const candidate =
+        activeHeredoc.terminatorIndent === "tabs"
+          ? normalized.replace(/^\t+/, "")
+          : activeHeredoc.terminatorIndent === "whitespace"
+            ? normalized.trimStart()
+            : normalized
       if (candidate === activeHeredoc.delimiter) heredocs.shift()
       contentStarts.push(line.length)
       return blankLine(line)
@@ -401,7 +433,12 @@ export function extractHashComments(
         continue
       }
 
-      if (!shell && !yaml && (line.startsWith("'''", i) || line.startsWith('"""', i))) {
+      if (
+        !shell &&
+        !yaml &&
+        !ruby &&
+        (line.startsWith("'''", i) || line.startsWith('"""', i))
+      ) {
         multilineQuote = line.slice(i, i + 3) as "'''" | '"""'
         i += 3
         continue
@@ -432,10 +469,18 @@ export function extractHashComments(
         i += 2
         continue
       }
-      if (shell && parameterDepth === 0 && arithmeticDepth === 0 && line.startsWith("<<", i)) {
-        const heredoc = parseHeredoc(line, i)
+      if (
+        (shell || ruby) &&
+        parameterDepth === 0 &&
+        arithmeticDepth === 0 &&
+        line.startsWith("<<", i)
+      ) {
+        const heredoc = shell ? parseHeredoc(line, i) : parseRubyHeredoc(line, i)
         if (heredoc !== null) {
-          pendingHeredocs.push({ delimiter: heredoc.delimiter, stripTabs: heredoc.stripTabs })
+          pendingHeredocs.push({
+            delimiter: heredoc.delimiter,
+            terminatorIndent: heredoc.terminatorIndent,
+          })
           i = heredoc.end
           continue
         }
@@ -476,7 +521,9 @@ export function extractHashComments(
     }
 
     if (yaml) yamlQuote = lineQuote
-    else if (lineQuote !== null && hasEscapedLineBreak(line)) continuedLineQuote = lineQuote
+    else if (ruby || (lineQuote !== null && hasEscapedLineBreak(line))) {
+      continuedLineQuote = lineQuote
+    }
     heredocs.push(...pendingHeredocs)
     contentStarts.push(contentStart)
     return out.join("")
