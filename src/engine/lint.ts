@@ -309,9 +309,7 @@ const lintProse = (
   const paragraphs = segmentParagraphs(
     prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
     contentStarts.map((contentStart) => contentStart + 1),
-    prepared.structuralBoundaryLines.map((line, index) =>
-      line.slice(contentStarts[index] ?? 0),
-    ),
+    prepared.structuralBoundaryLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
