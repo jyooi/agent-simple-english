@@ -6,7 +6,12 @@ const MAX_SENTENCES = 6
 
 export function paragraphLength(paragraphs: readonly Paragraph[]): Violation[] {
   return paragraphs.flatMap((paragraph) => {
-    const count = segmentSentences(paragraph.lines).length
+    const count = segmentSentences(
+      paragraph.lines,
+      paragraph.lines.join("\n"),
+      undefined,
+      paragraph.boundaryLines,
+    ).length
     if (count <= MAX_SENTENCES) {
       return []
     }

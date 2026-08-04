@@ -53,12 +53,17 @@ interface ProseRun {
 
 interface PreparedProse {
   readonly lines: readonly string[]
+  readonly boundaryLines: readonly string[]
   readonly structuralLines: readonly string[]
+  readonly structuralBoundaryLines: readonly string[]
   readonly wordingLines: readonly string[]
+  readonly wordingBoundaryLines: readonly string[]
   readonly wordingDictionaryLines: readonly string[]
+  readonly wordingDictionaryBoundaryLines: readonly string[]
   readonly wordingStructuralLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
   readonly wordingStructuralBlanks: readonly boolean[]
+  readonly sentenceBoundaryLines: readonly boolean[]
 }
 
 interface SentenceScopeIndex {
@@ -158,24 +163,33 @@ const prepareProse = (
   )
   const lines = blankIdentifiers(markdown.lines)
   const structuralLines = blankIdentifiers(markdown.structuralLines)
-  const wordingLines = exemptBlockQuotes ? blankIdentifiers(markdown.wordingLines) : lines
+  const wordingBoundaryLines = exemptBlockQuotes ? markdown.wordingLines : markdown.lines
+  const wordingLines = exemptBlockQuotes ? blankIdentifiers(wordingBoundaryLines) : lines
   const wordingStructuralLines = exemptBlockQuotes
     ? blankIdentifiers(markdown.wordingStructuralLines)
     : structuralLines
+  const wordingDictionaryBoundaryLines = approvedWordMode
+    ? exemptBlockQuotes
+      ? markdown.wordingDictionaryLines
+      : markdown.dictionaryLines
+    : wordingBoundaryLines
   const wordingDictionaryLines = approvedWordMode
-    ? blankIdentifiers(
-        exemptBlockQuotes ? markdown.wordingDictionaryLines : markdown.dictionaryLines,
-      )
+    ? blankIdentifiers(wordingDictionaryBoundaryLines)
     : wordingLines
 
   return {
     lines,
+    boundaryLines: markdown.lines,
     structuralLines,
+    structuralBoundaryLines: markdown.structuralLines,
     wordingLines,
+    wordingBoundaryLines,
     wordingDictionaryLines,
+    wordingDictionaryBoundaryLines,
     wordingStructuralLines,
     structuralBlanks: markdown.structuralBlanks,
     wordingStructuralBlanks: markdown.wordingStructuralBlanks,
+    sentenceBoundaryLines: markdown.sentenceBoundaryLines,
   }
 }
 
@@ -285,10 +299,19 @@ const lintProse = (
   options: ResolvedOptions,
 ): ScopedViolation[] => {
   const sourceText = prepared.lines.join("\n")
-  const sentences = segmentSentences(prepared.lines, sourceText, prepared.structuralBlanks)
+  const sentences = segmentSentences(
+    prepared.lines,
+    sourceText,
+    prepared.structuralBlanks,
+    prepared.boundaryLines,
+    prepared.sentenceBoundaryLines,
+  )
   const paragraphs = segmentParagraphs(
     prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
     contentStarts.map((contentStart) => contentStart + 1),
+    prepared.structuralBoundaryLines.map((line, index) =>
+      line.slice(contentStarts[index] ?? 0),
+    ),
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
@@ -298,6 +321,8 @@ const lintProse = (
           prepared.wordingLines,
           prepared.wordingLines.join("\n"),
           prepared.wordingStructuralBlanks,
+          prepared.wordingBoundaryLines,
+          prepared.sentenceBoundaryLines,
         ),
         prepared.wordingLines.length,
         sourceOffset,
@@ -310,6 +335,8 @@ const lintProse = (
           prepared.wordingDictionaryLines,
           prepared.wordingDictionaryLines.join("\n"),
           prepared.wordingStructuralBlanks,
+          prepared.wordingDictionaryBoundaryLines,
+          prepared.sentenceBoundaryLines,
         ),
         prepared.wordingDictionaryLines.length,
         sourceOffset,
