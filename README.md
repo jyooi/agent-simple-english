@@ -246,8 +246,7 @@ It is the default for standard input, extensionless paths, and file types that h
 File extension matching does not depend on letter case.
 Source kinds ignore comment markers inside string literals.
 All kinds preserve the original line and column.
-They ignore identifiers plus fenced and indented Markdown code.
-Inline Markdown code is outside every rule except `semicolon`.
+They ignore identifiers plus fenced, indented, and inline Markdown code.
 
 ## Configuration
 
@@ -354,8 +353,8 @@ A phrase match stays on one source line.
 #### `semicolon`
 
 Default: hard.
-Reports each semicolon and asks for two sentences.
-This rule also checks semicolons inside inline Markdown code.
+Reports each prose semicolon and asks for two sentences.
+It ignores semicolons inside inline Markdown code.
 
 #### `sentence-length`
 
