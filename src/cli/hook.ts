@@ -649,18 +649,11 @@ function evaluateEvent(
     const invocations = findCommitInvocations(event.command)
     if (invocations.length === 0) return Effect.succeed({ output: allow() })
     if (invocations.some((invocation) => invocation.requiresExplicitMessage)) {
-      return Effect.succeed(
-        evaluated(
-          deny(
-            "Writing rules could not check the git commit message. Use git commit with a static -m or --message argument.",
-          ),
-          "commit-message",
-          "commit-message",
-          event.command,
-          [],
-          event.cwd,
+      return Effect.succeed({
+        output: deny(
+          "Writing rules could not check the git commit message. Use git commit with a static -m or --message argument.",
         ),
-      )
+      })
     }
     return Effect.gen(function* () {
       const options = yield* loadLintOptions(event.cwd, tagger)

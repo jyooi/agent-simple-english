@@ -239,6 +239,20 @@ describe("simple-english observation log", () => {
     expect(records[0]).toMatchObject({ decision: "allow", findings: [] })
   })
 
+  test("does not log commit denials without a static message", async () => {
+    const cwd = await makeTemp("ste-observe-project-")
+    const xdgStateHome = await makeTemp("ste-observe-state-")
+
+    const result = await runHook(
+      preToolEvent(cwd, "Bash", { command: "git commit" }),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("deny")
+    await expect(readdir(join(xdgStateHome, "simple-english", "observations"))).rejects.toThrow()
+  })
+
   test("honors the observation kill switch", async () => {
     const cwd = await makeTemp("ste-observe-project-")
     const xdgStateHome = await makeTemp("ste-observe-state-")
