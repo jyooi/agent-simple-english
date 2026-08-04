@@ -79,8 +79,6 @@ const markdownEvents = (source: string) => {
 type MarkdownEvents = ReturnType<typeof markdownEvents>
 type MarkdownToken = MarkdownEvents[number][1]
 
-const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
-
 export interface MarkdownHtmlComment {
   readonly line: number
   readonly startColumn: number

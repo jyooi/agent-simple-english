@@ -344,6 +344,7 @@ describe("lint: inline suppression directives", () => {
         line: 1,
         column: 1,
         message: 'Suppression directive names unknown rule ids: "unknown-rule", "another-unknown".',
+        snippet: "<!-- ste-disable-next-line marketing unknown-rule another-unknown -->",
       },
     ])
     expect(report.summary).toEqual({ total: 1, hard: 1 })
@@ -359,6 +360,7 @@ describe("lint: inline suppression directives", () => {
         line: 1,
         column: 1,
         message: "Suppression directive must name at least one rule id.",
+        snippet: "<!-- ste-disable-next-line -->",
       },
     ])
   })
