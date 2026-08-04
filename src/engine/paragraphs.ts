@@ -24,6 +24,11 @@ function blockquoteContent(line: string): string | undefined {
   return marker ? line.slice(marker[0].length) : undefined
 }
 
+function trimSharedIndent(line: string, boundaryLine: string): readonly [string, string] {
+  const indent = boundaryLine.length - boundaryLine.trimStart().length
+  return [line.slice(indent), boundaryLine.slice(indent)]
+}
+
 function classify(line: string): LineKind {
   const trimmed = line.trim()
   if (trimmed === "") return "blank"
@@ -95,9 +100,12 @@ export function segmentParagraphs(
             kind: "blockquote",
           }
         }
-        const inListItem = open.kind === "blockquote-list-item"
-        open.lines.push(inListItem ? content.trimStart() : content)
-        open.boundaryLines.push(inListItem ? boundaryContent.trimStart() : boundaryContent)
+        const [paragraphContent, paragraphBoundaryContent] =
+          open.kind === "blockquote-list-item"
+            ? trimSharedIndent(content, boundaryContent)
+            : [content, boundaryContent]
+        open.lines.push(paragraphContent)
+        open.boundaryLines.push(paragraphBoundaryContent)
         break
       }
       case "list-item":
@@ -120,9 +128,10 @@ export function segmentParagraphs(
             kind: "prose",
           }
         }
-        const inListItem = open.kind === "list-item"
-        open.lines.push(inListItem ? raw.trimStart() : raw)
-        open.boundaryLines.push(inListItem ? boundaryRaw.trimStart() : boundaryRaw)
+        const [content, boundaryContent] =
+          open.kind === "list-item" ? trimSharedIndent(raw, boundaryRaw) : [raw, boundaryRaw]
+        open.lines.push(content)
+        open.boundaryLines.push(boundaryContent)
         break
       }
     }

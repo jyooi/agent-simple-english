@@ -49,6 +49,16 @@ describe("lint prose-file: paragraph-length rule", () => {
     expect(idsFor(text)).not.toContain("paragraph-length")
   })
 
+  test.each([
+    ["list item", "- One. Two. Three. Use a model,\n  e.g. model two. Four. Five."],
+    [
+      "quoted list item",
+      "> - One. Two. Three. Use a model,\n>   e.g. model two. Four. Five.",
+    ],
+  ])("does not count abbreviations in a multiline %s", (_label, text) => {
+    expect(idsFor(text)).not.toContain("paragraph-length")
+  })
+
   test("preserves a true sentence boundary before a capitalized word", () => {
     const text = "One. Two. Three. Four. Five. The answer is no. Continue."
 
