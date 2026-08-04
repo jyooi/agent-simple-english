@@ -246,7 +246,7 @@ It is the default for standard input, extensionless paths, and file types that h
 File extension matching does not depend on letter case.
 Source kinds ignore comment markers inside string literals.
 All kinds preserve the original line and column.
-They ignore identifiers, valid GFM tables, and fenced, indented, and inline Markdown code.
+They ignore identifiers, YAML frontmatter, valid GFM tables, and fenced, indented, and inline Markdown code.
 
 ## Configuration
 
