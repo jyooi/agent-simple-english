@@ -2,14 +2,49 @@ import { describe, expect, test } from "vitest"
 import { classifyPath } from "../../src/engine/kinds.ts"
 import { lint } from "../../src/engine/lint.ts"
 
-interface YamlSuppressionVerdict {
+interface SuppressionVerdict {
   readonly name: string
   readonly text: string
   readonly expectedRuleIds: readonly string[]
   readonly note: string
 }
 
-const yamlSuppressionVerdicts: readonly YamlSuppressionVerdict[] = [
+interface SourceSuppressionVerdict extends SuppressionVerdict {
+  readonly path: string
+}
+
+const sourceSuppressionVerdicts: readonly SourceSuppressionVerdict[] = [
+  {
+    name: "JavaScript regexp inside a template expression",
+    path: "example.js",
+    text: "const value = `${/}/.test(input)\n// ste-disable-next-line unknown\n}`",
+    expectedRuleIds: [],
+    note: "accepted false negative pending a JavaScript lexer",
+  },
+  {
+    name: "Ruby regexp literal",
+    path: "example.rb",
+    text: "pattern = /# ste-disable-next-line unknown/",
+    expectedRuleIds: ["invalid-suppression"],
+    note: "accepted false positive pending a Ruby lexer",
+  },
+  {
+    name: "Perl quote-like regexp literal",
+    path: "example.pl",
+    text: "my $pattern = qr/# ste-disable-next-line unknown/;",
+    expectedRuleIds: ["invalid-suppression"],
+    note: "accepted false positive pending a Perl lexer",
+  },
+  {
+    name: "Perl indented heredoc",
+    path: "example.pl",
+    text: "my $message = <<~'TEXT';\nscalar\nTEXT\n# ste-disable-next-line unknown",
+    expectedRuleIds: [],
+    note: "accepted false negative pending a Perl lexer",
+  },
+]
+
+const yamlSuppressionVerdicts: readonly SuppressionVerdict[] = [
   {
     name: "adjacent flow quoted scalar",
     text: '{"key":"first\n # ste-disable-next-line unknown\n last"}',
@@ -257,6 +292,19 @@ describe("lint: inline suppression directives", () => {
     )
 
     expect(lint("hash-source", text, { sourceDialect: "yaml" }).violations).toHaveLength(0)
+  })
+
+  describe("pinned source suppression lexer verdicts", () => {
+    for (const fixture of sourceSuppressionVerdicts) {
+      test(`${fixture.name}: ${fixture.note}`, () => {
+        const classification = classifyPath(fixture.path)
+        const ruleIds = lint(classification.kind, fixture.text, {
+          sourceDialect: classification.sourceDialect,
+        }).violations.map((violation) => violation.ruleId)
+
+        expect(ruleIds).toEqual(fixture.expectedRuleIds)
+      })
+    }
   })
 
   describe("pinned YAML suppression verdicts", () => {

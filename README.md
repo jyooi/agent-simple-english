@@ -311,6 +311,10 @@ Separate multiple rule IDs with whitespace.
 Commas are also accepted as separators.
 A missing or unknown rule ID produces a hard `invalid-suppression` violation.
 
+Directive recognition uses lightweight per-language comment extraction rather than full language parsers.
+Known accepted losses are JavaScript regular expressions inside template expressions, Ruby and Perl regular-expression literals containing directive text, and Perl `<<~` heredocs.
+Engine fixtures pin these limitations pending per-language lexers.
+
 ## Configuration
 
 Configuration is an optional JSON object.
