@@ -10,7 +10,11 @@ interface MarkdownAnalysis {
   readonly lines: string[]
   readonly structuralLines: string[]
   readonly dictionaryLines: string[]
+  readonly wordingLines: string[]
+  readonly wordingStructuralLines: string[]
+  readonly wordingDictionaryLines: string[]
   readonly structuralBlanks: boolean[]
+  readonly wordingStructuralBlanks: boolean[]
 }
 
 export interface MarkdownCodeResult {
@@ -28,6 +32,8 @@ interface AnalysisState {
   readonly structuralMask: Uint8Array
   readonly dictionaryMask: Uint8Array
   readonly containerMask: Uint8Array
+  readonly blockQuoteMask: Uint8Array | undefined
+  readonly blockQuoteLines: Uint8Array | undefined
   readonly structuralBlanks: boolean[]
 }
 
@@ -114,7 +120,11 @@ const markRange = (mask: Uint8Array, start: number, end: number): void => {
   mask.fill(1, Math.max(0, start), Math.min(mask.length, end))
 }
 
-const createAnalysisState = (source: string, parseLines: readonly string[]): AnalysisState => {
+const createAnalysisState = (
+  source: string,
+  parseLines: readonly string[],
+  exemptBlockQuotes: boolean,
+): AnalysisState => {
   const sourceLineStarts: number[] = []
   const lineAtOffset = new Int32Array(source.length + 1)
   let offset = 0
@@ -135,6 +145,8 @@ const createAnalysisState = (source: string, parseLines: readonly string[]): Ana
     structuralMask: new Uint8Array(source.length),
     dictionaryMask: new Uint8Array(source.length),
     containerMask: new Uint8Array(source.length),
+    blockQuoteMask: exemptBlockQuotes ? new Uint8Array(source.length) : undefined,
+    blockQuoteLines: exemptBlockQuotes ? new Uint8Array(parseLines.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
   }
 }
@@ -157,6 +169,16 @@ const markContainerOnlyLinesAsBlank = (state: AnalysisState): void => {
 
     if (hasContainer && !hasOtherContent) state.structuralBlanks[line] = true
   }
+}
+
+const markBlockQuote = (state: AnalysisState, token: MarkdownToken): void => {
+  if (state.blockQuoteMask === undefined || state.blockQuoteLines === undefined) return
+
+  markRange(state.blockQuoteMask, token.start.offset, token.end.offset)
+  const firstLine = state.lineAtOffset[Math.min(token.start.offset, state.source.length)] ?? 0
+  const lastOffset = Math.max(token.start.offset, token.end.offset - 1)
+  const lastLine = state.lineAtOffset[Math.min(lastOffset, state.source.length)] ?? firstLine
+  state.blockQuoteLines.fill(1, firstLine, lastLine + 1)
 }
 
 const markNonProseBlock = (state: AnalysisState, token: MarkdownToken): void => {
@@ -336,8 +358,17 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
   const events = markdownEvents(state.source)
   const definitionEnds = includeDictionary ? definitionMaskEnds(events) : new Map<number, number>()
   const htmlFlows: SourceRange[] = []
+  let blockQuoteDepth = 0
 
   for (const [phase, token] of events) {
+    if (token.type === "blockQuote" && state.blockQuoteMask !== undefined) {
+      if (phase === "enter") {
+        if (blockQuoteDepth === 0) markBlockQuote(state, token)
+        blockQuoteDepth++
+      } else {
+        blockQuoteDepth--
+      }
+    }
     if (phase !== "enter") continue
 
     if (NON_PROSE_BLOCK_TOKENS.has(token.type)) {
@@ -380,6 +411,7 @@ const applyMask = (
   parseLines: readonly string[],
   sourceLineStarts: readonly number[],
   mask: Uint8Array,
+  additionalMask?: Uint8Array,
 ): string[] =>
   lines.map((line, lineIndex) => {
     const characters = line.split("")
@@ -388,7 +420,12 @@ const applyMask = (
     const parseLine = parseLines[lineIndex] ?? ""
 
     for (let column = 0; column < parseLine.length; column++) {
-      if (mask[sourceStart + column] !== 0) characters[contentStart + column] = " "
+      if (
+        mask[sourceStart + column] !== 0 ||
+        (additionalMask !== undefined && additionalMask[sourceStart + column] !== 0)
+      ) {
+        characters[contentStart + column] = " "
+      }
     }
     return characters.join("")
   })
@@ -397,9 +434,19 @@ const analyzeMarkdown = (
   lines: readonly string[],
   contentStarts: readonly number[] = lines.map(() => 0),
   includeDictionary = true,
+  exemptBlockQuotes = false,
 ): MarkdownAnalysis => {
   if (lines.length === 0) {
-    return { lines: [], structuralLines: [], dictionaryLines: [], structuralBlanks: [] }
+    return {
+      lines: [],
+      structuralLines: [],
+      dictionaryLines: [],
+      wordingLines: [],
+      wordingStructuralLines: [],
+      wordingDictionaryLines: [],
+      structuralBlanks: [],
+      wordingStructuralBlanks: [],
+    }
   }
 
   const starts = lines.map((line, index) =>
@@ -407,26 +454,70 @@ const analyzeMarkdown = (
   )
   const parseLines = lines.map((line, index) => line.slice(starts[index]))
   const source = parseLines.join("\n")
-  const state = createAnalysisState(source, parseLines)
+  const state = createAnalysisState(source, parseLines, exemptBlockQuotes)
   analyzeEvents(state, includeDictionary)
 
+  const proseLines = applyMask(lines, starts, parseLines, state.sourceLineStarts, state.proseMask)
+  const structuralLines = applyMask(
+    lines,
+    starts,
+    parseLines,
+    state.sourceLineStarts,
+    state.structuralMask,
+  )
+  const dictionaryLines = applyMask(
+    lines,
+    starts,
+    parseLines,
+    state.sourceLineStarts,
+    state.dictionaryMask,
+  )
+  const wordingMask = state.blockQuoteMask
+
   return {
-    lines: applyMask(lines, starts, parseLines, state.sourceLineStarts, state.proseMask),
-    structuralLines: applyMask(
-      lines,
-      starts,
-      parseLines,
-      state.sourceLineStarts,
-      state.structuralMask,
-    ),
-    dictionaryLines: applyMask(
-      lines,
-      starts,
-      parseLines,
-      state.sourceLineStarts,
-      state.dictionaryMask,
-    ),
+    lines: proseLines,
+    structuralLines,
+    dictionaryLines,
+    wordingLines:
+      wordingMask === undefined
+        ? proseLines
+        : applyMask(
+            lines,
+            starts,
+            parseLines,
+            state.sourceLineStarts,
+            state.proseMask,
+            wordingMask,
+          ),
+    wordingStructuralLines:
+      wordingMask === undefined
+        ? structuralLines
+        : applyMask(
+            lines,
+            starts,
+            parseLines,
+            state.sourceLineStarts,
+            state.structuralMask,
+            wordingMask,
+          ),
+    wordingDictionaryLines:
+      wordingMask === undefined
+        ? dictionaryLines
+        : applyMask(
+            lines,
+            starts,
+            parseLines,
+            state.sourceLineStarts,
+            state.dictionaryMask,
+            wordingMask,
+          ),
     structuralBlanks: state.structuralBlanks,
+    wordingStructuralBlanks:
+      state.blockQuoteLines === undefined
+        ? state.structuralBlanks
+        : state.structuralBlanks.map(
+            (blank, lineIndex) => blank || state.blockQuoteLines?.[lineIndex] === 1,
+          ),
   }
 }
 
@@ -434,8 +525,9 @@ export function blankMarkdownForLint(
   inputLines: readonly string[],
   contentStarts: readonly number[],
   includeDictionary: boolean,
+  exemptBlockQuotes = false,
 ): MarkdownAnalysis {
-  return analyzeMarkdown(inputLines, contentStarts, includeDictionary)
+  return analyzeMarkdown(inputLines, contentStarts, includeDictionary, exemptBlockQuotes)
 }
 
 export function blankMarkdownCodeWithStructure(

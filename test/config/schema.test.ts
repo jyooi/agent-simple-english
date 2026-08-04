@@ -15,6 +15,7 @@ describe("config schema", () => {
     const result = decode({
       rules: { "sentence-length": "soft" },
       maxSentenceWords: 20,
+      exemptBlockQuotes: true,
       approvedWordsPath: "config/approved-words.json",
       ruleDataExtensions: {
         "adjectival-participle": ["config/adjectival-participles.json"],
@@ -26,6 +27,7 @@ describe("config schema", () => {
       expect(result.right).toEqual({
         rules: { "sentence-length": "soft" },
         maxSentenceWords: 20,
+        exemptBlockQuotes: true,
         approvedWordsPath: "config/approved-words.json",
         ruleDataExtensions: {
           "adjectival-participle": ["config/adjectival-participles.json"],
@@ -72,6 +74,17 @@ describe("config schema", () => {
       const message = expectDecodeError({ maxSentenceWords: bad })
       expect(message).toContain("maxSentenceWords")
       expect(message).toContain("positive integer")
+    }
+  })
+
+  test("exemptBlockQuotes must be a boolean", () => {
+    expect(decode({ exemptBlockQuotes: true })._tag).toBe("Right")
+    expect(decode({ exemptBlockQuotes: false })._tag).toBe("Right")
+
+    for (const bad of ["true", 1, null]) {
+      const message = expectDecodeError({ exemptBlockQuotes: bad })
+      expect(message).toContain("exemptBlockQuotes")
+      expect(message).toContain("boolean")
     }
   })
 

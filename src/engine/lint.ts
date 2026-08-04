@@ -23,6 +23,7 @@ export const DEFAULT_MAX_SENTENCE_WORDS = 25
 
 interface ResolvedOptions {
   readonly maxSentenceWords: number
+  readonly exemptBlockQuotes: boolean
   readonly dictionary?: CompiledDictionary
   readonly ruleData?: RuleData
   readonly tagger?: Tagger
@@ -42,9 +43,12 @@ interface ProseRun extends ExtractedProse {
 
 interface PreparedProse {
   readonly lines: readonly string[]
-  readonly dictionaryLines: readonly string[]
   readonly structuralLines: readonly string[]
+  readonly wordingLines: readonly string[]
+  readonly wordingDictionaryLines: readonly string[]
+  readonly wordingStructuralLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
+  readonly wordingStructuralBlanks: readonly boolean[]
 }
 
 interface SentenceScopeIndex {
@@ -108,15 +112,37 @@ const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedP
 const isApprovedWordMode = (dictionary: CompiledDictionary | undefined): boolean =>
   dictionary?.mode === "approved-words"
 
-const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedProse => {
-  const markdown = blankMarkdownForLint(extracted.lines, extracted.contentStarts, approvedWordMode)
+const prepareProse = (
+  extracted: ProseRun,
+  approvedWordMode: boolean,
+  exemptBlockQuotes: boolean,
+): PreparedProse => {
+  const markdown = blankMarkdownForLint(
+    extracted.lines,
+    extracted.contentStarts,
+    approvedWordMode,
+    exemptBlockQuotes,
+  )
   const lines = blankIdentifiers(markdown.lines)
-  const dictionaryLines = approvedWordMode ? blankIdentifiers(markdown.dictionaryLines) : lines
+  const structuralLines = blankIdentifiers(markdown.structuralLines)
+  const wordingLines = exemptBlockQuotes ? blankIdentifiers(markdown.wordingLines) : lines
+  const wordingStructuralLines = exemptBlockQuotes
+    ? blankIdentifiers(markdown.wordingStructuralLines)
+    : structuralLines
+  const wordingDictionaryLines = approvedWordMode
+    ? blankIdentifiers(
+        exemptBlockQuotes ? markdown.wordingDictionaryLines : markdown.dictionaryLines,
+      )
+    : wordingLines
+
   return {
     lines,
-    dictionaryLines,
-    structuralLines: blankIdentifiers(markdown.structuralLines),
+    structuralLines,
+    wordingLines,
+    wordingDictionaryLines,
+    wordingStructuralLines,
     structuralBlanks: markdown.structuralBlanks,
+    wordingStructuralBlanks: markdown.wordingStructuralBlanks,
   }
 }
 
@@ -233,18 +259,29 @@ const lintProse = (
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
+  const wordingSentenceIndex = options.exemptBlockQuotes
+    ? indexSentenceScopes(
+        segmentSentences(
+          prepared.wordingLines,
+          prepared.wordingLines.join("\n"),
+          prepared.wordingStructuralBlanks,
+        ),
+        prepared.wordingLines.length,
+        sourceOffset,
+      )
+    : sentenceIndex
   const approvedWordMode = isApprovedWordMode(options.dictionary)
   const dictionarySentenceIndex = approvedWordMode
     ? indexSentenceScopes(
         segmentSentences(
-          prepared.dictionaryLines,
-          prepared.dictionaryLines.join("\n"),
-          prepared.structuralBlanks,
+          prepared.wordingDictionaryLines,
+          prepared.wordingDictionaryLines.join("\n"),
+          prepared.wordingStructuralBlanks,
         ),
-        prepared.dictionaryLines.length,
+        prepared.wordingDictionaryLines.length,
         sourceOffset,
       )
-    : sentenceIndex
+    : wordingSentenceIndex
   const sentenceFindings = (
     violations: readonly Violation[],
     findingSentenceIndex: SentenceScopeIndex = sentenceIndex,
@@ -265,6 +302,12 @@ const lintProse = (
         occurrenceOffset: sourceOffset + (offsets[violation.line - 1] ?? 0) + violation.column - 1,
       }
     })
+  const wordingFindings = (violations: readonly Violation[]): ScopedViolation[] =>
+    sentenceFindings(
+      violations,
+      wordingSentenceIndex,
+      options.exemptBlockQuotes ? prepared.wordingLines : prepared.structuralLines,
+    )
 
   return [
     ...sentences.flatMap((sentence) =>
@@ -279,29 +322,29 @@ const lintProse = (
         scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
       })),
     ),
-    ...sentenceFindings(contraction(prepared.lines)),
+    ...wordingFindings(contraction(prepared.wordingLines)),
     ...sentenceFindings(semicolon(prepared.lines)),
     ...(options.ruleData?.["phrasal-verb"] === undefined
       ? []
-      : sentenceFindings(phrasalVerb(prepared.lines, options.ruleData["phrasal-verb"]))),
+      : wordingFindings(phrasalVerb(prepared.wordingLines, options.ruleData["phrasal-verb"]))),
     ...(options.ruleData?.hedging === undefined
       ? []
-      : sentenceFindings(hedging(prepared.lines, options.ruleData.hedging))),
+      : wordingFindings(hedging(prepared.wordingLines, options.ruleData.hedging))),
     ...(options.ruleData?.marketing === undefined
       ? []
-      : sentenceFindings(marketing(prepared.lines, options.ruleData.marketing))),
+      : wordingFindings(marketing(prepared.wordingLines, options.ruleData.marketing))),
     ...(options.dictionary === undefined
       ? []
       : sentenceFindings(
           dictionaryRule(
-            prepared.structuralLines,
+            prepared.wordingStructuralLines,
             options.dictionary,
             options.tagger,
             contentStarts,
-            prepared.dictionaryLines,
+            prepared.wordingDictionaryLines,
           ),
           dictionarySentenceIndex,
-          approvedWordMode ? prepared.dictionaryLines : prepared.structuralLines,
+          approvedWordMode ? prepared.wordingDictionaryLines : prepared.wordingStructuralLines,
         )),
     ...(options.tagger === undefined
       ? []
@@ -313,7 +356,7 @@ const lintProse = (
 
 const lintExtracted = (extracted: ProseRun, options: ResolvedOptions): ScopedViolation[] =>
   lintProse(
-    prepareProse(extracted, isApprovedWordMode(options.dictionary)),
+    prepareProse(extracted, isApprovedWordMode(options.dictionary), options.exemptBlockQuotes),
     extracted.contentStarts,
     extracted.sourceOffset,
     options,
@@ -361,6 +404,7 @@ function evaluate(
 export function lint(kind: LintKind, text: string, options: LintOptions = {}): LintReport {
   const resolved: ResolvedOptions = {
     maxSentenceWords: options.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS,
+    exemptBlockQuotes: options.exemptBlockQuotes ?? false,
     dictionary:
       options.dictionary === undefined ? undefined : compileDictionary(options.dictionary),
     ruleData: options.ruleData ?? BUNDLED_RULE_DATA,
