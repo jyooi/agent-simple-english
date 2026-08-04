@@ -13,7 +13,7 @@ All cells must stay at Yes.
 | `marketing` | Yes. `flags a marketing word as a soft violation with its position`. | Yes. `does not flag words that merely contain a listed word`. | Yes. `flags complete hyphenated marketing compounds`. |
 | `paragraph-length` | Yes. `flags a paragraph over 6 sentences as a hard violation`. | Yes. `a blank line ends a paragraph`. | Yes. `does not flag a paragraph of exactly 6 sentences`. |
 | `phrasal-verb` | Yes. `flags a phrasal verb as a hard violation with the approved alternative`. | Yes. `does not flag the bare verb without its particle`. | Yes. `does not match within a token`. |
-| `semicolon` | Yes. `flags a semicolon as a hard violation at its column`. | Yes. `does not flag text without semicolons`. | Yes. `flags semicolons inside inline code`. |
+| `semicolon` | Yes. `flags a semicolon as a hard violation at its column`. | Yes. `ignores semicolons inside inline code`. | Yes. `flags a prose semicolon beside inline code at its original column`. |
 | `sentence-length` | Yes. `flags a sentence over 25 words as a hard violation`. | Yes. `does not flag short sentences`. | Yes. `does not flag a sentence of exactly 25 words`. |
 | `verb-progressive` | Yes. `flags progressive tense as a hard violation`. | Yes. `does not flag simple present as progressive`. | Yes. `does not flag an adjective that ends in ing as progressive`. |
 | `verb-passive` | Yes. `flags passive voice as a soft violation with a rewrite hint`. | Yes. `does not flag active voice`. | Yes. `detects passive across an intervening adverb`. |

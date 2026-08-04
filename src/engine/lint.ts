@@ -44,7 +44,6 @@ interface PreparedProse {
   readonly lines: readonly string[]
   readonly dictionaryLines: readonly string[]
   readonly structuralLines: readonly string[]
-  readonly mechanicalLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
 }
 
@@ -117,11 +116,6 @@ const prepareProse = (extracted: ProseRun, approvedWordMode: boolean): PreparedP
     lines,
     dictionaryLines,
     structuralLines: blankIdentifiers(markdown.structuralLines),
-    mechanicalLines: blankIdentifiers(
-      extracted.lines.map((line, index) =>
-        markdown.structuralBlanks[index] ? " ".repeat(line.length) : line,
-      ),
-    ),
     structuralBlanks: markdown.structuralBlanks,
   }
 }
@@ -286,7 +280,7 @@ const lintProse = (
       })),
     ),
     ...sentenceFindings(contraction(prepared.lines)),
-    ...sentenceFindings(semicolon(prepared.mechanicalLines)),
+    ...sentenceFindings(semicolon(prepared.lines)),
     ...(options.ruleData?.["phrasal-verb"] === undefined
       ? []
       : sentenceFindings(phrasalVerb(prepared.lines, options.ruleData["phrasal-verb"]))),

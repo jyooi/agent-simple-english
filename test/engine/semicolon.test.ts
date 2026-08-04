@@ -28,11 +28,17 @@ describe("lint prose-file: semicolon rule", () => {
     expect(idsFor("Start the job. Then stop it.")).not.toContain("semicolon")
   })
 
-  test("flags semicolons inside inline code", () => {
-    const report = lint("prose-file", "Use `const value = 1;` here.")
+  test("ignores semicolons inside inline code", () => {
+    const report = lint("prose-file", "Run `for (;;) {}` to loop forever.")
+
+    expect(report.violations).toHaveLength(0)
+  })
+
+  test("flags a prose semicolon beside inline code at its original column", () => {
+    const report = lint("prose-file", "Run `for (;;) {}`; then stop it.")
 
     expect(report.violations).toEqual([
-      expect.objectContaining({ ruleId: "semicolon", line: 1, column: 21 }),
+      expect.objectContaining({ ruleId: "semicolon", line: 1, column: 18 }),
     ])
   })
 
