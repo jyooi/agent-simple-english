@@ -84,6 +84,14 @@ describe("lint: inline suppression directives", () => {
     expect(lint("prose-file", text).violations).toHaveLength(0)
   })
 
+  test("a Markdown directive beside HTML tags is validated", () => {
+    const text = "<div><!-- ste-disable-next-line unknown --></div>\nA short sentence."
+
+    expect(lint("prose-file", text).violations).toEqual([
+      expect.objectContaining({ ruleId: "invalid-suppression", line: 1, column: 6 }),
+    ])
+  })
+
   test("a Markdown directive inside a blockquoted HTML flow suppresses the next line", () => {
     const text = [
       "> <div>",
@@ -142,6 +150,14 @@ describe("lint: inline suppression directives", () => {
       ).toHaveLength(0)
     },
   )
+
+  test("an apostrophe in a plain YAML scalar does not hide a later directive", () => {
+    const text = "message: it's fine\n# ste-disable-next-line unknown"
+
+    expect(lint("hash-source", text, { sourceDialect: "yaml" }).violations).toEqual([
+      expect.objectContaining({ ruleId: "invalid-suppression", line: 2, column: 1 }),
+    ])
+  })
 
   test.each([
     ["plain", "url: https://example.com/#ste-disable-next-line unknown"],

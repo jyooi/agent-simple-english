@@ -280,6 +280,11 @@ interface YamlBlockScalar {
 const leadingSpaces = (line: string): number => line.length - line.replace(/^ */u, "").length
 const YAML_BLOCK_SCALAR_CONTEXT =
   /(?:^[ \t]*|^[ \t]*[-?:][ \t]+|:[ \t]+)(?:[&!][^\s]+[ \t]+)*$/u
+const YAML_QUOTED_SCALAR_CONTEXT =
+  /(?:^[ \t]*(?:(?:---|\.\.\.)[ \t]+)?|^[ \t]*[-?:][ \t]+|:[ \t]+|[\[{,][ \t]*)(?:[&!][^\s,[\]{}]+[ \t]+)*$/u
+
+const isYamlQuotedScalarStart = (line: string, index: number): boolean =>
+  YAML_QUOTED_SCALAR_CONTEXT.test(line.slice(0, index))
 
 const yamlBlockScalarAt = (
   line: string,
@@ -384,7 +389,11 @@ export function extractHashComments(
       }
 
       if (lineQuote !== null) {
-        if (ch === "\\") {
+        if (ch === "\\" && (!yaml || lineQuote === '"')) {
+          i += 2
+          continue
+        }
+        if (yaml && lineQuote === "'" && ch === "'" && line[i + 1] === "'") {
           i += 2
           continue
         }
@@ -393,14 +402,14 @@ export function extractHashComments(
         continue
       }
 
-      if (!shell && (line.startsWith("'''", i) || line.startsWith('"""', i))) {
+      if (!shell && !yaml && (line.startsWith("'''", i) || line.startsWith('"""', i))) {
         multilineQuote = line.slice(i, i + 3) as "'''" | '"""'
         i += 3
         continue
       }
       if (ch === '"' || ch === "'") {
         if (shell) shellQuote = ch
-        else lineQuote = ch
+        else if (!yaml || isYamlQuotedScalarStart(line, i)) lineQuote = ch
         i++
         continue
       }

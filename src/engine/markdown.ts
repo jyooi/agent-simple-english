@@ -115,20 +115,6 @@ export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComme
   }
 
   const events = markdownEvents(source)
-  const containerMask = new Uint8Array(source.length)
-  for (const [phase, token] of events) {
-    if (phase === "enter" && CONTAINER_TOKENS.has(token.type)) {
-      containerMask.fill(1, token.start.offset, token.end.offset)
-    }
-  }
-
-  const containsContent = (start: number, end: number): boolean => {
-    for (let offset = start; offset < end; offset++) {
-      if (containerMask[offset] === 0 && source[offset]?.trim() !== "") return true
-    }
-    return false
-  }
-
   for (const [phase, token] of events) {
     if (phase !== "enter" || (token.type !== "htmlFlow" && token.type !== "htmlText")) {
       continue
@@ -145,11 +131,6 @@ export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComme
         if (lineIndexAt(Math.max(start, end - 1)) !== lineIndex) return
 
         const lineStart = lineStarts[lineIndex] ?? 0
-        const lineEnd = source.indexOf("\n", start)
-        const tokenLineStart = Math.max(token.start.offset, lineStart)
-        const tokenLineEnd = Math.min(token.end.offset, lineEnd < 0 ? source.length : lineEnd)
-        if (containsContent(tokenLineStart, start) || containsContent(end, tokenLineEnd)) return
-
         const key = `${start}:${end}`
         if (seen.has(key)) return
         seen.add(key)
