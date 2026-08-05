@@ -252,6 +252,30 @@ describe("simple-english CLI hook mode", () => {
     expect(enabledState).toMatchObject({ version: 3, enabled: true, strict: false })
   }, 15_000)
 
+  test("toggles enforcement with empty and whitespace-only commands", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const disabled = await runSessionCommand("session-1", cwd, "", xdgStateHome)
+    const files = await stateFiles(xdgStateHome)
+    expect(disabled).toMatchObject({ code: 0, stdout: "Writing-rule enforcement disabled.\n" })
+    expect(files).toHaveLength(1)
+    await expect(
+      readFile(join(xdgStateHome, "simple-english", "sessions", files[0] as string), "utf8").then(
+        JSON.parse,
+      ),
+    ).resolves.toMatchObject({ version: 3, enabled: false, strict: false })
+
+    const enabled = await runSessionCommand("session-1", cwd, "   ", xdgStateHome)
+    expect(enabled).toMatchObject({ code: 0, stdout: "Writing-rule enforcement enabled.\n" })
+    await expect(
+      readFile(join(xdgStateHome, "simple-english", "sessions", files[0] as string), "utf8").then(
+        JSON.parse,
+      ),
+    ).resolves.toMatchObject({ version: 3, enabled: true, strict: false })
+  })
+
   test("starts a new session in enabled non-strict mode", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))

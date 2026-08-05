@@ -69,6 +69,14 @@ export function runSessionCommand(args: readonly string[]): Effect.Effect<string
     return Effect.fail(new Error(USAGE))
   }
   const command = commandParts.join(" ").trim().toLowerCase()
+  if (command === "") {
+    return Effect.gen(function* () {
+      const control = yield* readControl(sessionId)
+      const enabled = !control.enabled
+      yield* updateEnabled(sessionId, enabled)
+      return `Writing-rule enforcement ${enabled ? "enabled" : "disabled"}.`
+    })
+  }
   if (command === "status") return status(sessionId, cwd)
   if (command === "on") {
     return updateEnabled(sessionId, true).pipe(Effect.as("Writing-rule enforcement enabled."))
