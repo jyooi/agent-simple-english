@@ -1,6 +1,6 @@
 {
   "name": "agent-simple-english",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Technical and house-style English lint engine, CLI, and host adapters",
   "license": "MIT",
   "type": "module",
