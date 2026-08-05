@@ -147,15 +147,26 @@ export async function getSessionControl(sessionId: string): Promise<SessionContr
   })
 }
 
+const setEnabled = (state: SessionState, enabled: boolean): SessionState => ({
+  ...state,
+  enabled,
+  strict: enabled ? state.strict : false,
+  ...(enabled || state.pendingFeedback === undefined ? {} : { pendingFeedback: undefined }),
+})
+
 export async function setSessionEnabled(sessionId: string, enabled: boolean): Promise<void> {
   await withStateLock(sessionId, async () => {
     const state = currentState(await readState(sessionId))
-    await writeState(sessionId, {
-      ...state,
-      enabled,
-      strict: enabled ? state.strict : false,
-      ...(enabled || state.pendingFeedback === undefined ? {} : { pendingFeedback: undefined }),
-    })
+    await writeState(sessionId, setEnabled(state, enabled))
+  })
+}
+
+export async function toggleSessionEnabled(sessionId: string): Promise<boolean> {
+  return withStateLock(sessionId, async () => {
+    const state = currentState(await readState(sessionId))
+    const enabled = !state.enabled
+    await writeState(sessionId, setEnabled(state, enabled))
+    return enabled
   })
 }
 

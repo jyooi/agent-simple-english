@@ -9,6 +9,7 @@ import {
   getSessionControl,
   setSessionEnabled,
   setSessionStrict,
+  toggleSessionEnabled,
 } from "./session-state.ts"
 
 const USAGE = "Usage: /ase [on|off|status|strict|strict off]"
@@ -29,6 +30,12 @@ const readControl = (sessionId: string) =>
 const updateEnabled = (sessionId: string, enabled: boolean) =>
   Effect.tryPromise({
     try: () => setSessionEnabled(sessionId, enabled),
+    catch: (cause) => new Error(`cannot update session state: ${cause}`),
+  })
+
+const toggleEnabled = (sessionId: string) =>
+  Effect.tryPromise({
+    try: () => toggleSessionEnabled(sessionId),
     catch: (cause) => new Error(`cannot update session state: ${cause}`),
   })
 
@@ -70,12 +77,9 @@ export function runSessionCommand(args: readonly string[]): Effect.Effect<string
   }
   const command = commandParts.join(" ").trim().toLowerCase()
   if (command === "") {
-    return Effect.gen(function* () {
-      const control = yield* readControl(sessionId)
-      const enabled = !control.enabled
-      yield* updateEnabled(sessionId, enabled)
-      return `Writing-rule enforcement ${enabled ? "enabled" : "disabled"}.`
-    })
+    return toggleEnabled(sessionId).pipe(
+      Effect.map((enabled) => `Writing-rule enforcement ${enabled ? "enabled" : "disabled"}.`),
+    )
   }
   if (command === "status") return status(sessionId, cwd)
   if (command === "on") {

@@ -276,6 +276,32 @@ describe("simple-english CLI hook mode", () => {
     ).resolves.toMatchObject({ version: 3, enabled: true, strict: false })
   })
 
+  test("applies concurrent bare toggles atomically", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => runSessionCommand("session-1", cwd, "", xdgStateHome)),
+    )
+
+    expect(results).toHaveLength(6)
+    expect(results.every(({ code }) => code === 0)).toBe(true)
+    expect(
+      results.filter(({ stdout }) => stdout === "Writing-rule enforcement disabled.\n"),
+    ).toHaveLength(3)
+    expect(
+      results.filter(({ stdout }) => stdout === "Writing-rule enforcement enabled.\n"),
+    ).toHaveLength(3)
+    const files = await stateFiles(xdgStateHome)
+    expect(files).toHaveLength(1)
+    await expect(
+      readFile(join(xdgStateHome, "simple-english", "sessions", files[0] as string), "utf8").then(
+        JSON.parse,
+      ),
+    ).resolves.toMatchObject({ version: 3, enabled: true, strict: false })
+  }, 15_000)
+
   test("starts a new session in enabled non-strict mode", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
