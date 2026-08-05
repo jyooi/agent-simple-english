@@ -453,7 +453,7 @@ describe("simple-english CLI hook mode", () => {
     const result = await runSessionCommand("session-1", cwd, "invalid", xdgStateHome)
 
     expect(result.code).toBe(2)
-    expect(result.stderr).toContain("Usage: /ste [on|off|status|strict|strict off]")
+    expect(result.stderr).toContain("Usage: /ase [on|off|status|strict|strict off]")
     expect(await stateFiles(xdgStateHome)).toEqual([])
   })
 

@@ -556,20 +556,22 @@ describe.sequential("pi extension wiring", () => {
     expect(error?.message).toContain("[contraction]")
   })
 
-  test("suggests writing-rule command arguments and filters them by prefix", async () => {
+  test("registers only the ase command and filters its argument suggestions", async () => {
     const { pi } = await startExtension()
 
-    expect(pi.getArgumentCompletions("ste", "")).toEqual([
+    expect(pi.commands.has("ase")).toBe(true)
+    expect(pi.commands.has("ste")).toBe(false)
+    expect(pi.getArgumentCompletions("ase", "")).toEqual([
       { value: "on", label: "on", description: "Enable writing-rule enforcement" },
       { value: "off", label: "off", description: "Disable writing-rule enforcement" },
       { value: "status", label: "status", description: "Show writing-rule status" },
       { value: "strict", label: "strict", description: "Enable strict reply gating" },
     ])
-    expect(pi.getArgumentCompletions("ste", "s")).toEqual([
+    expect(pi.getArgumentCompletions("ase", "s")).toEqual([
       { value: "status", label: "status", description: "Show writing-rule status" },
       { value: "strict", label: "strict", description: "Enable strict reply gating" },
     ])
-    expect(pi.getArgumentCompletions("ste", "missing")).toBeNull()
+    expect(pi.getArgumentCompletions("ase", "missing")).toBeNull()
   })
 
   test("toggles write, edit, commit, and reply enforcement for the session", async () => {
@@ -596,7 +598,7 @@ describe.sequential("pi extension wiring", () => {
       )?.message,
     ).toContain("[contraction]")
 
-    await pi.runCommand("ste", "", context)
+    await pi.runCommand("ase", "", context)
 
     await expect(
       pi.executeTool(
@@ -628,7 +630,7 @@ describe.sequential("pi extension wiring", () => {
       pi.emit("before_agent_start", { systemPrompt: "Base system prompt." }, context),
     ).resolves.toBeUndefined()
 
-    await pi.runCommand("ste", "", context)
+    await pi.runCommand("ase", "", context)
 
     await expect(
       pi.executeTool(
@@ -711,7 +713,7 @@ describe.sequential("pi extension wiring", () => {
       projectConfig: { rules: { contraction: "off", semicolon: "soft" } },
     })
 
-    await pi.runCommand("ste", "status", context)
+    await pi.runCommand("ase", "status", context)
 
     expect(notifications.at(-1)).toEqual({
       level: "info",
@@ -720,19 +722,19 @@ describe.sequential("pi extension wiring", () => {
     expect(notifications.at(-1)?.message).toContain("Rules: 7 hard, 4 soft, 1 off")
     expect(notifications.at(-1)?.message).toContain("Dictionary: loaded")
 
-    await pi.runCommand("ste", "off", context)
-    await pi.runCommand("ste", "status", context)
+    await pi.runCommand("ase", "off", context)
+    await pi.runCommand("ase", "status", context)
     expect(notifications.at(-1)?.message).toContain("Mode: disabled")
 
-    await pi.runCommand("ste", "strict", context)
-    await pi.runCommand("ste", "status", context)
+    await pi.runCommand("ase", "strict", context)
+    await pi.runCommand("ase", "status", context)
     expect(notifications.at(-1)?.message).toContain("Mode: strict")
   })
 
   test("reports the dictionary as not loaded when config loading fails", async () => {
     const { pi, context, notifications } = await startExtension({ globalConfig: "{" })
 
-    await pi.runCommand("ste", "status", context)
+    await pi.runCommand("ase", "status", context)
 
     expect(notifications.at(-1)?.message).toContain("Mode: enabled")
     expect(notifications.at(-1)?.message).toContain("Dictionary: not loaded")
@@ -743,7 +745,7 @@ describe.sequential("pi extension wiring", () => {
     process.env.SIMPLE_ENGLISH_DICTIONARY = join(process.cwd(), "missing-dictionary.json")
     const { pi, context, notifications } = await startExtension()
 
-    await pi.runCommand("ste", "status", context)
+    await pi.runCommand("ase", "status", context)
 
     expect(notifications.at(-1)?.message).toContain("Mode: enabled")
     expect(notifications.at(-1)?.message).toContain("Dictionary: failed (")
@@ -755,7 +757,7 @@ describe.sequential("pi extension wiring", () => {
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
 
-    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ase", "strict", context)
     expect(pi.activeTools.has("say")).toBe(true)
     const prompt = await pi.emit(
       "before_agent_start",
@@ -782,7 +784,7 @@ describe.sequential("pi extension wiring", () => {
     const { pi, context } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
-    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ase", "strict", context)
 
     const started = assistantMessage("This isn't permitted.")
     await pi.emit("message_start", { message: started }, context)
@@ -858,7 +860,7 @@ describe.sequential("pi extension wiring", () => {
     const { pi, context } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
-    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ase", "strict", context)
 
     const message = {
       ...assistantMessage(""),
@@ -901,7 +903,7 @@ describe.sequential("pi extension wiring", () => {
     const { pi, context } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
-    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ase", "strict", context)
     await pi.executeTool("say", "say-approved", { text: "Open the valve." }, context)
 
     const runner = boundaryRunner(context.sessionManager, {
@@ -976,7 +978,7 @@ describe.sequential("pi extension wiring", () => {
     const { pi, context } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
-    await pi.runCommand("ste", "strict", context)
+    await pi.runCommand("ase", "strict", context)
     pi.on("tool_call", (event) => {
       if (event.toolName === "say") {
         const input = event.input as { text: string }
@@ -993,8 +995,8 @@ describe.sequential("pi extension wiring", () => {
     const { pi, context, widgets } = await startExtension({
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
-    await pi.runCommand("ste", "strict", context)
-    await pi.runCommand("ste", "strict off", context)
+    await pi.runCommand("ase", "strict", context)
+    await pi.runCommand("ase", "strict off", context)
     expect(pi.activeTools.has("say")).toBe(false)
 
     const prompt = await pi.emit(
@@ -1352,7 +1354,7 @@ describe.sequential("pi extension wiring", () => {
       branch: [assistantEntry("Open the valve.")],
       projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
     })
-    await pi.runCommand("ste", "off", context)
+    await pi.runCommand("ase", "off", context)
     setBranch([assistantEntry("This isn't permitted.", "blocked-reply")])
 
     await pi.emit(
@@ -1360,7 +1362,7 @@ describe.sequential("pi extension wiring", () => {
       { newLeafId: "blocked-reply", oldLeafId: "assistant-reply" },
       context,
     )
-    await pi.runCommand("ste", "on", context)
+    await pi.runCommand("ase", "on", context)
 
     expect(widgets.get("simple-english-reply")).toBeUndefined()
     await expect(pi.emit("context", { messages: [] }, context)).resolves.toBeUndefined()

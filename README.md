@@ -69,17 +69,17 @@ Soft violations allow the event and add warning text.
 
 ### Session controls
 
-The `/ste` command controls the current Claude Code session.
+The `/ase` command controls the current Claude Code session.
 New sessions start in enabled mode without a strict reply gate.
 A change in one session does not change a parallel session.
 
 | Command | Result |
 | --- | --- |
-| `/ste on` | Enable write, edit, commit, and reply checks. |
-| `/ste off` | Disable all checks and leave strict mode. |
-| `/ste status` | Show the mode, rule counts, and dictionary state. |
-| `/ste strict` | Enable the strict reply gate and all other checks. |
-| `/ste strict off` | Disable the strict reply gate and use reply feedback. |
+| `/ase on` | Enable write, edit, commit, and reply checks. |
+| `/ase off` | Disable all checks and leave strict mode. |
+| `/ase status` | Show the mode, rule counts, and dictionary state. |
+| `/ase strict` | Enable the strict reply gate and all other checks. |
+| `/ase strict off` | Disable the strict reply gate and use reply feedback. |
 
 Strict mode blocks a `Stop` event when the reply has a hard violation.
 Claude Code then uses the violation details to write the reply again.
@@ -131,18 +131,18 @@ pi -e .
 
 The mode applies to the current pi session.
 The extension starts in enabled mode without strict reply gating.
-Type `/ste ` to see autocomplete suggestions for `on`, `off`, `status`, and `strict`.
+Type `/ase ` to see autocomplete suggestions for `on`, `off`, `status`, and `strict`.
 The list changes to match the text that you type.
 
 | Command | Result |
 | --- | --- |
-| `/ste` | Toggle all enforcement. |
-| `/ste on` | Enable write, edit, commit, and reply checks. |
-| `/ste off` | Disable all checks and leave strict mode. |
-| `/ste status` | Show the mode, severity counts, and dictionary state. |
-| `/ste strict` | Enable strict reply gating and the other checks. |
-| `/ste strict on` | Enable strict reply gating and the other checks. |
-| `/ste strict off` | Disable strict reply gating without changing the other checks. |
+| `/ase` | Toggle all enforcement. |
+| `/ase on` | Enable write, edit, commit, and reply checks. |
+| `/ase off` | Disable all checks and leave strict mode. |
+| `/ase status` | Show the mode, severity counts, and dictionary state. |
+| `/ase strict` | Enable strict reply gating and the other checks. |
+| `/ase strict on` | Enable strict reply gating and the other checks. |
+| `/ase strict off` | Disable strict reply gating without changing the other checks. |
 
 ## Install and use the CLI
 
