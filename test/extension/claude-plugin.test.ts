@@ -20,6 +20,7 @@ const repoRoot = process.cwd()
 const pluginManifestPath = join(repoRoot, ".claude-plugin", "plugin.json")
 const marketplaceManifestPath = join(repoRoot, ".claude-plugin", "marketplace.json")
 const hooksPath = join(repoRoot, "hooks", "hooks.json")
+const aseCommandPath = join(repoRoot, "commands", "ase.md")
 const steCommandPath = join(repoRoot, "commands", "ste.md")
 
 async function readJson(path: string): Promise<unknown> {
@@ -56,8 +57,10 @@ describe("Claude Code plugin wiring", () => {
     ])
   })
 
-  test("defines the session STE command", async () => {
-    const command = await readFile(steCommandPath, "utf8")
+  test("defines only the session ASE command", async () => {
+    const command = await readFile(aseCommandPath, "utf8")
+
+    await expect(access(steCommandPath)).rejects.toThrow()
 
     expect(command).toContain(
       "description: Control writing-rule enforcement for this Claude Code session",

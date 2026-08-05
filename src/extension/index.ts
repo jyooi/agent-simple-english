@@ -547,7 +547,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
     pi.setActiveTools(active ? [...tools, "say"] : tools)
   }
 
-  pi.registerCommand("ste", {
+  pi.registerCommand("ase", {
     description: "Toggle writing-rule enforcement or show status. Use strict to gate replies.",
     getArgumentCompletions: (prefix) => {
       const completions = COMMAND_COMPLETIONS.filter((item) => item.value.startsWith(prefix))
@@ -576,7 +576,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
         return
       }
       if (command !== "" && command !== "on" && command !== "off") {
-        ctx.ui.notify("Usage: /ste [on|off|status|strict|strict off]", "warning")
+        ctx.ui.notify("Usage: /ase [on|off|status|strict|strict off]", "warning")
         return
       }
 

@@ -11,7 +11,7 @@ import {
   setSessionStrict,
 } from "./session-state.ts"
 
-const USAGE = "Usage: /ste [on|off|status|strict|strict off]"
+const USAGE = "Usage: /ase [on|off|status|strict|strict off]"
 
 type DictionaryState = "loaded" | "not loaded" | `failed (${string})`
 

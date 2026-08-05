@@ -11,7 +11,7 @@
     {
       "name": "simple-english",
       "description": "Apply technical and house-style writing rules to writes, edits, and git commit messages.",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "author": {
         "name": "JIA YI"
       },
