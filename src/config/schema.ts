@@ -7,6 +7,7 @@ import {
   formatParseErrorTree,
   type ParseError,
 } from "../schema/parse-error.ts"
+import { NonEmptyTrimmedString } from "../schema/primitives.ts"
 
 export interface SteConfig {
   readonly rules?: Partial<Readonly<Record<RuleId, RuleSetting>>>
@@ -43,10 +44,10 @@ const ExemptBlockQuotesSchema = Schema.Boolean.annotations({
 
 const RuleDataExtensionsSchema = Schema.partial(
   Schema.Struct({
-    "phrasal-verb": Schema.Array(Schema.NonEmptyTrimmedString),
-    hedging: Schema.Array(Schema.NonEmptyTrimmedString),
-    marketing: Schema.Array(Schema.NonEmptyTrimmedString),
-    "adjectival-participle": Schema.Array(Schema.NonEmptyTrimmedString),
+    "phrasal-verb": Schema.Array(NonEmptyTrimmedString),
+    hedging: Schema.Array(NonEmptyTrimmedString),
+    marketing: Schema.Array(NonEmptyTrimmedString),
+    "adjectival-participle": Schema.Array(NonEmptyTrimmedString),
   }),
 )
 
@@ -55,7 +56,7 @@ const SteConfigSchema = Schema.Struct({
   maxSentenceWords: Schema.optional(MaxSentenceWordsSchema),
   exemptBlockQuotes: Schema.optional(ExemptBlockQuotesSchema),
   ruleDataExtensions: Schema.optional(RuleDataExtensionsSchema),
-  approvedWordsPath: Schema.optional(Schema.NonEmptyTrimmedString),
+  approvedWordsPath: Schema.optional(NonEmptyTrimmedString),
 })
 
 const decodeUnknown = Schema.decodeUnknown(SteConfigSchema, {
