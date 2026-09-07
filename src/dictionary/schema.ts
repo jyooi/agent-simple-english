@@ -9,9 +9,9 @@ const DictionarySourceSchema = Schema.Struct({
   path: NonEmptyTrimmedString,
 })
 
-const DictionaryFormSchema = NonEmptyTrimmedString.pipe(Schema.pattern(DICTIONARY_FORM_PATTERN))
+const DictionaryFormSchema = NonEmptyTrimmedString.check(Schema.isPattern(DICTIONARY_FORM_PATTERN))
 
-const DictionaryWordSchema = NonEmptyTrimmedString.pipe(Schema.pattern(DICTIONARY_WORD_PATTERN))
+const DictionaryWordSchema = NonEmptyTrimmedString.check(Schema.isPattern(DICTIONARY_WORD_PATTERN))
 
 const DictionaryEntrySchema = Schema.Struct({
   unapproved: Schema.NonEmptyArray(DictionaryFormSchema),

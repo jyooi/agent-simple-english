@@ -31,7 +31,7 @@ export function makeWinkTagger(): Tagger {
   }
 }
 
-export class TaggerService extends Context.Tag("TaggerService")<TaggerService, Tagger>() {}
+export class TaggerService extends Context.Service<TaggerService, Tagger>()("TaggerService") {}
 
 const makeLazyWinkTagger = (): Tagger => {
   let tagger: Tagger | undefined

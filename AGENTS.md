@@ -13,7 +13,13 @@ Parent spec lives in Linear HUF-130.
 
 - Pure functional core: `src/engine/` is synchronous, and `src/engine/lint.ts` orchestrates it.
   Effect stays at boundaries such as CLI IO, config loading, and schema validation and loading.
-  Format Schema decode failures through `src/schema/parse-error.ts` only, and import `NonEmptyTrimmedString` from `src/schema/primitives.ts` instead of `Schema`, so the planned Effect v4 migration changes one file per seam.
+  Format Schema decode failures through `src/schema/parse-error.ts` only, and import `NonEmptyTrimmedString` from `src/schema/primitives.ts` instead of `Schema`, so a later Schema change touches one file per seam.
+- `effect` is pinned to the exact version `4.0.0-rc.112`, with no caret.
+  A release candidate can still make a narrow breaking change, and the Schema module moves most.
+  Every bump needs a full re-verification of the config and dictionary error text.
+- Effect v4 omits the rejected value from a schema issue unless the parse options set `reportInput: true`.
+  A static `message` annotation also drops that value, so use the `expected` annotation per check.
+  A v4 annotation binds to one AST node, not to a whole schema chain.
 - New rules must register their id in `src/engine/rules/registry.ts`; the config schema derives valid rule names from it, so unregistered ids are rejected in user config.
 - Three primary test seams cover product behavior: pure engine API (`test/engine/`), CLI E2E via spawned `bun src/cli/main.ts` (`test/cli/`), and extension wiring via a stubbed ExtensionAPI double. Never run pi itself in tests.
 - Rule-accuracy tests grow first at the pure engine seam. Each lint rule must have direct finding, clean, and boundary cases listed in `test/engine/README.md`.

@@ -49,15 +49,15 @@ const formatParseError = (error: ParseError): string => {
   return path === "" ? `invalid dictionary data: ${issue.message}` : `${path}: ${issue.message}`
 }
 
-const decodeDictionary = Schema.decode(Schema.parseJson(DictionarySchema), {
-  onExcessProperty: "error",
-  errors: "all",
-})
+// v4 omits the rejected value from an issue unless reportInput is on.
+const decodeOptions = { onExcessProperty: "error", errors: "all", reportInput: true } as const
 
-const decodeApprovedWordList = Schema.decode(Schema.parseJson(ApprovedWordListSchema), {
-  onExcessProperty: "error",
-  errors: "all",
-})
+const decodeDictionary = Schema.decodeEffect(Schema.fromJsonString(DictionarySchema), decodeOptions)
+
+const decodeApprovedWordList = Schema.decodeEffect(
+  Schema.fromJsonString(ApprovedWordListSchema),
+  decodeOptions,
+)
 
 const readDictionaryFile = (
   path: string,
