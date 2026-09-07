@@ -25,7 +25,7 @@ Parent spec lives in Linear HUF-130.
 
 ## Commands
 
-- `bun run test` (Vitest), `bun run lint` (Biome), `bun run typecheck` (tsc). CI (`.github/workflows/ci.yml`) runs all three on bun 1.3.14.
+- `bun run test` (Vitest), `bun run lint` (Biome), `bun run typecheck` (tsc). CI (`.github/workflows/ci.yml`) runs all three on bun 1.4.0.
 
 ## Agent skills
 

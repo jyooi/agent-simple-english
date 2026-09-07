@@ -200,7 +200,7 @@ describe("lint prose-file: diff-only linting via previousText", () => {
     const report = lint("prose-file", current, { previousText: previous, dictionary })
 
     expect(report.violations).toHaveLength(1)
-    expect(report.violations[0]?.message).toContain(`not \"${found}\"`)
+    expect(report.violations[0]?.message).toContain(`not "${found}"`)
   })
 
   test.each([

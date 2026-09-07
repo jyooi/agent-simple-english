@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
-import { mkdir, open, readFile, readdir } from "node:fs/promises"
+import { mkdir, open, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
 import type { LintKind, ReportViolation } from "../engine/types.ts"

@@ -66,9 +66,11 @@ describe("Claude Code plugin wiring", () => {
       "description: Control writing-rule enforcement for this Claude Code session",
     )
     expect(command).toContain("argument-hint: on|off|status|strict|strict off")
+    // biome-ignore-start lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     expect(command).toContain("${CLAUDE_PLUGIN_ROOT}")
     expect(command).toContain("${CLAUDE_SESSION_ID}")
     expect(command).toContain("${CLAUDE_PROJECT_DIR}")
+    // biome-ignore-end lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     expect(command).toContain("$ARGUMENTS")
     expect(command).toContain('src/cli/main.ts" session')
   })
