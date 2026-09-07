@@ -1,13 +1,13 @@
 import { BUNDLED_RULE_DATA } from "../dictionary/bundled-rule-data.ts"
 import type { RuleData } from "../dictionary/rule-data.ts"
 import {
-  type LineCommentSpan,
-  type ProseBreak,
   extractHashComments,
   extractSlashComments,
+  type LineCommentSpan,
+  type ProseBreak,
 } from "./comments.ts"
-import { type ScopedViolation, type ViolationScope, newFindings } from "./diff-match.ts"
 import { changedText } from "./diff.ts"
+import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-match.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownForLint } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
@@ -21,7 +21,7 @@ import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
 import { type Sentence, segmentSentences } from "./sentences.ts"
-import { type SuppressionRange, analyzeSuppressions } from "./suppression.ts"
+import { analyzeSuppressions, type SuppressionRange } from "./suppression.ts"
 import type { Tagger } from "./tagger.ts"
 import type { LintKind, LintOptions, LintReport, Violation } from "./types.ts"
 

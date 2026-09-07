@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
 import { Effect } from "effect"
 import { mergeConfigs } from "./merge.ts"
-import { ConfigError, type SteConfig, decodeConfig } from "./schema.ts"
+import { ConfigError, decodeConfig, type SteConfig } from "./schema.ts"
 
 const legacyAgentConfigDirectory = (cwd: string): string => {
   const configured = process.env.PI_CODING_AGENT_DIR

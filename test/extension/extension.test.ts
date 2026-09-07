@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
-import { ExtensionRunner, createExtensionRuntime } from "@earendil-works/pi-coding-agent"
+import { createExtensionRuntime, ExtensionRunner } from "@earendil-works/pi-coding-agent"
 import type { AutocompleteItem } from "@earendil-works/pi-tui"
 import { createJiti } from "jiti/static"
 import { afterEach, describe, expect, test, vi } from "vitest"

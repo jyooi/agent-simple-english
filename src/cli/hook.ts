@@ -14,9 +14,9 @@ import type { Tagger } from "../engine/tagger.ts"
 import type { LintKind, LintOptions, ReportViolation } from "../engine/types.ts"
 import { TaggerService } from "../tagger/wink.ts"
 import {
+  appendObservation,
   type ObservationDraft,
   type ObservationEvent,
-  appendObservation,
 } from "./observation-log.ts"
 import {
   consumePendingFeedback,

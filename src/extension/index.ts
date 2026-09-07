@@ -2,15 +2,15 @@ import { constants } from "node:fs"
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import {
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createWriteToolDefinition,
   type ExtensionAPI,
   type ExtensionContext,
   ExtensionRunner,
   type MessageStartEvent,
   type MessageUpdateEvent,
   type ToolCallEventResult,
-  createBashToolDefinition,
-  createEditToolDefinition,
-  createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent"
 import type { AutocompleteItem } from "@earendil-works/pi-tui"
 import { Effect } from "effect"

@@ -5,8 +5,8 @@ import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
 import { loadRuleData } from "../dictionary/load.ts"
 import {
-  type SessionControl,
   getSessionControl,
+  type SessionControl,
   setSessionEnabled,
   setSessionStrict,
   toggleSessionEnabled,

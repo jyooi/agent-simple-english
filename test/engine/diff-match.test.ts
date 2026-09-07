@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest"
+import type { RetainedRange } from "../../src/engine/diff.ts"
 import {
+  newFindings,
   type ScopedViolation,
   type ViolationScope,
-  newFindings,
 } from "../../src/engine/diff-match.ts"
-import type { RetainedRange } from "../../src/engine/diff.ts"
 import type { RuleId } from "../../src/engine/rules/registry.ts"
 
 const scope = (startOffset: number, endOffset: number, identity = "scope"): ViolationScope => ({
