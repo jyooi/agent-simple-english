@@ -95,6 +95,13 @@ describe("config schema", () => {
     }
   })
 
+  test("ruleDataExtensions entries must be non-empty strings", () => {
+    for (const bad of ["", "   "]) {
+      const message = expectDecodeError({ ruleDataExtensions: { hedging: [bad] } })
+      expect(message).toContain("hedging")
+    }
+  })
+
   test("a non-object config is rejected", () => {
     expect(decode("hard")._tag).toBe("Left")
     expect(decode(null)._tag).toBe("Left")
