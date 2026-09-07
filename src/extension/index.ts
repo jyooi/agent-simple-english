@@ -353,6 +353,9 @@ function lintProposedText(
   previousText?: string,
 ): ToolCallEventResult | undefined {
   const classification = classifyPath(path)
+  if (classification.skipped) {
+    return undefined
+  }
   const report = lint(classification.kind, text, {
     ...state.config,
     dictionary: state.dictionary,

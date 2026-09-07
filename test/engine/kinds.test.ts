@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { classifyPath } from "../../src/engine/kinds.ts"
 import { lint } from "../../src/engine/lint.ts"
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(" ")
@@ -539,5 +540,42 @@ describe("lint prose-file: hardened markdown stripping", () => {
     const text = `Run \`${words(30)}\\\` now.`
 
     expect(lint("prose-file", text).violations).toHaveLength(0)
+  })
+})
+
+describe("classifyPath: skip classification", () => {
+  test.each([
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "less",
+    "json",
+    "jsonc",
+    "svg",
+    "xml",
+    "typ",
+    "csv",
+    "tsv",
+    "lock",
+  ])("marks a .%s path as skipped", (extension) => {
+    expect(classifyPath(`example.${extension}`)).toEqual({
+      kind: "prose-file",
+      sourceDialect: "general",
+      skipped: true,
+    })
+  })
+
+  test("matches a skip extension without regard to letter case", () => {
+    expect(classifyPath("styles.CSS").skipped).toBe(true)
+  })
+
+  test("does not skip an extensionless path", () => {
+    expect(classifyPath("Dockerfile").skipped).toBeUndefined()
+  })
+
+  test("does not skip a prose or source extension", () => {
+    expect(classifyPath("README.md").skipped).toBeUndefined()
+    expect(classifyPath("main.ts").skipped).toBeUndefined()
   })
 })

@@ -585,6 +585,9 @@ function textDecision(
   previousText?: string,
 ): HookEvaluation {
   const classification = classifyPath(path)
+  if (classification.skipped) {
+    return { output: allow() }
+  }
   const report = lint(classification.kind, text, {
     ...options,
     sourceDialect: classification.sourceDialect,

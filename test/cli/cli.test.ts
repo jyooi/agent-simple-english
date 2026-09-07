@@ -296,6 +296,32 @@ describe("simple-english CLI", () => {
     expect(result.stderr).toContain("nonsense")
   })
 
+  test("skips a known non-prose extension and exits 0", async () => {
+    const result = await runCli([join(fixturesPath, "skip.html")])
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("skip.html")
+    expect(result.stdout).toContain("skipped")
+  })
+
+  test("--json on an all-skipped input keeps a valid report shape", async () => {
+    const result = await runCli(["--json", join(fixturesPath, "skip.html")])
+
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({
+      violations: [],
+      summary: { total: 0, hard: 0 },
+      skipped: [join(fixturesPath, "skip.html")],
+    })
+  })
+
+  test("--kind forces a lint on a skipped extension", async () => {
+    const result = await runCli(["--kind", "prose-file", join(fixturesPath, "skip.html")])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("sentence-length")
+  })
+
   test("rejects --kind without a value with exit code 2", async () => {
     const result = await runCli(["--kind"], { stdin: "Short." })
 

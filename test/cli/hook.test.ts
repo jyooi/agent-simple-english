@@ -945,6 +945,39 @@ describe("simple-english CLI hook mode", () => {
     expect(output.permissionDecisionReason?.match(/Suggested fix:/gu)).toHaveLength(3)
   })
 
+  test("allows a Write event for a skipped non-prose extension with no observation record", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const longLine = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ")
+    const content = `<style>a { color: red; background: blue; }</style>\n<!-- ${longLine}. -->`
+
+    const result = await runHook(
+      event(cwd, "Write", {
+        file_path: join(cwd, "page.html"),
+        content,
+      }),
+      cwd,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      xdgStateHome,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
+    await expect(
+      readdir(join(xdgStateHome, "simple-english", "observations")).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+        throw error
+      }),
+    ).resolves.toEqual([])
+  })
+
   test("allows an Edit event when only untouched prose has a hard violation", async () => {
     const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
     const path = join(cwd, "notes.md")

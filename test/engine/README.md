@@ -29,6 +29,15 @@ Cross-cutting Markdown masks use the same finding, clean, and boundary audit at 
 | GFM tables | Yes. `lints prose around a table at its original positions`. | Yes. `masks a valid multi-row GFM table from all prose rules`. | Yes. `does not mask table-like text with mismatched delimiter cells`. |
 | YAML frontmatter | Yes. `lints prose after frontmatter at its original position`. | Yes. `masks YAML frontmatter from all prose rules`. | Yes. `does not mask a thematic break in the middle of a document`. |
 
+## Content kind classification
+
+`classifyPath` in `src/engine/kinds.ts` chooses a lint kind from a path extension.
+The skip classification for markup and data extensions uses the same finding, clean, and boundary audit.
+
+| Feature | Finding | Clean | Boundary |
+| --- | --- | --- | --- |
+| Skip extension | Yes. `marks a .%s path as skipped`. | Yes. `does not skip a prose or source extension`. | Yes. `does not skip an extensionless path`; `matches a skip extension without regard to letter case`. |
+
 ## Engine options
 
 | Option | Finding | Clean | Boundary |

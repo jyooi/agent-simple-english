@@ -1137,6 +1137,21 @@ describe.sequential("pi extension wiring", () => {
     ).rejects.toThrow("[contraction]")
   })
 
+  test("allows writing a skipped non-prose extension without linting", async () => {
+    const { cwd, pi, context } = await startExtension()
+
+    await pi.executeTool(
+      "write",
+      "write-skip-1",
+      { path: "page.html", content: "<style>a { color: red; background: blue; }</style>" },
+      context,
+    )
+
+    expect(await readFile(join(cwd, "page.html"), "utf8")).toBe(
+      "<style>a { color: red; background: blue; }</style>",
+    )
+  })
+
   test("lints edits against the previous file and ignores unchanged violations", async () => {
     const { cwd, pi, context } = await startExtension()
     const path = join(cwd, "notes.md")

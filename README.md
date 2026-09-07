@@ -280,6 +280,13 @@ It is the default for standard input, extensionless paths, and file types that h
 
 `commit-message` checks the complete input as a commit message.
 
+A skipped path carries no check.
+These extensions skip every check: `.html`, `.htm`, `.css`, `.scss`, `.less`, `.json`, `.jsonc`, `.svg`, `.xml`, `.typ`, `.csv`, `.tsv`, and `.lock`.
+An extensionless path still uses `prose-file`.
+The Claude Code hook and the pi write and edit gates allow a skipped path with no lint and no observation record.
+The CLI prints one line that names a skipped file and exits 0.
+An explicit `--kind` flag forces a lint on a skipped file.
+
 File extension matching does not depend on letter case.
 Source kinds ignore comment markers inside supported string literal forms.
 All kinds preserve the original line and column.
