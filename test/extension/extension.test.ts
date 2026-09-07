@@ -399,7 +399,7 @@ describe("pi extension wiring", { concurrent: false }, () => {
       "@earendil-works/pi-coding-agent": "*",
       typebox: "*",
     })
-    expect(manifest.devDependencies).toMatchObject({ jiti: "2.7.0", typebox: "1.3.28" })
+    expect(manifest.devDependencies).toMatchObject({ jiti: "2.7.0", typebox: "1.3.7" })
   })
 
   test("loads the extension entry with Jiti", async () => {
