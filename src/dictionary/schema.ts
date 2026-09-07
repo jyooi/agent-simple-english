@@ -1,25 +1,22 @@
 import { Schema } from "effect"
+import { NonEmptyTrimmedString } from "../schema/primitives.ts"
 import { DICTIONARY_FORM_PATTERN, DICTIONARY_WORD_PATTERN } from "./form.ts"
 
 const DictionarySourceSchema = Schema.Struct({
-  name: Schema.NonEmptyTrimmedString,
-  repository: Schema.NonEmptyTrimmedString,
-  commit: Schema.NonEmptyTrimmedString,
-  path: Schema.NonEmptyTrimmedString,
+  name: NonEmptyTrimmedString,
+  repository: NonEmptyTrimmedString,
+  commit: NonEmptyTrimmedString,
+  path: NonEmptyTrimmedString,
 })
 
-const DictionaryFormSchema = Schema.NonEmptyTrimmedString.pipe(
-  Schema.pattern(DICTIONARY_FORM_PATTERN),
-)
+const DictionaryFormSchema = NonEmptyTrimmedString.pipe(Schema.pattern(DICTIONARY_FORM_PATTERN))
 
-const DictionaryWordSchema = Schema.NonEmptyTrimmedString.pipe(
-  Schema.pattern(DICTIONARY_WORD_PATTERN),
-)
+const DictionaryWordSchema = NonEmptyTrimmedString.pipe(Schema.pattern(DICTIONARY_WORD_PATTERN))
 
 const DictionaryEntrySchema = Schema.Struct({
   unapproved: Schema.NonEmptyArray(DictionaryFormSchema),
-  suggestions: Schema.NonEmptyArray(Schema.NonEmptyTrimmedString),
-  partsOfSpeech: Schema.optional(Schema.NonEmptyArray(Schema.NonEmptyTrimmedString)),
+  suggestions: Schema.NonEmptyArray(NonEmptyTrimmedString),
+  partsOfSpeech: Schema.optional(Schema.NonEmptyArray(NonEmptyTrimmedString)),
 })
 
 export const DictionarySchema = Schema.Struct({
