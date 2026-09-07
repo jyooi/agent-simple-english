@@ -1,7 +1,8 @@
-import { Effect, ParseResult, Schema } from "effect"
+import { Effect, type ParseResult, Schema } from "effect"
 import type { RuleDataExtensions } from "../dictionary/rule-data.ts"
 import { type RuleId, ruleIds } from "../engine/rules/registry.ts"
 import type { RuleSetting } from "../engine/types.ts"
+import { formatParseErrorIssues, formatParseErrorTree } from "../schema/parse-error.ts"
 
 export interface SteConfig {
   readonly rules?: Partial<Readonly<Record<RuleId, RuleSetting>>>
@@ -65,7 +66,7 @@ export class ConfigError extends Error {
 const formatError = (error: ParseResult.ParseError, source: string): string => {
   // Optional fields decode as `T | undefined` unions, so every failure also
   // reports a useless "Expected undefined" branch; drop those.
-  const issues = ParseResult.ArrayFormatter.formatErrorSync(error).filter(
+  const issues = formatParseErrorIssues(error).filter(
     (issue) => !issue.message.startsWith("Expected undefined"),
   )
   const lines = [
@@ -78,7 +79,7 @@ const formatError = (error: ParseResult.ParseError, source: string): string => {
   const detail =
     lines.length > 0
       ? lines.map((line) => `  ${line}`).join("\n")
-      : `  ${ParseResult.TreeFormatter.formatErrorSync(error)}`
+      : `  ${formatParseErrorTree(error)}`
   return `invalid config in ${source}:\n${detail}`
 }
 
