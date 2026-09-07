@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { Effect, type ParseResult, Schema } from "effect"
-import { formatParseErrorIssues } from "../schema/parse-error.ts"
+import { Effect, Schema } from "effect"
+import { formatParseErrorIssues, type ParseError } from "../schema/parse-error.ts"
 import type { RuleData, RuleDataExtensions, RuleDataId } from "./rule-data.ts"
 import {
   type ApprovedWordList,
@@ -35,7 +35,7 @@ export class DictionaryLoadError extends Error {
   }
 }
 
-const formatParseError = (error: ParseResult.ParseError): string => {
+const formatParseError = (error: ParseError): string => {
   const issue = formatParseErrorIssues(error)[0]
   if (issue === undefined) {
     return "invalid dictionary data"
