@@ -102,7 +102,7 @@ interface FileViolation {
 interface CliReport {
   readonly violations: readonly FileViolation[]
   readonly summary: { readonly total: number; readonly hard: number }
-  readonly skipped?: readonly string[]
+  readonly skipped: readonly string[]
 }
 
 const readStdin = Effect.promise(async () => {
@@ -123,7 +123,7 @@ const readInput = (path: string) =>
 
 const toCliReport = (
   reports: readonly { path: string; report: LintReport }[],
-  skipped: readonly string[] = [],
+  skipped: readonly string[],
 ): CliReport => {
   const violations = reports.flatMap(({ path, report }) =>
     report.violations.map((violation) => ({ file: path, ...violation })),
@@ -134,7 +134,7 @@ const toCliReport = (
       total: violations.length,
       hard: violations.filter((violation) => violation.severity === "hard").length,
     },
-    ...(skipped.length === 0 ? {} : { skipped }),
+    skipped,
   }
 }
 
@@ -143,7 +143,7 @@ const render = (report: CliReport, json: boolean): string => {
     return JSON.stringify(report, null, 2)
   }
   const lines = [
-    ...(report.skipped ?? []).map((path) => `${path}: skipped (non-prose extension)`),
+    ...report.skipped.map((path) => `${path}: skipped (non-prose extension)`),
     ...report.violations.map(
       (v) => `${v.file}:${v.line}:${v.column} [${v.severity}] ${v.ruleId} ${v.message}`,
     ),

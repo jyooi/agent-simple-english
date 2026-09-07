@@ -249,7 +249,8 @@ Soft violations can appear with exit code 0.
 
 ### CLI flags
 
-- `--json` writes one JSON report with `violations` and `summary` fields.
+- `--json` writes one JSON report with `violations`, `summary`, and `skipped` fields.
+  The `skipped` array is always present, and it is empty when no input was skipped.
   Each violation includes its offending sentence or paragraph as `snippet`.
 
 - `--config <path>` uses only that config file and disables config discovery.

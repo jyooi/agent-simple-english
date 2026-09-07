@@ -81,6 +81,7 @@ describe("simple-english CLI", () => {
         },
       ],
       summary: { total: 1, hard: 1 },
+      skipped: [],
     })
   })
 
@@ -91,6 +92,7 @@ describe("simple-english CLI", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       violations: [],
       summary: { total: 0, hard: 0 },
+      skipped: [],
     })
   })
 
