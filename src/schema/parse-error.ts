@@ -1,4 +1,4 @@
-import { Schema, SchemaIssue } from "effect"
+import { type Schema, SchemaIssue } from "effect"
 
 // This isolates the Effect v4 `SchemaIssue` formatter calls, so a later
 // Schema change touches only this file.
