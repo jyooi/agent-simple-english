@@ -208,4 +208,55 @@ describe("lint html: suppression", () => {
 
     expect(idsFor(page)).not.toContain("semicolon")
   })
+
+  test("a directive after a blank line at four-space indent suppresses the next line", () => {
+    const page = [
+      "<html>",
+      " <body>",
+      "",
+      "    <!-- ste-disable-next-line semicolon -->",
+      "    <p>Start the job; then stop.</p>",
+      " </body>",
+      "</html>",
+    ].join("\n")
+
+    expect(idsFor(page)).not.toContain("semicolon")
+  })
+
+  test("a directive inside a deeply nested element suppresses the next line", () => {
+    const page = [
+      "<html>",
+      "  <body>",
+      "    <main>",
+      "      <section>",
+      "        <article>",
+      "          <div>",
+      "            <!-- ste-disable-next-line semicolon -->",
+      "            <p>Start the job; then stop.</p>",
+      "          </div>",
+      "        </article>",
+      "      </section>",
+      "    </main>",
+      "  </body>",
+      "</html>",
+    ].join("\n")
+
+    expect(idsFor(page)).not.toContain("semicolon")
+  })
+
+  test("a directive with an unknown rule id reports invalid-suppression at its position", () => {
+    const page = [
+      "<div>",
+      "",
+      "    <!-- ste-disable-next-line nope -->",
+      "    <p>Go.</p>",
+      "</div>",
+    ].join("\n")
+
+    const violation = lint("html", page).violations.find(
+      (candidate) => candidate.ruleId === "invalid-suppression",
+    )
+
+    expect(violation).toMatchObject({ ruleId: "invalid-suppression", line: 3, column: 5 })
+  })
 })

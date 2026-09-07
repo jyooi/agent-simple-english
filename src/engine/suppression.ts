@@ -1,6 +1,7 @@
 import type { LineCommentSpan } from "./comments.ts"
 import type { ScopedViolation } from "./diff-match.ts"
-import { markdownHtmlComments } from "./markdown.ts"
+import { htmlComments } from "./html.ts"
+import { type MarkdownHtmlComment, markdownHtmlComments } from "./markdown.ts"
 import { type RuleId, ruleIds } from "./rules/registry.ts"
 import type { LintKind } from "./types.ts"
 
@@ -54,8 +55,10 @@ const sourceCandidates = (
     ]
   })
 
-const markdownCandidates = (text: string): readonly DirectiveCandidate[] =>
-  markdownHtmlComments(text).flatMap((comment) => {
+const commentCandidates = (
+  comments: readonly MarkdownHtmlComment[],
+): readonly DirectiveCandidate[] =>
+  comments.flatMap((comment) => {
     const match = comment.text.match(markdownDirective)
     if (match === null) return []
 
@@ -138,11 +141,13 @@ export function analyzeSuppressions(
 
   const lines = text.split("\n")
   const candidates =
-    kind === "prose-file" || kind === "html"
-      ? markdownCandidates(text)
-      : kind === "slash-source" || kind === "hash-source"
-        ? sourceCandidates(lines, lineComments)
-        : []
+    kind === "prose-file"
+      ? commentCandidates(markdownHtmlComments(text))
+      : kind === "html"
+        ? commentCandidates(htmlComments(text))
+        : kind === "slash-source" || kind === "hash-source"
+          ? sourceCandidates(lines, lineComments)
+          : []
   const directives = candidates.map(parseDirective)
   const offsets = offsetsForLines(lines)
   const ruleIdsByTargetLine = new Map<number, Set<RuleId>>()
