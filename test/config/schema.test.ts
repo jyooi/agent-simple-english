@@ -2,12 +2,12 @@ import { Effect } from "effect"
 import { describe, expect, test } from "vitest"
 import { decodeConfig } from "../../src/config/schema.ts"
 
-const decode = (input: unknown) => Effect.runSync(Effect.either(decodeConfig(input, "test.json")))
+const decode = (input: unknown) => Effect.runSync(Effect.result(decodeConfig(input, "test.json")))
 
 const expectDecodeError = (input: unknown): string => {
   const result = decode(input)
-  expect(result._tag).toBe("Left")
-  return result._tag === "Left" ? result.left.message : ""
+  expect(result._tag).toBe("Failure")
+  return result._tag === "Failure" ? result.failure.message : ""
 }
 
 describe("config schema", () => {
@@ -22,9 +22,9 @@ describe("config schema", () => {
       },
     })
 
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") {
-      expect(result.right).toEqual({
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") {
+      expect(result.success).toEqual({
         rules: { "sentence-length": "soft" },
         maxSentenceWords: 20,
         exemptBlockQuotes: true,
@@ -39,12 +39,12 @@ describe("config schema", () => {
   test("decodes an empty config", () => {
     const result = decode({})
 
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
   })
 
   test("accepts every severity setting for the dictionary rule", () => {
     for (const setting of ["hard", "soft", "off"]) {
-      expect(decode({ rules: { "dictionary-not-approved-word": setting } })._tag).toBe("Right")
+      expect(decode({ rules: { "dictionary-not-approved-word": setting } })._tag).toBe("Success")
     }
   })
 
@@ -78,8 +78,8 @@ describe("config schema", () => {
   })
 
   test("exemptBlockQuotes must be a boolean", () => {
-    expect(decode({ exemptBlockQuotes: true })._tag).toBe("Right")
-    expect(decode({ exemptBlockQuotes: false })._tag).toBe("Right")
+    expect(decode({ exemptBlockQuotes: true })._tag).toBe("Success")
+    expect(decode({ exemptBlockQuotes: false })._tag).toBe("Success")
 
     for (const bad of ["true", 1, null]) {
       const message = expectDecodeError({ exemptBlockQuotes: bad })
@@ -103,7 +103,7 @@ describe("config schema", () => {
   })
 
   test("a non-object config is rejected", () => {
-    expect(decode("hard")._tag).toBe("Left")
-    expect(decode(null)._tag).toBe("Left")
+    expect(decode("hard")._tag).toBe("Failure")
+    expect(decode(null)._tag).toBe("Failure")
   })
 })

@@ -1,5 +1,5 @@
 import { resolve } from "node:path"
-import { Effect, Either } from "effect"
+import { Effect, Result } from "effect"
 import { formatFailedStatusSummary, formatStatusSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
@@ -48,25 +48,25 @@ const updateStrict = (sessionId: string, strict: boolean) =>
 function status(sessionId: string, cwd: string): Effect.Effect<string, Error> {
   return Effect.gen(function* () {
     const control = yield* readControl(sessionId)
-    const configResult = yield* Effect.either(loadConfig(undefined, cwd))
-    if (Either.isLeft(configResult)) {
-      return formatFailedStatusSummary(modeName(control), configResult.left.message)
+    const configResult = yield* Effect.result(loadConfig(undefined, cwd))
+    if (Result.isFailure(configResult)) {
+      return formatFailedStatusSummary(modeName(control), configResult.failure.message)
     }
     const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY
-    const dictionaryResult = yield* Effect.either(
+    const dictionaryResult = yield* Effect.result(
       Effect.all({
         dictionary: loadConfiguredDictionary(
-          configResult.right,
+          configResult.success,
           cwd,
           dictionaryPath === undefined ? undefined : resolve(cwd, dictionaryPath),
         ),
-        ruleData: loadRuleData(configResult.right.ruleDataExtensions, cwd),
+        ruleData: loadRuleData(configResult.success.ruleDataExtensions, cwd),
       }),
     )
-    const dictionary: DictionaryState = Either.isRight(dictionaryResult)
+    const dictionary: DictionaryState = Result.isSuccess(dictionaryResult)
       ? "loaded"
-      : `failed (${dictionaryResult.left.message})`
-    return formatStatusSummary(configResult.right, modeName(control), dictionary)
+      : `failed (${dictionaryResult.failure.message})`
+    return formatStatusSummary(configResult.success, modeName(control), dictionary)
   })
 }
 

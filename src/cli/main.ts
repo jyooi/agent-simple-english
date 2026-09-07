@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises"
-import { Effect, Either } from "effect"
+import { Effect, Result } from "effect"
 import packageManifest from "../../package.json" with { type: "json" }
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
@@ -220,20 +220,20 @@ const lintProgram = Effect.gen(function* () {
     )
   }
   const config = yield* loadConfig(configPath)
-  const loadedDictionary = yield* Effect.either(
+  const loadedDictionary = yield* Effect.result(
     loadConfiguredDictionary(config, process.cwd(), process.env.SIMPLE_ENGLISH_DICTIONARY),
   )
-  const loadedRuleData = yield* Effect.either(loadRuleData(config.ruleDataExtensions))
-  if (Either.isLeft(loadedDictionary) && config.approvedWordsPath !== undefined) {
-    return yield* Effect.fail(loadedDictionary.left)
+  const loadedRuleData = yield* Effect.result(loadRuleData(config.ruleDataExtensions))
+  if (Result.isFailure(loadedDictionary) && config.approvedWordsPath !== undefined) {
+    return yield* Effect.fail(loadedDictionary.failure)
   }
-  const dictionary = Either.getOrUndefined(loadedDictionary)
-  const ruleData = Either.getOrUndefined(loadedRuleData)
-  if (Either.isLeft(loadedDictionary)) {
-    yield* Effect.sync(() => console.error(loadedDictionary.left.message))
+  const dictionary = Result.getOrUndefined(loadedDictionary)
+  const ruleData = Result.getOrUndefined(loadedRuleData)
+  if (Result.isFailure(loadedDictionary)) {
+    yield* Effect.sync(() => console.error(loadedDictionary.failure.message))
   }
-  if (Either.isLeft(loadedRuleData)) {
-    yield* Effect.sync(() => console.error(loadedRuleData.left.message))
+  if (Result.isFailure(loadedRuleData)) {
+    yield* Effect.sync(() => console.error(loadedRuleData.failure.message))
   }
   const inputs =
     paths.length === 0
