@@ -715,7 +715,7 @@ function recordEvaluation(event: HookEvent, evaluation: HookEvaluation): Effect.
       }),
     catch: () => undefined,
   }).pipe(
-    Effect.catchAll(() => Effect.void),
+    Effect.catch(() => Effect.void),
     Effect.as(evaluation.output),
   )
 }
@@ -760,14 +760,14 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
               return yield* recordEvaluation(event, evaluation)
             })
           }),
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed(
               event.hookEventName === "PreToolUse"
                 ? nonBlockingWarning(error.message)
                 : nonBlockingError(error.message),
             ),
           ),
-          Effect.catchAllCause((cause) =>
+          Effect.catchCause((cause) =>
             Effect.succeed(
               event.hookEventName === "PreToolUse"
                 ? hookInternalFailure(cause)

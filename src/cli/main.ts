@@ -164,7 +164,7 @@ const hookProgram = Effect.gen(function* () {
   console.log(JSON.stringify(output))
   return 0
 }).pipe(
-  Effect.catchAllCause((cause) =>
+  Effect.catchCause((cause) =>
     Effect.sync(() => {
       console.log(JSON.stringify(hookInternalFailure(cause)))
       return 0
@@ -282,7 +282,7 @@ const program: Effect.Effect<number, Error> =
         : lintProgram.pipe(Effect.provide(WinkTaggerLive))
 
 const handled = program.pipe(
-  Effect.catchAll((error) =>
+  Effect.catch((error) =>
     Effect.sync(() => {
       console.error(error.message)
       return 2
