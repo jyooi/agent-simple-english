@@ -5,7 +5,7 @@ import packageManifest from "../../package.json" with { type: "json" }
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
 import { loadRuleData } from "../dictionary/load.ts"
-import { type PathClassification, classifyPath } from "../engine/kinds.ts"
+import { classifyPath, type PathClassification } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
