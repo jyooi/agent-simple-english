@@ -1,8 +1,8 @@
-import { bench, describe } from "vitest"
+import { describe, test } from "vitest"
 import { blankMarkdownDestinations } from "../../src/engine/markdown.ts"
 
 const sizes = [4_000, 8_000, 16_000] as const
-const benchmarkOptions = {
+const runOptions = {
   iterations: 1,
   time: 0,
   warmupIterations: 1,
@@ -16,22 +16,22 @@ const unbalancedResources = new Map(sizes.map((size) => [size, "[a](".repeat(siz
 
 describe("Markdown parser scaling", () => {
   for (const size of sizes) {
-    bench(
-      `deep image nesting at ${size} levels`,
-      () => {
+    const name = `deep image nesting at ${size} levels`
+
+    test(name, async ({ bench }) => {
+      await bench(name, () => {
         blankMarkdownDestinations([nestedImages.get(size) ?? ""])
-      },
-      benchmarkOptions,
-    )
+      }).run(runOptions)
+    })
   }
 
   for (const size of sizes) {
-    bench(
-      `long unbalanced resource sequence at ${size} units`,
-      () => {
+    const name = `long unbalanced resource sequence at ${size} units`
+
+    test(name, async ({ bench }) => {
+      await bench(name, () => {
         blankMarkdownDestinations([unbalancedResources.get(size) ?? ""])
-      },
-      benchmarkOptions,
-    )
+      }).run(runOptions)
+    })
   }
 })

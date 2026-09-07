@@ -381,7 +381,7 @@ function sayResultEntry(text: string, id = "say-result") {
   }
 }
 
-describe.sequential("pi extension wiring", () => {
+describe("pi extension wiring", { concurrent: false }, () => {
   test("declares a production pi extension package", async () => {
     const manifest = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"))
 
@@ -399,7 +399,7 @@ describe.sequential("pi extension wiring", () => {
       "@earendil-works/pi-coding-agent": "*",
       typebox: "*",
     })
-    expect(manifest.devDependencies).toMatchObject({ jiti: "2.7.0", typebox: "1.3.7" })
+    expect(manifest.devDependencies).toMatchObject({ jiti: "2.7.0", typebox: "1.3.28" })
   })
 
   test("loads the extension entry with Jiti", async () => {
