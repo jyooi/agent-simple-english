@@ -5,7 +5,7 @@ import packageManifest from "../../package.json" with { type: "json" }
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
 import { loadRuleData } from "../dictionary/load.ts"
-import { classifyPath } from "../engine/kinds.ts"
+import { type PathClassification, classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
 import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
@@ -102,6 +102,7 @@ interface FileViolation {
 interface CliReport {
   readonly violations: readonly FileViolation[]
   readonly summary: { readonly total: number; readonly hard: number }
+  readonly skipped: readonly string[]
 }
 
 const readStdin = Effect.promise(async () => {
@@ -120,7 +121,10 @@ const readInput = (path: string) =>
         catch: (cause) => new Error(`cannot read ${path}: ${cause}`),
       }).pipe(Effect.map((text) => ({ path, text })))
 
-const toCliReport = (reports: readonly { path: string; report: LintReport }[]): CliReport => {
+const toCliReport = (
+  reports: readonly { path: string; report: LintReport }[],
+  skipped: readonly string[],
+): CliReport => {
   const violations = reports.flatMap(({ path, report }) =>
     report.violations.map((violation) => ({ file: path, ...violation })),
   )
@@ -130,6 +134,7 @@ const toCliReport = (reports: readonly { path: string; report: LintReport }[]): 
       total: violations.length,
       hard: violations.filter((violation) => violation.severity === "hard").length,
     },
+    skipped,
   }
 }
 
@@ -137,9 +142,13 @@ const render = (report: CliReport, json: boolean): string => {
   if (json) {
     return JSON.stringify(report, null, 2)
   }
-  return report.violations
-    .map((v) => `${v.file}:${v.line}:${v.column} [${v.severity}] ${v.ruleId} ${v.message}`)
-    .join("\n")
+  const lines = [
+    ...report.skipped.map((path) => `${path}: skipped (non-prose extension)`),
+    ...report.violations.map(
+      (v) => `${v.file}:${v.line}:${v.column} [${v.severity}] ${v.ruleId} ${v.message}`,
+    ),
+  ]
+  return lines.join("\n")
 }
 
 const args = process.argv.slice(2)
@@ -225,20 +234,29 @@ const lintProgram = Effect.gen(function* () {
       ? [{ path: "<stdin>", text: yield* readStdin }]
       : yield* Effect.forEach(paths, readInput)
 
+  const skippedPaths: string[] = []
+  const lintable: { path: string; text: string; classification: PathClassification }[] = []
+  for (const input of inputs) {
+    const classification = classifyPath(input.path)
+    if (kind === undefined && classification.skipped) {
+      skippedPaths.push(input.path)
+      continue
+    }
+    lintable.push({ ...input, classification })
+  }
+
   const report = toCliReport(
-    inputs.map(({ path, text }) => {
-      const classification = classifyPath(path)
-      return {
-        path,
-        report: lint(kind ?? classification.kind, text, {
-          ...config,
-          dictionary,
-          ruleData,
-          tagger,
-          sourceDialect: classification.sourceDialect,
-        }),
-      }
-    }),
+    lintable.map(({ path, text, classification }) => ({
+      path,
+      report: lint(kind ?? classification.kind, text, {
+        ...config,
+        dictionary,
+        ruleData,
+        tagger,
+        sourceDialect: classification.sourceDialect,
+      }),
+    })),
+    skippedPaths,
   )
 
   const output = render(report, json)

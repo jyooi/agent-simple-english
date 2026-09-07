@@ -174,7 +174,7 @@ Observation-write failures are silent and do not change the hook output or decis
 
 Enabled Hook mode logs every write, edit, static commit-message, and reply lint decision to the local XDG state directory.
 Observation logging is on by default, and the log includes clean allows and soft Findings.
-Plain lint runs, disabled hook sessions, and the pi Adapter do not write Observations.
+Plain lint runs, disabled hook sessions, skipped paths, and the pi Adapter do not write Observations.
 Set `SIMPLE_ENGLISH_OBSERVE=0` to stop observation logging.
 
 Monthly Observation files use `$XDG_STATE_HOME/simple-english/observations/YYYY-MM.jsonl`.
@@ -249,7 +249,8 @@ Soft violations can appear with exit code 0.
 
 ### CLI flags
 
-- `--json` writes one JSON report with `violations` and `summary` fields.
+- `--json` writes one JSON report with `violations`, `summary`, and `skipped` fields.
+  The `skipped` array is always present, and it is empty when no input was skipped.
   Each violation includes its offending sentence or paragraph as `snippet`.
 
 - `--config <path>` uses only that config file and disables config discovery.
@@ -279,6 +280,13 @@ It is the default for standard input, extensionless paths, and file types that h
 `.sh`, `.bash`, `.zsh`, `.py`, `.rb`, `.yaml`, `.yml`, `.toml`, and `.pl`.
 
 `commit-message` checks the complete input as a commit message.
+
+A skipped path carries no check.
+These extensions skip every check: `.html`, `.htm`, `.css`, `.scss`, `.less`, `.json`, `.jsonc`, `.svg`, `.xml`, `.typ`, `.csv`, `.tsv`, and `.lock`.
+An extensionless path still uses `prose-file`.
+The Claude Code hook and the pi write and edit gates allow a skipped path with no lint.
+The CLI prints one line that names a skipped file and exits 0.
+An explicit `--kind` flag forces a lint on a skipped file.
 
 File extension matching does not depend on letter case.
 Source kinds ignore comment markers inside supported string literal forms.

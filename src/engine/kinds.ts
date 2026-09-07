@@ -25,9 +25,28 @@ const JAVASCRIPT_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"])
 const NESTED_SLASH_EXTENSIONS = new Set(["rs", "swift", "kt", "scala"])
 const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
 
+// Markup and data extensions carry CSS rules, script, and structured data rather than prose,
+// so the writing rules would misread them as sentences (HUF-308).
+const SKIP_EXTENSIONS = new Set([
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "less",
+  "json",
+  "jsonc",
+  "svg",
+  "xml",
+  "typ",
+  "csv",
+  "tsv",
+  "lock",
+])
+
 export interface PathClassification {
   readonly kind: LintKind
   readonly sourceDialect: SourceDialect
+  readonly skipped?: true
 }
 
 export const classifyPath = (path: string): PathClassification => {
@@ -36,6 +55,9 @@ export const classifyPath = (path: string): PathClassification => {
     return { kind: "prose-file", sourceDialect: "general" }
   }
   const extension = path.slice(dot + 1).toLowerCase()
+  if (SKIP_EXTENSIONS.has(extension)) {
+    return { kind: "prose-file", sourceDialect: "general", skipped: true }
+  }
   if (SLASH_EXTENSIONS.has(extension)) {
     const sourceDialect = JAVASCRIPT_EXTENSIONS.has(extension)
       ? "javascript"
