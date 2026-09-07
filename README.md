@@ -256,7 +256,7 @@ Soft violations can appear with exit code 0.
 - `--config <path>` uses only that config file and disables config discovery.
 
 - `--kind <kind>` sets one content kind for all inputs.
-  Valid values are `prose-file`, `slash-source`, `hash-source`, and `commit-message`.
+  Valid values are `prose-file`, `slash-source`, `hash-source`, `html`, and `commit-message`.
   The form `--kind=<kind>` also works.
 
 - `--help` writes the command usage.
@@ -279,14 +279,44 @@ It is the default for standard input, extensionless paths, and file types that h
 `hash-source` checks comments in these file types:
 `.sh`, `.bash`, `.zsh`, `.py`, `.rb`, `.yaml`, `.yml`, `.toml`, and `.pl`.
 
+`html` checks the text nodes of `.html` and `.htm` files.
+It reads the page as a reader sees it, and it ignores everything else.
+
 `commit-message` checks the complete input as a commit message.
 
 A skipped path carries no check.
-These extensions skip every check: `.html`, `.htm`, `.css`, `.scss`, `.less`, `.json`, `.jsonc`, `.svg`, `.xml`, `.typ`, `.csv`, `.tsv`, and `.lock`.
+These extensions skip every check: `.css`, `.scss`, `.less`, `.json`, `.jsonc`, `.svg`, `.xml`, `.typ`, `.csv`, `.tsv`, and `.lock`.
 An extensionless path still uses `prose-file`.
 The Claude Code hook and the pi write and edit gates allow a skipped path with no lint.
 The CLI prints one line that names a skipped file and exits 0.
 An explicit `--kind` flag forces a lint on a skipped file.
+
+#### The html kind
+
+The `html` kind parses the page and keeps only its text nodes.
+It drops tags, attribute values, comments, entity references, and doctype declarations.
+It also drops the content of `script`, `style`, `pre`, `code`, and `textarea`.
+A semicolon in a style rule or an inline script stays quiet.
+A semicolon in a paragraph reports a violation at its original column.
+
+Each prose block is one unit for the sentence rules and the paragraph rule.
+A sentence split across phrasing elements counts as one sentence.
+These phrasing elements stay inside their prose block:
+
+```text
+a abbr b bdi bdo cite code data del dfn em i img ins kbd label mark q rp rt
+ruby s samp small span strong sub sup time u var wbr
+```
+
+Every other element starts a new prose block.
+That rule separates each of these elements from its neighbours:
+
+```text
+p li h1 h2 h3 h4 h5 h6 td th blockquote figcaption dt dd title br
+```
+
+Bare text directly inside `div`, `section`, or `body` is a prose block of its own.
+An unknown element also starts a prose block.
 
 File extension matching does not depend on letter case.
 Source kinds ignore comment markers inside supported string literal forms.
@@ -296,7 +326,7 @@ They ignore identifiers, YAML frontmatter, valid GFM tables, and fenced, indente
 ### Inline suppression
 
 A suppression directive names one or more registered rule IDs and applies only to the next physical line.
-Use this Markdown comment form in prose files:
+Use this comment form in prose files and in HTML pages:
 
 ```md
 <!-- ste-disable-next-line marketing -->

@@ -544,27 +544,16 @@ describe("lint prose-file: hardened markdown stripping", () => {
 })
 
 describe("classifyPath: skip classification", () => {
-  test.each([
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "less",
-    "json",
-    "jsonc",
-    "svg",
-    "xml",
-    "typ",
-    "csv",
-    "tsv",
-    "lock",
-  ])("marks a .%s path as skipped", (extension) => {
-    expect(classifyPath(`example.${extension}`)).toEqual({
-      kind: "prose-file",
-      sourceDialect: "general",
-      skipped: true,
-    })
-  })
+  test.each(["css", "scss", "less", "json", "jsonc", "svg", "xml", "typ", "csv", "tsv", "lock"])(
+    "marks a .%s path as skipped",
+    (extension) => {
+      expect(classifyPath(`example.${extension}`)).toEqual({
+        kind: "prose-file",
+        sourceDialect: "general",
+        skipped: true,
+      })
+    },
+  )
 
   test("matches a skip extension without regard to letter case", () => {
     expect(classifyPath("styles.CSS").skipped).toBe(true)
@@ -577,5 +566,28 @@ describe("classifyPath: skip classification", () => {
   test("does not skip a prose or source extension", () => {
     expect(classifyPath("README.md").skipped).toBeUndefined()
     expect(classifyPath("main.ts").skipped).toBeUndefined()
+  })
+
+  test("does not skip an HTML page", () => {
+    expect(classifyPath("page.html").skipped).toBeUndefined()
+    expect(classifyPath("page.htm").skipped).toBeUndefined()
+  })
+})
+
+describe("classifyPath: HTML classification", () => {
+  test.each(["html", "htm"])("maps a .%s path to the html kind", (extension) => {
+    expect(classifyPath(`page.${extension}`)).toEqual({
+      kind: "html",
+      sourceDialect: "general",
+    })
+  })
+
+  test("matches an HTML extension without regard to letter case", () => {
+    expect(classifyPath("PAGE.HTML").kind).toBe("html")
+  })
+
+  test("does not map a similar extension to the html kind", () => {
+    expect(classifyPath("page.htmlx").kind).toBe("prose-file")
+    expect(classifyPath("page.xml").kind).toBe("prose-file")
   })
 })

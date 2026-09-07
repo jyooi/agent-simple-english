@@ -24,12 +24,11 @@ const SLASH_EXTENSIONS = new Set([
 const JAVASCRIPT_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"])
 const NESTED_SLASH_EXTENSIONS = new Set(["rs", "swift", "kt", "scala"])
 const HASH_EXTENSIONS = new Set(["sh", "bash", "zsh", "py", "rb", "yaml", "yml", "toml", "pl"])
+const HTML_EXTENSIONS = new Set(["html", "htm"])
 
-// Markup and data extensions carry CSS rules, script, and structured data rather than prose,
+// Data and style extensions carry rules and structured data rather than prose,
 // so the writing rules would misread them as sentences (HUF-308).
 const SKIP_EXTENSIONS = new Set([
-  "html",
-  "htm",
   "css",
   "scss",
   "less",
@@ -57,6 +56,9 @@ export const classifyPath = (path: string): PathClassification => {
   const extension = path.slice(dot + 1).toLowerCase()
   if (SKIP_EXTENSIONS.has(extension)) {
     return { kind: "prose-file", sourceDialect: "general", skipped: true }
+  }
+  if (HTML_EXTENSIONS.has(extension)) {
+    return { kind: "html", sourceDialect: "general" }
   }
   if (SLASH_EXTENSIONS.has(extension)) {
     const sourceDialect = JAVASCRIPT_EXTENSIONS.has(extension)
