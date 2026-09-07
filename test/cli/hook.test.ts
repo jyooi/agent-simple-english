@@ -188,6 +188,24 @@ function runSessionCommand(
   })
 }
 
+// A Lavish review page: a style block, an inline script, and one prose paragraph.
+const lavishPage = (paragraph: string): string =>
+  [
+    "<!doctype html>",
+    "<html>",
+    "  <head>",
+    "    <style>",
+    "      .card { margin: 0; padding: 0; }",
+    "    </style>",
+    "    <script>const total = 1; const count = 2;</script>",
+    "  </head>",
+    "  <body>",
+    "    <h1>Review summary</h1>",
+    `    <p>${paragraph}</p>`,
+    "  </body>",
+    "</html>",
+  ].join("\n")
+
 function decision(output: HookOutput): HookSpecificOutput {
   expect(output.hookSpecificOutput).toBeDefined()
   return output.hookSpecificOutput as HookSpecificOutput
@@ -950,11 +968,11 @@ describe("simple-english CLI hook mode", () => {
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
     const longLine = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ")
-    const content = `<style>a { color: red; background: blue; }</style>\n<!-- ${longLine}. -->`
+    const content = `/* ${longLine}. */\na { color: red; background: blue }`
 
     const result = await runHook(
       event(cwd, "Write", {
-        file_path: join(cwd, "page.html"),
+        file_path: join(cwd, "styles.css"),
         content,
       }),
       cwd,
@@ -976,6 +994,37 @@ describe("simple-english CLI hook mode", () => {
         throw error
       }),
     ).resolves.toEqual([])
+  })
+
+  test("denies a Write event for an HTML page with an overlong paragraph", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const paragraph = `${Array.from({ length: 40 }, (_, index) => `word${index + 1}`).join(" ")}.`
+
+    const result = await runHook(
+      event(cwd, "Write", { file_path: join(cwd, "review.html"), content: lavishPage(paragraph) }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    const output = decision(result.output)
+    expect(output).toMatchObject({ hookEventName: "PreToolUse", permissionDecision: "deny" })
+    expect(output.permissionDecisionReason).toContain("line 11, column 8 [sentence-length]")
+  })
+
+  test("allows a Write event for an HTML page whose prose is clean", async () => {
+    const cwd = await makeProject({ rules: { "dictionary-not-approved-word": "off" } })
+    const paragraph = "This page uses short sentences. Each sentence stays inside the limit."
+
+    const result = await runHook(
+      event(cwd, "Write", { file_path: join(cwd, "review.html"), content: lavishPage(paragraph) }),
+      cwd,
+    )
+
+    expect(result.code).toBe(0)
+    expect(decision(result.output)).toEqual({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    })
   })
 
   test("allows an Edit event when only untouched prose has a hard violation", async () => {

@@ -138,7 +138,7 @@ export function analyzeSuppressions(
 
   const lines = text.split("\n")
   const candidates =
-    kind === "prose-file"
+    kind === "prose-file" || kind === "html"
       ? markdownCandidates(text)
       : kind === "slash-source" || kind === "hash-source"
         ? sourceCandidates(lines, lineComments)

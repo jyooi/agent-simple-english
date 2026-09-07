@@ -1143,13 +1143,36 @@ describe("pi extension wiring", { concurrent: false }, () => {
     await pi.executeTool(
       "write",
       "write-skip-1",
-      { path: "page.html", content: "<style>a { color: red; background: blue; }</style>" },
+      { path: "styles.css", content: "a { color: red; background: blue }" },
       context,
     )
 
-    expect(await readFile(join(cwd, "page.html"), "utf8")).toBe(
-      "<style>a { color: red; background: blue; }</style>",
+    expect(await readFile(join(cwd, "styles.css"), "utf8")).toBe(
+      "a { color: red; background: blue }",
     )
+  })
+
+  test("allows writing an HTML page whose prose is clean", async () => {
+    const { cwd, pi, context } = await startExtension()
+    const page = "<style>a { color: red; background: blue; }</style>\n<p>Short prose.</p>"
+
+    await pi.executeTool("write", "write-html-1", { path: "page.html", content: page }, context)
+
+    expect(await readFile(join(cwd, "page.html"), "utf8")).toBe(page)
+  })
+
+  test("rejects writing an HTML page with an overlong paragraph", async () => {
+    const { pi, context } = await startExtension()
+    const words = Array.from({ length: 30 }, (_, index) => `word${index + 1}`).join(" ")
+
+    await expect(
+      pi.executeTool(
+        "write",
+        "write-html-2",
+        { path: "page.html", content: `<p>${words}.</p>` },
+        context,
+      ),
+    ).rejects.toThrow("[sentence-length]")
   })
 
   test("lints edits against the previous file and ignores unchanged violations", async () => {

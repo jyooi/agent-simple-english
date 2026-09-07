@@ -8,6 +8,7 @@ import {
 } from "./comments.ts"
 import { changedText } from "./diff.ts"
 import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-match.ts"
+import { extractHtmlProse } from "./html.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import { blankMarkdownForLint } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
@@ -121,6 +122,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
 const extract = (kind: LintKind, text: string, options: LintOptions): ExtractedProse => {
   if (kind === "slash-source") return extractSlashComments(text, options.sourceDialect)
   if (kind === "hash-source") return extractHashComments(text, options.sourceDialect)
+  if (kind === "html") return extractHtmlProse(text)
   return wholeText(text)
 }
 

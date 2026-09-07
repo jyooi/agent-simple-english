@@ -3,7 +3,7 @@ import type { DictionaryData } from "../dictionary/schema.ts"
 import type { RuleId } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
 
-export type LintKind = "prose-file" | "slash-source" | "hash-source" | "commit-message"
+export type LintKind = "prose-file" | "slash-source" | "hash-source" | "html" | "commit-message"
 
 export type Severity = "hard" | "soft"
 

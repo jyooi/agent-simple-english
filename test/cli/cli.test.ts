@@ -299,29 +299,61 @@ describe("simple-english CLI", () => {
   })
 
   test("skips a known non-prose extension and exits 0", async () => {
-    const result = await runCli([join(fixturesPath, "skip.html")])
+    const result = await runCli([join(fixturesPath, "skip.css")])
 
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("skip.html")
+    expect(result.stdout).toContain("skip.css")
     expect(result.stdout).toContain("skipped")
   })
 
   test("--json on an all-skipped input keeps a valid report shape", async () => {
-    const result = await runCli(["--json", join(fixturesPath, "skip.html")])
+    const result = await runCli(["--json", join(fixturesPath, "skip.css")])
 
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({
       violations: [],
       summary: { total: 0, hard: 0 },
-      skipped: [join(fixturesPath, "skip.html")],
+      skipped: [join(fixturesPath, "skip.css")],
     })
   })
 
   test("--kind forces a lint on a skipped extension", async () => {
-    const result = await runCli(["--kind", "prose-file", join(fixturesPath, "skip.html")])
+    const result = await runCli(["--kind", "prose-file", join(fixturesPath, "skip.css")])
 
     expect(result.code).toBe(1)
     expect(result.stdout).toContain("sentence-length")
+  })
+
+  test("lints an HTML page instead of skipping it", async () => {
+    const result = await runCli([join(fixturesPath, "page.html")])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("page.html")
+    expect(result.stdout).not.toContain("skipped")
+    expect(result.stdout).toContain("page.html:11:8 [hard] sentence-length")
+  })
+
+  test("reports only the paragraph of an HTML page as JSON", async () => {
+    const result = await runCli(["--json", join(fixturesPath, "page.html")])
+
+    expect(result.code).toBe(1)
+    const report = JSON.parse(result.stdout) as {
+      violations: { ruleId: string; line: number; column: number }[]
+      skipped: string[]
+    }
+    expect(report.skipped).toEqual([])
+    expect(report.violations).toEqual([
+      expect.objectContaining({ ruleId: "sentence-length", line: 11, column: 8 }),
+    ])
+  })
+
+  test("accepts --kind html", async () => {
+    const result = await runCli(["--kind", "html"], {
+      stdin: "<p>Start the job; then stop.</p>",
+    })
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("<stdin>:1:17 [hard] semicolon")
   })
 
   test("rejects --kind without a value with exit code 2", async () => {

@@ -13,7 +13,13 @@ import { hookInternalFailure, runHookMode } from "./hook.ts"
 import { observationStats, reviewObservations } from "./observation-log.ts"
 import { runSessionCommand } from "./session-command.ts"
 
-const KINDS: readonly LintKind[] = ["prose-file", "slash-source", "hash-source", "commit-message"]
+const KINDS: readonly LintKind[] = [
+  "prose-file",
+  "slash-source",
+  "hash-source",
+  "html",
+  "commit-message",
+]
 
 const USAGE = `Usage: simple-english [options] [paths...]
        simple-english observe review

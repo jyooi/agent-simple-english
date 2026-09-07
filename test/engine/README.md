@@ -29,14 +29,27 @@ Cross-cutting Markdown masks use the same finding, clean, and boundary audit at 
 | GFM tables | Yes. `lints prose around a table at its original positions`. | Yes. `masks a valid multi-row GFM table from all prose rules`. | Yes. `does not mask table-like text with mismatched delimiter cells`. |
 | YAML frontmatter | Yes. `lints prose after frontmatter at its original position`. | Yes. `masks YAML frontmatter from all prose rules`. | Yes. `does not mask a thematic break in the middle of a document`. |
 
-## Content kind classification
+## HTML text-node extraction
 
-`classifyPath` in `src/engine/kinds.ts` chooses a lint kind from a path extension.
-The skip classification for markup and data extensions uses the same finding, clean, and boundary audit.
+The `html` kind keeps text nodes and blanks every other byte.
+Its extraction uses the same finding, clean, and boundary audit as the Markdown masks.
 
 | Feature | Finding | Clean | Boundary |
 | --- | --- | --- | --- |
-| Skip extension | Yes. `marks a .%s path as skipped`. | Yes. `does not skip a prose or source extension`. | Yes. `does not skip an extensionless path`; `matches a skip extension without regard to letter case`. |
+| Text nodes | Yes. `flags an overlong sentence in a paragraph at its original position`; `flags a semicolon in a paragraph at its original column`; `flags an overlong title element`. | Yes. `reports no violation for clean prose`. | Yes. `flags bare text placed directly inside a div`. |
+| Ignored elements | Yes. `keeps a paragraph semicolon beside a style block`. | Yes. `does not flag a semicolon inside a style block`; `does not flag a semicolon inside an inline script`; `does not flag content inside pre, code, and textarea`. | Yes. `does not read an entity reference as a semicolon`. |
+| Non-text bytes | Yes. `keeps positions in a page that mixes style, script, and prose`. | Yes. `does not flag an attribute value`; `does not flag an HTML comment`. | Yes. `an HTML comment directive suppresses the next line`. |
+| Prose blocks | Yes. `counts paragraph length inside one prose block`. | Yes. `does not join a heading with the paragraph that follows it`; `does not join sibling list items`; `does not join sibling table cells on one line`; `does not join text across a line break element`; `does not count paragraph length across sibling paragraphs`. | Yes. `counts a sentence split across inline elements as one sentence`; `joins a sentence that spans source lines inside one paragraph`. |
+
+## Content kind classification
+
+`classifyPath` in `src/engine/kinds.ts` chooses a lint kind from a path extension.
+The skip classification for data extensions and the html classification use the same audit.
+
+| Feature | Finding | Clean | Boundary |
+| --- | --- | --- | --- |
+| Skip extension | Yes. `marks a .%s path as skipped`. | Yes. `does not skip a prose or source extension`; `does not skip an HTML page`. | Yes. `does not skip an extensionless path`; `matches a skip extension without regard to letter case`. |
+| HTML extension | Yes. `maps a .%s path to the html kind`. | Yes. `does not map a similar extension to the html kind`. | Yes. `matches an HTML extension without regard to letter case`. |
 
 ## Engine options
 
