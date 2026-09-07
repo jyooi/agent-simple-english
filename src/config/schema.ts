@@ -17,51 +17,45 @@ export interface SteConfig {
   readonly approvedWordsPath?: string
 }
 
-const RuleSettingSchema = Schema.Literal("hard", "soft", "off").annotations({
-  message: (issue) => ({
-    message: `must be "hard", "soft", or "off", got ${JSON.stringify(issue.actual)}`,
-    override: true,
-  }),
+const RuleSettingSchema = Schema.Literals(["hard", "soft", "off"]).annotate({
+  expected: '"hard", "soft", or "off"',
 })
 
-const RulesSchema = Schema.partial(
-  Schema.Struct(Object.fromEntries(ruleIds.map((id) => [id, RuleSettingSchema]))),
+const RulesSchema = Schema.Struct(
+  Object.fromEntries(ruleIds.map((id) => [id, Schema.optionalKey(RuleSettingSchema)])),
 )
 
-const MaxSentenceWordsSchema = Schema.Int.pipe(Schema.positive()).annotations({
-  message: (issue) => ({
-    message: `must be a positive integer, got ${JSON.stringify(issue.actual)}`,
-    override: true,
-  }),
-})
-
-const ExemptBlockQuotesSchema = Schema.Boolean.annotations({
-  message: (issue) => ({
-    message: `must be a boolean, got ${JSON.stringify(issue.actual)}`,
-    override: true,
-  }),
-})
-
-const RuleDataExtensionsSchema = Schema.partial(
-  Schema.Struct({
-    "phrasal-verb": Schema.Array(NonEmptyTrimmedString),
-    hedging: Schema.Array(NonEmptyTrimmedString),
-    marketing: Schema.Array(NonEmptyTrimmedString),
-    "adjectival-participle": Schema.Array(NonEmptyTrimmedString),
-  }),
+// One refinement over Unknown, rather than Number plus two checks, so that a
+// wrong type and a wrong number both report the same text and the value.
+const MaxSentenceWordsSchema = Schema.Unknown.pipe(
+  Schema.refine(
+    (value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0,
+    { expected: "a positive integer" },
+  ),
 )
+
+const ExemptBlockQuotesSchema = Schema.Boolean
+
+const RuleDataExtensionsSchema = Schema.Struct({
+  "phrasal-verb": Schema.optionalKey(Schema.Array(NonEmptyTrimmedString)),
+  hedging: Schema.optionalKey(Schema.Array(NonEmptyTrimmedString)),
+  marketing: Schema.optionalKey(Schema.Array(NonEmptyTrimmedString)),
+  "adjectival-participle": Schema.optionalKey(Schema.Array(NonEmptyTrimmedString)),
+})
 
 const SteConfigSchema = Schema.Struct({
-  rules: Schema.optional(RulesSchema),
-  maxSentenceWords: Schema.optional(MaxSentenceWordsSchema),
-  exemptBlockQuotes: Schema.optional(ExemptBlockQuotesSchema),
-  ruleDataExtensions: Schema.optional(RuleDataExtensionsSchema),
-  approvedWordsPath: Schema.optional(NonEmptyTrimmedString),
+  rules: Schema.optionalKey(RulesSchema),
+  maxSentenceWords: Schema.optionalKey(MaxSentenceWordsSchema),
+  exemptBlockQuotes: Schema.optionalKey(ExemptBlockQuotesSchema),
+  ruleDataExtensions: Schema.optionalKey(RuleDataExtensionsSchema),
+  approvedWordsPath: Schema.optionalKey(NonEmptyTrimmedString),
 })
 
-const decodeUnknown = Schema.decodeUnknown(SteConfigSchema, {
+const decodeUnknown = Schema.decodeUnknownEffect(SteConfigSchema, {
   onExcessProperty: "error",
   errors: "all",
+  // v4 omits the rejected value from an issue unless this option is on.
+  reportInput: true,
 })
 
 export class ConfigError extends Error {
@@ -69,11 +63,7 @@ export class ConfigError extends Error {
 }
 
 const formatError = (error: ParseError, source: string): string => {
-  // Optional fields decode as `T | undefined` unions, so every failure also
-  // reports a useless "Expected undefined" branch; drop those.
-  const issues = formatParseErrorIssues(error).filter(
-    (issue) => !issue.message.startsWith("Expected undefined"),
-  )
+  const issues = formatParseErrorIssues(error)
   const lines = [
     ...new Set(
       issues.map(
