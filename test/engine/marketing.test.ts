@@ -108,7 +108,7 @@ describe("lint prose-file: marketing rule", () => {
     ])
   })
 
-  test("matches Unicode case variants with different lowercase forms", () => {
+  test("matches an uppercase Unicode variant of a lowercase dictionary entry", () => {
     const extension = {
       formatVersion: 1,
       source: {
@@ -120,7 +120,7 @@ describe("lint prose-file: marketing rule", () => {
       entries: [{ unapproved: ["σ"], suggestions: ["plain"] }],
     } as const satisfies Dictionary
 
-    const report = lint("prose-file", "A ς platform.", {
+    const report = lint("prose-file", "A Σ platform.", {
       ruleData: { marketing: extension },
     })
 
@@ -129,7 +129,7 @@ describe("lint prose-file: marketing rule", () => {
         ruleId: "marketing",
         line: 1,
         column: 3,
-        message: expect.stringContaining("ς"),
+        message: expect.stringContaining("σ"),
       }),
     ])
   })

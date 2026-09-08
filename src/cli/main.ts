@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises"
 import { Effect, Result } from "effect"
 import packageManifest from "../../package.json" with { type: "json" }
+import { splitViolations } from "../adapter/feedback.ts"
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
 import { loadRuleData } from "../dictionary/load.ts"
@@ -102,7 +103,6 @@ interface FileViolation {
   readonly suggestions?: readonly string[]
   readonly line: number
   readonly column: number
-  readonly suggestion?: string
 }
 
 interface CliReport {
@@ -138,7 +138,7 @@ const toCliReport = (
     violations,
     summary: {
       total: violations.length,
-      hard: violations.filter((violation) => violation.severity === "hard").length,
+      hard: splitViolations(violations).hard.length,
     },
     skipped,
   }

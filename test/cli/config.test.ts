@@ -221,8 +221,8 @@ describe("simple-english CLI config", () => {
     expect(result.code).toBe(1)
     const report = JSON.parse(result.stdout)
     expect(report.violations).toEqual([
-      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "do" }),
-      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "continue" }),
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestions: ["do"] }),
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestions: ["continue"] }),
     ])
   })
 

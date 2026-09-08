@@ -1,9 +1,19 @@
 import { describe, expect, test } from "vitest"
-import {
-  blankInlineCode,
-  blankMarkdownCode,
-  blankMarkdownDestinations,
-} from "../../src/engine/markdown.ts"
+import { blankMarkdownForLint } from "../../src/engine/markdown.ts"
+
+const blankMarkdownCode = (lines: readonly string[]): string[] =>
+  blankMarkdownForLint(
+    lines,
+    lines.map(() => 0),
+    false,
+  ).lines
+
+const blankMarkdownDestinations = (lines: readonly string[]): string[] =>
+  blankMarkdownForLint(
+    lines,
+    lines.map(() => 0),
+    true,
+  ).dictionaryLines
 
 const parserThresholdPrefix = `${"Alphaword ".repeat(1_100)}\n\n`
 
@@ -128,7 +138,6 @@ describe("Markdown parser masking", () => {
     const input = "[Alpha](target`) Betaword `"
 
     expect(blankMarkdownCode([input])).toEqual([input])
-    expect(blankInlineCode([input])).toEqual([input])
   })
 
   test("masks parser-classified malformed raw-content blocks", () => {

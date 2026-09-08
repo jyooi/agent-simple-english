@@ -1,5 +1,12 @@
 import { describe, test } from "vitest"
-import { blankMarkdownDestinations } from "../../src/engine/markdown.ts"
+import { blankMarkdownForLint } from "../../src/engine/markdown.ts"
+
+const blankMarkdownDestinations = (lines: readonly string[]): string[] =>
+  blankMarkdownForLint(
+    lines,
+    lines.map(() => 0),
+    true,
+  ).dictionaryLines
 
 const sizes = [4_000, 8_000, 16_000] as const
 const runOptions = {

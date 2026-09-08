@@ -58,7 +58,7 @@ describe("lint prose-file: hedging rule", () => {
         commit: "fixture",
         path: "hedging.json",
       },
-      entries: [{ unapproved: ["große sache"], suggestions: ["delete"] }],
+      entries: [{ unapproved: ["grosse sache"], suggestions: ["delete"] }],
     } as const satisfies Dictionary
 
     const report = lint("prose-file", "İ GROSSE SACHE.", {

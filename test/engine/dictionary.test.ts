@@ -1,8 +1,15 @@
 import { describe, expect, test } from "vitest"
 import type { ApprovedWordList, Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
-import { blankMarkdownDestinations } from "../../src/engine/markdown.ts"
+import { blankMarkdownForLint } from "../../src/engine/markdown.ts"
 import type { Tagger } from "../../src/engine/tagger.ts"
+
+const blankMarkdownDestinations = (lines: readonly string[]): string[] =>
+  blankMarkdownForLint(
+    lines,
+    lines.map(() => 0),
+    true,
+  ).dictionaryLines
 
 const dictionary = {
   formatVersion: 1,

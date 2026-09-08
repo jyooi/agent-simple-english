@@ -390,7 +390,6 @@ describe("pi extension wiring", { concurrent: false }, () => {
     expect(manifest.bin).toEqual({ "simple-english": "src/cli/main.ts" })
     expect(manifest.dependencies).toMatchObject({
       effect: expect.any(String),
-      "unicode-case-folding": expect.any(String),
       "wink-eng-lite-web-model": expect.any(String),
       "wink-nlp": expect.any(String),
     })

@@ -18,12 +18,6 @@ interface MarkdownAnalysis {
   readonly sentenceBoundaryLines: boolean[]
 }
 
-export interface MarkdownCodeResult {
-  readonly lines: string[]
-  readonly structuralLines: string[]
-  readonly structuralBlanks: boolean[]
-}
-
 interface AnalysisState {
   readonly source: string
   readonly parseLines: readonly string[]
@@ -606,79 +600,4 @@ export function blankMarkdownForLint(
   exemptBlockQuotes = false,
 ): MarkdownAnalysis {
   return analyzeMarkdown(inputLines, contentStarts, includeDictionary, exemptBlockQuotes)
-}
-
-export function blankMarkdownCodeWithStructure(
-  inputLines: readonly string[],
-  contentStarts: readonly number[] = inputLines.map(() => 0),
-): MarkdownCodeResult {
-  const analysis = analyzeMarkdown(inputLines, contentStarts, false)
-  return {
-    lines: analysis.lines,
-    structuralLines: analysis.structuralLines,
-    structuralBlanks: analysis.structuralBlanks,
-  }
-}
-
-export function blankMarkdownCode(
-  inputLines: readonly string[],
-  contentStarts: readonly number[] = inputLines.map(() => 0),
-): string[] {
-  return analyzeMarkdown(inputLines, contentStarts, false).lines
-}
-
-export function maskMarkdownCode(text: string): string {
-  return blankMarkdownCode(text.split("\n")).join("\n")
-}
-
-export function blankMarkdownDestinations(
-  lines: readonly string[],
-  contentStarts: readonly number[] = lines.map(() => 0),
-): string[] {
-  return analyzeMarkdown(lines, contentStarts).dictionaryLines
-}
-
-export function blankInlineCode(lines: readonly string[]): string[] {
-  const source = lines.join("\n")
-  const mask = new Uint8Array(source.length)
-  const parser = source.includes(")") ? commonMarkParser : codeOnlyInlineParser
-  const pending = [...(parser.parseInline(source, 0) as readonly InlineElement[])]
-
-  while (pending.length > 0) {
-    const element = pending.pop()
-    if (element === undefined) continue
-    if (element.children !== undefined) pending.push(...element.children)
-    if (inlineElementName(element) === "InlineCode") {
-      markRange(mask, element.from, element.to)
-    }
-  }
-
-  let offset = 0
-  return lines.map((line) => {
-    const characters = line.split("")
-    for (let index = 0; index < line.length; index++) {
-      if (mask[offset + index] !== 0) characters[index] = " "
-    }
-    offset += line.length + 1
-    return characters.join("")
-  })
-}
-
-export function proseVisibility(text: string): Uint8Array {
-  const visibility = new Uint8Array(text.length)
-  const sourceLines = text.split("\n")
-  const proseLines = blankMarkdownCode(sourceLines)
-  let offset = 0
-
-  for (let index = 0; index < sourceLines.length; index++) {
-    const line = sourceLines[index] ?? ""
-    if (line === proseLines[index]) visibility.fill(1, offset, offset + line.length)
-    offset += line.length
-    if (offset < text.length) {
-      visibility[offset] = 1
-      offset++
-    }
-  }
-
-  return visibility
 }

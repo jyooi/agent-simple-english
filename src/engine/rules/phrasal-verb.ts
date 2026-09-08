@@ -46,7 +46,7 @@ export function phrasalVerb(lines: readonly string[], dictionary: Dictionary): V
       message: `Do not use a phrasal verb. Use "${suggestion}", not "${match.found.toLowerCase()}".`,
       line: match.line,
       column: match.column,
-      suggestion,
+      suggestions: [suggestion],
     })),
   )
 }

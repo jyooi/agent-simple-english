@@ -8,10 +8,11 @@ ADR 0001 records its redaction limit.
 
 The `Stop` hook reads `last_assistant_message` from the event.
 This event field is authoritative because the transcript can lag behind the completed reply.
-When the field is present, the latest user transcript record gives the base turn identity.
+The latest user transcript record gives the base turn identity.
 A hash of the event reply identifies each rewrite in that turn.
-When the field is absent, the latest assistant transcript entry gives the reply and its identity.
-It checks the reply.
+A missing `last_assistant_message` field returns a non-blocking warning and records no reply.
+
+The hook checks the reply.
 In non-strict mode, it records only hard violation feedback.
 It does not block or change the completed reply in this mode.
 Session state retains the processed reply identity and ignores duplicate `Stop` events.

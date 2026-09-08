@@ -3,6 +3,7 @@ import { mkdir, open, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
 import type { LintKind, ReportViolation } from "../engine/types.ts"
+import { isFileError } from "../fs-error.ts"
 import { applicationStateDirectory } from "./state-directory.ts"
 
 export type ObservationEvent = "write" | "edit" | "commit-message" | "reply"
@@ -55,12 +56,6 @@ export interface ObservationDraft {
 const observationsDirectory = (): string => join(applicationStateDirectory(), "observations")
 
 const verdictsPath = (): string => join(applicationStateDirectory(), "verdicts.jsonl")
-
-function isFileError(cause: unknown, code: string): boolean {
-  return (
-    typeof cause === "object" && cause !== null && (cause as NodeJS.ErrnoException).code === code
-  )
-}
 
 async function appendJsonLine(path: string, value: unknown): Promise<void> {
   await mkdir(applicationStateDirectory(), { recursive: true, mode: 0o700 })
