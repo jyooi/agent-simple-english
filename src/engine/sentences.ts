@@ -11,10 +11,6 @@ export interface Sentence {
   }[]
 }
 
-// A lone pipe line is not a GFM table, so the block parser reports no table
-// there. The lookahead still stops at it, or a sentence absorbs the table row.
-const TABLE_ROW = /^[\t ]*\|/
-
 const QUOTATION_CLOSERS = new Set(['"', "'", "’", "”", "»", "›"])
 const OPENING_PROSE_DELIMITERS = new Set(["(", "{", "‘", "“", "«", "‹"])
 const CLOSING_DELIMITERS = new Set([...QUOTATION_CLOSERS, ")", "]", "}", "*", "_", "~", "`"])
@@ -475,11 +471,8 @@ export function segmentSentences(
   const boundaryAnalysis = analyzeBoundaryText(boundaryText)
   const boundaryOffsets: number[] = []
   const paragraphEnds: number[] = []
-  const lookaheadBreaks = effectiveBoundaryLines.map(
-    (line, index) =>
-      (structuralBlanks[index] ?? true) ||
-      (sentenceBoundaryLines[index] ?? false) ||
-      TABLE_ROW.test(line),
+  const lookaheadBreaks = lines.map(
+    (_line, index) => (structuralBlanks[index] ?? true) || (sentenceBoundaryLines[index] ?? false),
   )
   let boundaryOffset = 0
   for (const line of effectiveBoundaryLines) {

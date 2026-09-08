@@ -65,11 +65,11 @@ describe("lint prose-file: sentence-length rule", () => {
     )
   })
 
-  test("does not combine a sentence with a following table row", () => {
+  test("combines a sentence with a following lone pipe line", () => {
     const report = lint("prose-file", `${words(24)}, etc.\n| Continue |`)
 
-    expect(report.violations).not.toContainEqual(
-      expect.objectContaining({ ruleId: "sentence-length" }),
+    expect(report.violations).toContainEqual(
+      expect.objectContaining({ ruleId: "sentence-length", line: 1, column: 1 }),
     )
   })
 
