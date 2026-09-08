@@ -236,6 +236,24 @@ function enforceStrictEvent(state: SessionState, eventValue: unknown): void {
   }
 }
 
+// Strict mode must have the last word on user-facing text, and the public hooks cannot give it.
+// `emit` drops handler results for every event except `session_before_*` (pi
+// dist/core/extensions/runner.js:623-652), and `message_end` and `tool_result` chain
+// last-writer-wins in extension load order (pi docs/extensions.md:848-851). No `pi.on` overload
+// takes a priority, so a later extension can restore prose that this extension removed.
+// These patches run after the whole handler loop, which is the only remaining seam.
+//
+// Four assumptions hold this together, and each one fails silently.
+// `test/extension/extension.test.ts` guards them:
+// 1. pi still calls `emit`, `emitMessageEnd`, and `emitToolResult`. A rename leaves the patch on
+//    the prototype, but pi never invokes it, and redaction stops with no error.
+// 2. The extension and the host share one `ExtensionRunner` class object. The pi loader aliases
+//    the package specifier to the module the host runs, so this prototype is the live one.
+// 3. `createContext().sessionManager` keeps a stable identity, because it is the WeakMap key.
+//    A per-call wrapper makes every lookup miss.
+// 4. `pi.on("tool_result")` stays registered. AgentSession gates the call behind
+//    `hasHandlers("tool_result")` (pi dist/core/agent-session.js:246), so a drop of that handler
+//    makes the `emitToolResult` patch dead.
 function installStrictOutputBoundary(): void {
   if (boundaryRegistry.installed) return
   boundaryRegistry.installed = true

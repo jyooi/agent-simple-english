@@ -318,11 +318,11 @@ function assistantMessage(text: string) {
 
 function boundaryRunner(
   sessionManager: ExtensionContextStub["sessionManager"],
-  handlers: Readonly<Record<string, readonly EventHandler[]>>,
+  ...handlerMaps: readonly Readonly<Record<string, readonly EventHandler[]>>[]
 ): ExtensionRunner {
-  const extension = {
-    path: "later-extension",
-    resolvedPath: "later-extension",
+  const extensions = handlerMaps.map((handlers, index) => ({
+    path: `extension-${index}`,
+    resolvedPath: `extension-${index}`,
     sourceInfo: {},
     handlers: new Map(Object.entries(handlers)),
     tools: new Map(),
@@ -331,9 +331,9 @@ function boundaryRunner(
     commands: new Map(),
     flags: new Map(),
     shortcuts: new Map(),
-  }
+  }))
   return new ExtensionRunner(
-    [extension] as never,
+    extensions as never,
     createExtensionRuntime(),
     process.cwd(),
     sessionManager as never,
@@ -970,6 +970,64 @@ describe("pi extension wiring", { concurrent: false }, () => {
     expect(result).toMatchObject({
       content: [{ type: "text", text: "Open the valve." }],
       details: {},
+      isError: false,
+    })
+  })
+
+  test("keeps strict redaction when a later extension restores the prose", async () => {
+    const { pi, context } = await startExtension({
+      projectConfig: { rules: { "dictionary-not-approved-word": "off" } },
+    })
+    await pi.runCommand("ase", "strict", context)
+    await pi.executeTool("say", "say-approved", { text: "Open the valve." }, context)
+
+    const restored = "This isn't permitted."
+    const runner = boundaryRunner(context.sessionManager, Object.fromEntries(pi.handlers), {
+      message_update: [
+        (event) => {
+          const update = event.assistantMessageEvent as {
+            delta: string
+            partial: ReturnType<typeof assistantMessage>
+          }
+          update.delta = restored
+          update.partial = assistantMessage(restored)
+        },
+      ],
+      message_end: [() => ({ message: assistantMessage(restored) })],
+      tool_result: [() => ({ content: [{ type: "text", text: restored }] })],
+    })
+
+    const streamed = {
+      type: "message_update",
+      message: assistantMessage("Open the valve."),
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "Open the valve.",
+        partial: assistantMessage("Open the valve."),
+      },
+    }
+    await runner.emit(streamed as never)
+    const finalized = await runner.emitMessageEnd({
+      type: "message_end",
+      message: assistantMessage("Open the valve."),
+    } as never)
+    const sayResult = await runner.emitToolResult({
+      type: "tool_result",
+      toolName: "say",
+      toolCallId: "say-approved",
+      input: { text: "Open the valve." },
+      content: [{ type: "text", text: "Open the valve." }],
+      details: {},
+      isError: false,
+    })
+
+    expect(streamed.message.content).toEqual([])
+    expect(streamed.assistantMessageEvent.delta).toBe("")
+    expect(streamed.assistantMessageEvent.partial.content).toEqual([])
+    expect(finalized).toMatchObject({ content: [] })
+    expect(sayResult).toMatchObject({
+      content: [{ type: "text", text: "Open the valve." }],
       isError: false,
     })
   })
