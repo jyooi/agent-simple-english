@@ -29,6 +29,26 @@ Cross-cutting Markdown masks use the same finding, clean, and boundary audit at 
 | GFM tables | Yes. `lints prose around a table at its original positions`. | Yes. `masks a valid multi-row GFM table from all prose rules`. | Yes. `does not mask table-like text with mismatched delimiter cells`. |
 | YAML frontmatter | Yes. `lints prose after frontmatter at its original position`. | Yes. `masks YAML frontmatter from all prose rules`. | Yes. `does not mask a thematic break in the middle of a document`. |
 
+## Markdown block structure
+
+One block parser decides where a sentence, a paragraph, and a dictionary phrase end.
+The table names the seam tests in `block-structure.test.ts` that pin each decision.
+A drift in the block parser fails one of these cells.
+
+| Seam | Sentence segmentation | Paragraph segmentation | Dictionary soft line breaks |
+| --- | --- | --- | --- |
+| List item | Yes. `a list item ends the sentence before it`. | Yes. `a list item starts its own paragraph`. | Yes. `a list item joins its own continuation line and no other item`. |
+| Block quote | Yes. `a block quote ends the sentence before it`. | Yes. `a block quote starts its own paragraph`; `a deeper block quote keeps the paragraph open`. | Yes. `a block quote joins its own continuation line and no deeper quote`. |
+| Quote plus list | Yes. `a list item inside a block quote ends the sentence before it`. | Yes. `a list item inside a block quote starts its own paragraph`. | Yes. `a quoted list item joins its own continuation line only`. |
+| ATX heading | Yes. `an ATX heading ends the sentence before it`; `an ATX marker inside an HTML block ends the sentence before it`. | Yes. `an ATX heading ends the paragraph`. | Yes. `an ATX heading never joins the line beside it`. |
+| Setext heading | Yes. `a setext underline keeps the sentence open across the heading`; `a setext heading joins the paragraph that follows it`. | Yes. `a setext underline keeps the paragraph open`. | Yes. `a setext heading joins its own text lines and stops at the underline`. |
+| Thematic break | Yes. `a thematic break ends the sentence before it`. | Yes. `a bullet thematic break ends the paragraph`; `a star thematic break keeps the paragraph open`. | Yes. `a thematic break never joins the lines around it`. |
+
+Four cells pin a known loss instead of the correct result.
+A setext underline and a star thematic break read as prose today, so the block before them stays open.
+A deeper block quote also fails to close the paragraph above it.
+Change these expectations only with an explicit decision, because each one is user-visible output.
+
 ## HTML text-node extraction
 
 The `html` kind keeps text nodes and blanks every other byte.
