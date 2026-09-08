@@ -52,11 +52,11 @@ describe("block structure: sentence segmentation", () => {
     expect(positions(`${opener}\n> - # Continue.`)).toEqual([])
   })
 
-  // An HTML block hides its inner lines from the block parser. The ATX marker on
-  // such a line still ends the sentence, while a marker with no space does not.
-  test("an ATX marker inside an HTML block ends the sentence before it", () => {
+  // An HTML block owns every line up to the next blank line. An ATX marker there
+  // is HTML data, not a heading, so it does not end the sentence.
+  test("an ATX marker inside an HTML block does not end the sentence", () => {
     expect(messages(`<div>\n${opener}\n# Continue here.\n</div>`)).toEqual([
-      "Sentence has 26 words; the maximum is 25.",
+      "Sentence has 29 words; the maximum is 25.",
     ])
     expect(messages(`<div>\n${opener}\n#Continue here.\n</div>`)).toEqual([
       "Sentence has 28 words; the maximum is 25.",
@@ -110,18 +110,16 @@ describe("block structure: paragraph segmentation", () => {
     expect(positions(`${head}\n- - -\n${tail}`)).toEqual([])
   })
 
-  // A star thematic break and a setext underline both read as prose today, so
-  // the paragraph runs through them. These two cases pin that loss.
-  test("a star thematic break keeps the paragraph open", () => {
-    expect(positions(`${head}\n***\n${tail}`)).toEqual([["paragraph-length", 1, 1]])
+  test("a star thematic break ends the paragraph", () => {
+    expect(positions(`${head}\n***\n${tail}`)).toEqual([])
   })
 
-  test("a setext underline keeps the paragraph open", () => {
-    expect(positions(`${head}\n===\n${tail}`)).toEqual([["paragraph-length", 1, 1]])
+  test("a setext underline ends the paragraph", () => {
+    expect(positions(`${head}\n===\n${tail}`)).toEqual([])
   })
 
-  test("a deeper block quote keeps the paragraph open", () => {
-    expect(positions(`> ${head}\n> > ${tail}`)).toEqual([["paragraph-length", 1, 1]])
+  test("a deeper block quote ends the paragraph", () => {
+    expect(positions(`> ${head}\n> > ${tail}`)).toEqual([])
   })
 })
 

@@ -1,5 +1,6 @@
 import { DICTIONARY_TOKEN_SOURCE } from "../../dictionary/form.ts"
 import type { Dictionary, DictionaryData, DictionaryEntry } from "../../dictionary/schema.ts"
+import type { BlockStructure } from "../markdown.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
 
@@ -18,22 +19,6 @@ interface Form {
 export type CompiledDictionary =
   | { readonly mode: "approved-words"; readonly approvedWords: ReadonlySet<string> }
   | { readonly mode: "not-approved"; readonly forms: readonly Form[] }
-
-interface MarkdownContext {
-  readonly contentStart: number
-  readonly quoteDepth: number
-  readonly paragraphId?: number
-}
-
-interface ActiveParagraph {
-  readonly id: number
-  readonly quoteDepth: number
-}
-
-const ATX_HEADING = /^ {0,3}#{1,6}(?:[\t ]+|$)/
-const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[\t ]+|$)/
-const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[\t ]*\r?$/
-const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3,})\r?$/
 
 const tokenize = (lines: readonly string[]): readonly WordToken[] => {
   const tokenPattern = new RegExp(DICTIONARY_TOKEN_SOURCE, "gu")
@@ -62,89 +47,10 @@ export const compileDictionary = (dictionary: DictionaryData): CompiledDictionar
       }
     : { mode: "not-approved", forms: compileForms(dictionary) }
 
-const markdownContext = (line: string, initialContentStart = 0): MarkdownContext => {
-  let contentStart = Math.min(initialContentStart, line.length)
-  let quoteDepth = 0
-
-  while (contentStart < line.length) {
-    let marker = contentStart
-    let spaces = 0
-    while (spaces < 4 && line[marker] === " ") {
-      marker++
-      spaces++
-    }
-    if (spaces > 3 || line[marker] !== ">") {
-      break
-    }
-    contentStart = marker + 1
-    if (line[contentStart] === " " || line[contentStart] === "\t") {
-      contentStart++
-    }
-    quoteDepth++
-  }
-
-  return { contentStart, quoteDepth }
-}
-
-const blockContent = (line: string, context: MarkdownContext): string =>
-  line.slice(context.contentStart)
-
-const isLeafBlock = (content: string): boolean => {
-  const listMarker = content.match(LIST_MARKER)
-  const nestedContent = listMarker === null ? content : content.slice(listMarker[0].length)
-  return ATX_HEADING.test(nestedContent)
-}
-
-const startsNewBlock = (content: string): boolean =>
-  ATX_HEADING.test(content) ||
-  LIST_MARKER.test(content) ||
-  SETEXT_UNDERLINE.test(content) ||
-  THEMATIC_BREAK.test(content)
-
-const isParagraphBlock = (content: string): boolean =>
-  !isLeafBlock(content) && !SETEXT_UNDERLINE.test(content) && !THEMATIC_BREAK.test(content)
-
-const isIndentedCode = (content: string): boolean => /^(?: {4}|\t)/.test(content)
-
-const markdownContexts = (
-  lines: readonly string[],
-  contentStarts: readonly number[],
-): readonly MarkdownContext[] => {
-  let activeParagraph: ActiveParagraph | undefined
-  let nextParagraphId = 0
-
-  return lines.map((line, lineIndex) => {
-    const context = markdownContext(line, contentStarts[lineIndex] ?? 0)
-    const content = blockContent(line, context)
-    if (/^[\t ]*\r?$/.test(content)) {
-      activeParagraph = undefined
-      return context
-    }
-
-    if (
-      activeParagraph !== undefined &&
-      context.quoteDepth <= activeParagraph.quoteDepth &&
-      !startsNewBlock(content)
-    ) {
-      return { ...context, paragraphId: activeParagraph.id }
-    }
-
-    if (isIndentedCode(content)) {
-      activeParagraph = undefined
-      return context
-    }
-
-    const paragraphId = nextParagraphId++
-    activeParagraph = isParagraphBlock(content)
-      ? { id: paragraphId, quoteDepth: context.quoteDepth }
-      : undefined
-    return { ...context, paragraphId }
-  })
-}
-
+// Two words join across a line break only inside one Markdown leaf block.
 const isSoftLineBreak = (
   lines: readonly string[],
-  contexts: readonly MarkdownContext[],
+  blocks: BlockStructure,
   previous: WordToken,
   token: WordToken,
 ): boolean => {
@@ -157,26 +63,20 @@ const isSoftLineBreak = (
     return false
   }
 
-  const previousContext = contexts[previous.lineIndex]
-  const nextContext = contexts[token.lineIndex]
-  if (
-    previousContext === undefined ||
-    nextContext === undefined ||
-    previousContext.paragraphId === undefined ||
-    previousContext.paragraphId !== nextContext.paragraphId
-  ) {
+  const previousBlock = blocks.ids[previous.lineIndex] ?? -1
+  if (previousBlock < 0 || previousBlock !== blocks.ids[token.lineIndex]) {
     return false
   }
 
   const lineEnd = previousLine.endsWith("\r") ? previousLine.length - 1 : previousLine.length
   const trailing = previousLine.slice(previous.offset + previous.text.length, lineEnd)
-  const leading = nextLine.slice(nextContext.contentStart, token.offset)
+  const leading = nextLine.slice(blocks.contentStarts[token.lineIndex] ?? 0, token.offset)
   return (trailing === "" || trailing === " ") && /^[\t ]*$/.test(leading)
 }
 
 const hasWords = (
   lines: readonly string[],
-  contexts: readonly MarkdownContext[],
+  blocks: BlockStructure,
   tokens: readonly WordToken[],
   start: number,
   words: readonly string[],
@@ -200,7 +100,7 @@ const hasWords = (
         /^\s+$/.test(line.slice(previous.offset + previous.text.length, token.offset))
       )
     }
-    return isSoftLineBreak(lines, contexts, previous, token)
+    return isSoftLineBreak(lines, blocks, previous, token)
   })
 
 const hasPartOfSpeech = (
@@ -246,8 +146,8 @@ const approvedWordRule = (
 export function dictionaryRule(
   lines: readonly string[],
   dictionary: CompiledDictionary,
+  blocks: BlockStructure,
   tagger?: Tagger,
-  contentStarts: readonly number[] = lines.map(() => 0),
   proseLines: readonly string[] = lines,
 ): Violation[] {
   if (dictionary.mode === "approved-words") {
@@ -255,7 +155,6 @@ export function dictionaryRule(
   }
   const forms = dictionary.forms
   const violations: Violation[] = []
-  const contexts = markdownContexts(lines, contentStarts)
   const tokens = tokenize(lines)
   const taggedTokensByLine = new Map<number, readonly TaggedToken[]>()
 
@@ -264,7 +163,7 @@ export function dictionaryRule(
     if (first === undefined) {
       continue
     }
-    const candidates = forms.filter((form) => hasWords(lines, contexts, tokens, index, form.words))
+    const candidates = forms.filter((form) => hasWords(lines, blocks, tokens, index, form.words))
     const match = candidates.find((form) => {
       if (form.entry.partsOfSpeech === undefined) {
         return true

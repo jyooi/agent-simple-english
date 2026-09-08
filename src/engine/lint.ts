@@ -10,7 +10,7 @@ import { changedText } from "./diff.ts"
 import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-match.ts"
 import { extractHtmlProse } from "./html.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { blankMarkdownForLint } from "./markdown.ts"
+import { type BlockStructure, blankMarkdownForLint } from "./markdown.ts"
 import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { type CompiledDictionary, compileDictionary, dictionaryRule } from "./rules/dictionary.ts"
@@ -65,6 +65,7 @@ interface PreparedProse {
   readonly structuralBlanks: readonly boolean[]
   readonly wordingStructuralBlanks: readonly boolean[]
   readonly sentenceBoundaryLines: readonly boolean[]
+  readonly blocks: BlockStructure
 }
 
 interface SentenceScopeIndex {
@@ -192,6 +193,7 @@ const prepareProse = (
     structuralBlanks: markdown.structuralBlanks,
     wordingStructuralBlanks: markdown.wordingStructuralBlanks,
     sentenceBoundaryLines: markdown.sentenceBoundaryLines,
+    blocks: markdown.blocks,
   }
 }
 
@@ -312,6 +314,12 @@ const lintProse = (
     prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
     contentStarts.map((contentStart) => contentStart + 1),
     prepared.structuralBoundaryLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
+    {
+      ids: prepared.blocks.ids,
+      contentStarts: prepared.blocks.contentStarts.map(
+        (contentStart, index) => contentStart - (contentStarts[index] ?? 0),
+      ),
+    },
   )
   const offsets = lineOffsets(prepared.structuralLines)
   const sentenceIndex = indexSentenceScopes(sentences, prepared.lines.length, sourceOffset)
@@ -399,8 +407,8 @@ const lintProse = (
           dictionaryRule(
             prepared.wordingStructuralLines,
             options.dictionary,
+            prepared.blocks,
             options.tagger,
-            contentStarts,
             prepared.wordingDictionaryLines,
           ),
           dictionarySentenceIndex,
