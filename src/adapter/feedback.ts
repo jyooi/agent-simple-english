@@ -2,7 +2,6 @@ import type { RuleId } from "../engine/rules/registry.ts"
 import type { Violation } from "../engine/types.ts"
 
 function suggestedFix(violation: Violation): string {
-  if (violation.suggestion !== undefined) return `Use "${violation.suggestion}".`
   if (violation.suggestions !== undefined && violation.suggestions.length > 0) {
     return `Use one of these approved alternatives: ${violation.suggestions.map((item) => `"${item}"`).join(", ")}.`
   }
@@ -38,4 +37,13 @@ export function formatViolations(
   violations: readonly Violation[],
 ): string {
   return `${heading} ${path}:\n${violationDetails(violations)}`
+}
+
+export function splitViolations<V extends Violation>(
+  violations: readonly V[],
+): { readonly hard: V[]; readonly soft: V[] } {
+  return {
+    hard: violations.filter((violation) => violation.severity === "hard"),
+    soft: violations.filter((violation) => violation.severity === "soft"),
+  }
 }

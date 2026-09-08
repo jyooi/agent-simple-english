@@ -16,7 +16,6 @@ export interface Violation {
   readonly suggestions?: readonly string[]
   readonly line: number
   readonly column: number
-  readonly suggestion?: string
 }
 
 export interface ReportViolation extends Violation {

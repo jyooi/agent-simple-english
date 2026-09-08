@@ -3,7 +3,7 @@ import { open, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { Cause, Effect } from "effect"
 import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-message.ts"
-import { formatViolations } from "../adapter/feedback.ts"
+import { formatViolations, splitViolations } from "../adapter/feedback.ts"
 import { ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
@@ -24,6 +24,7 @@ import {
   hasProcessedReply,
   setReplyFeedback,
 } from "./session-state.ts"
+import { tryAsync } from "./try-async.ts"
 
 interface CommonEvent {
   readonly cwd: string
@@ -244,47 +245,11 @@ function proposedEdit(
 }
 
 const readEditFile = (path: string) =>
-  Effect.tryPromise({
-    try: () => readFile(path, "utf8"),
-    catch: (cause) => new Error(`cannot read edit file ${path}: ${cause}`),
-  })
+  tryAsync(`cannot read edit file ${path}`, () => readFile(path, "utf8"))
 
 interface AssistantReply {
   readonly identity: string
   readonly text: string
-}
-
-function assistantReply(line: string, path: string, offset: number): AssistantReply | undefined {
-  let value: unknown
-  try {
-    value = JSON.parse(line) as unknown
-  } catch {
-    return undefined
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
-  const entry = value as Record<string, unknown>
-  if (entry.type !== "assistant") return undefined
-  const message = record(entry.message, "assistant transcript message")
-  const content = message.content
-  if (!Array.isArray(content)) {
-    throw new Error(`assistant transcript message in ${path} must contain content blocks`)
-  }
-  const uuid = entry.uuid
-  const identity =
-    typeof uuid === "string" && uuid.length > 0
-      ? `uuid:${uuid}`
-      : `offset:${offset}:${createHash("sha256").update(line).digest("hex")}`
-  const text = content
-    .filter(
-      (block): block is { type: "text"; text: string } =>
-        typeof block === "object" &&
-        block !== null &&
-        (block as Record<string, unknown>).type === "text" &&
-        typeof (block as Record<string, unknown>).text === "string",
-    )
-    .map((block) => block.text)
-    .join("\n")
-  return { identity, text }
 }
 
 const TRANSCRIPT_CHUNK_SIZE = 64 * 1024
@@ -384,23 +349,6 @@ async function readTranscriptRange(
   return buffer
 }
 
-async function assistantReplyInRange(
-  file: Awaited<ReturnType<typeof open>>,
-  path: string,
-  start: number,
-  end: number,
-): Promise<AssistantReply | undefined> {
-  const length = end - start
-  const headerLength = Math.min(length, TRANSCRIPT_ENTRY_HEADER_SIZE)
-  const header = await readTranscriptRange(file, path, start, headerLength)
-  if (transcriptEntryKind(header.toString("utf8")) !== "assistant") return undefined
-  const line =
-    headerLength === length
-      ? header.toString("utf8")
-      : (await readTranscriptRange(file, path, start, length)).toString("utf8")
-  return assistantReply(line, path, start)
-}
-
 async function turnIdentityInRange(
   file: Awaited<ReturnType<typeof open>>,
   path: string,
@@ -464,12 +412,6 @@ async function latestTranscriptEntry<T>(
   }
 }
 
-async function assistantReplyFromTranscript(path: string): Promise<AssistantReply> {
-  const reply = await latestTranscriptEntry(path, assistantReplyInRange)
-  if (reply !== undefined) return reply
-  throw new Error(`cannot find an assistant reply in ${path}`)
-}
-
 async function assistantReplyFromEvent(text: string, path: string): Promise<AssistantReply> {
   const turnIdentity = await latestTranscriptEntry(path, turnIdentityInRange)
   if (turnIdentity === undefined) throw new Error(`cannot find a reply turn in ${path}`)
@@ -477,45 +419,28 @@ async function assistantReplyFromEvent(text: string, path: string): Promise<Assi
   return { identity: `${turnIdentity}:reply:${textHash}`, text }
 }
 
-const readAssistantReply = (path: string) =>
-  Effect.tryPromise({
-    try: () => assistantReplyFromTranscript(path),
-    catch: (cause) => new Error(`cannot read assistant reply from ${path}: ${cause}`),
-  })
-
 const readEventAssistantReply = (text: string, path: string) =>
-  Effect.tryPromise({
-    try: () => assistantReplyFromEvent(text, path),
-    catch: (cause) => new Error(`cannot read assistant reply turn from ${path}: ${cause}`),
-  })
+  tryAsync(`cannot read assistant reply turn from ${path}`, () =>
+    assistantReplyFromEvent(text, path),
+  )
 
 const replyWasProcessed = (sessionId: string, replyIdentity: string) =>
-  Effect.tryPromise({
-    try: () => hasProcessedReply(sessionId, replyIdentity),
-    catch: (cause) => new Error(`cannot read session state: ${cause}`),
-  })
+  tryAsync("cannot read session state", () => hasProcessedReply(sessionId, replyIdentity))
 
 const updateReplyFeedback = (
   sessionId: string,
   replyIdentity: string,
   feedback: string | undefined,
 ) =>
-  Effect.tryPromise({
-    try: () => setReplyFeedback(sessionId, replyIdentity, feedback),
-    catch: (cause) => new Error(`cannot update session state: ${cause}`),
-  })
+  tryAsync("cannot update session state", () =>
+    setReplyFeedback(sessionId, replyIdentity, feedback),
+  )
 
 const takePendingFeedback = (sessionId: string) =>
-  Effect.tryPromise({
-    try: () => consumePendingFeedback(sessionId),
-    catch: (cause) => new Error(`cannot read session state: ${cause}`),
-  })
+  tryAsync("cannot read session state", () => consumePendingFeedback(sessionId))
 
 const readSessionControl = (sessionId: string) =>
-  Effect.tryPromise({
-    try: () => getSessionControl(sessionId),
-    catch: (cause) => new Error(`cannot read session state: ${cause}`),
-  })
+  tryAsync("cannot read session state", () => getSessionControl(sessionId))
 
 const loadLintOptions = (cwd: string, tagger: Tagger) =>
   Effect.gen(function* () {
@@ -531,16 +456,6 @@ const loadLintOptions = (cwd: string, tagger: Tagger) =>
     })
     return { ...config, dictionary, ruleData, tagger } satisfies LintOptions
   })
-
-function splitViolations(violations: readonly ReportViolation[]): {
-  readonly hard: ReportViolation[]
-  readonly soft: ReportViolation[]
-} {
-  return {
-    hard: violations.filter((violation) => violation.severity === "hard"),
-    soft: violations.filter((violation) => violation.severity === "soft"),
-  }
-}
 
 type EvaluationObservation = Omit<ObservationDraft, "sessionId" | "cwd">
 
@@ -603,15 +518,18 @@ function textDecision(
 
 function evaluateReply(event: StopEvent, tagger: Tagger): Effect.Effect<HookEvaluation, Error> {
   return Effect.gen(function* () {
-    const reply = yield* event.lastAssistantMessage === undefined
-      ? readAssistantReply(event.transcriptPath)
-      : readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath)
+    if (event.lastAssistantMessage === undefined) {
+      return yield* Effect.fail(
+        new Error(`last_assistant_message was not provided for ${event.transcriptPath}`),
+      )
+    }
+    const reply = yield* readEventAssistantReply(event.lastAssistantMessage, event.transcriptPath)
     if (yield* replyWasProcessed(event.sessionId, reply.identity)) {
       return { output: {} as Record<string, never> }
     }
     const options = yield* loadLintOptions(event.cwd, tagger)
     const violations = lint("prose-file", reply.text, options).violations
-    const hard = violations.filter((violation) => violation.severity === "hard")
+    const { hard } = splitViolations(violations)
     const feedback =
       hard.length === 0
         ? undefined

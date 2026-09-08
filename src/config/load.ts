@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
 import { Effect } from "effect"
+import { isFileError } from "../fs-error.ts"
 import { mergeConfigs } from "./merge.ts"
 import { ConfigError, decodeConfig, type SteConfig } from "./schema.ts"
 
@@ -32,9 +33,6 @@ export const legacyGlobalConfigPath = (cwd = process.cwd()): string =>
 export const legacyProjectConfigPath = (cwd: string): string =>
   join(cwd, ".pi", "simple-english.json")
 
-const isMissingFile = (cause: unknown): boolean =>
-  typeof cause === "object" && cause !== null && (cause as { code?: string }).code === "ENOENT"
-
 const readConfigFile = (
   path: string,
   optional: boolean,
@@ -45,7 +43,7 @@ const readConfigFile = (
   }).pipe(
     Effect.matchEffect({
       onFailure: (cause) =>
-        optional && isMissingFile(cause)
+        optional && isFileError(cause, "ENOENT")
           ? Effect.succeed(undefined)
           : Effect.fail(new ConfigError(`cannot read config file ${path}: ${cause}`)),
       onSuccess: (text) =>

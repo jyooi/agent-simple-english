@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { setTimeout as wait } from "node:timers/promises"
+import { isFileError } from "../fs-error.ts"
 import { applicationStateDirectory } from "./state-directory.ts"
 
 export interface SessionControl {
@@ -18,9 +20,6 @@ const DEFAULT_CONTROL: SessionControl = { enabled: true, strict: false }
 const LOCK_STALE_MILLISECONDS = 10_000
 const LOCK_RETRY_MILLISECONDS = 5
 const LOCK_RETRIES = 200
-
-const isFileError = (cause: unknown, code: string): boolean =>
-  typeof cause === "object" && cause !== null && (cause as { code?: string }).code === code
 
 const sessionsDirectory = (): string => join(applicationStateDirectory(), "sessions")
 
@@ -41,27 +40,16 @@ function optionalString(state: Record<string, unknown>, name: string): string | 
   return value as string | undefined
 }
 
-function decodeState(text: string, path: string): SessionState {
+function decodeState(text: string, path: string): SessionState | undefined {
   const value = JSON.parse(text) as unknown
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`invalid session state in ${path}`)
   }
   const state = value as Record<string, unknown>
+  if (state.version !== 3) return undefined
   const pendingFeedback = optionalString(state, "pendingFeedback")
-  if (state.version === 1 && typeof pendingFeedback === "string") {
-    return { version: 3, ...DEFAULT_CONTROL, pendingFeedback }
-  }
   const lastProcessedReply = optionalString(state, "lastProcessedReply")
-  if (state.version === 2 && lastProcessedReply !== undefined && lastProcessedReply.length > 0) {
-    return {
-      version: 3,
-      ...DEFAULT_CONTROL,
-      lastProcessedReply,
-      ...(pendingFeedback === undefined ? {} : { pendingFeedback }),
-    }
-  }
   if (
-    state.version !== 3 ||
     typeof state.enabled !== "boolean" ||
     typeof state.strict !== "boolean" ||
     (state.strict && !state.enabled) ||
@@ -99,9 +87,6 @@ async function writeState(sessionId: string, state: SessionState): Promise<void>
     await rm(temporaryPath, { force: true })
   }
 }
-
-const wait = (milliseconds: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 async function acquireLock(sessionId: string): Promise<() => Promise<void>> {
   const directory = sessionsDirectory()

@@ -243,7 +243,7 @@ describe("simple-english CLI", () => {
       expect.objectContaining({
         ruleId: "phrasal-verb",
         severity: "hard",
-        suggestion: "do",
+        suggestions: ["do"],
       }),
       expect.objectContaining({ ruleId: "marketing", severity: "soft" }),
     ])

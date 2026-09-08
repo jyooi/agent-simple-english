@@ -136,10 +136,6 @@ function promptEntry(prompt: string, uuid: string): string {
   })}\n`
 }
 
-async function writeTranscript(path: string, reply: string, uuid = "reply-1"): Promise<void> {
-  await writeFile(path, transcriptEntry(reply, uuid))
-}
-
 async function stateFiles(xdgStateHome: string): Promise<string[]> {
   try {
     return await readdir(join(xdgStateHome, "simple-english", "sessions"))
@@ -530,13 +526,11 @@ describe("simple-english CLI hook mode", () => {
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
     const transcriptPath = join(cwd, "session-1.jsonl")
-    await writeTranscript(
-      transcriptPath,
-      "It is important to note that we can't carry out the test; close the valve.",
-    )
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    const reply = "It is important to note that we can't carry out the test; close the valve."
 
     const stopped = await runReplyHook(
-      stopEvent(cwd, "session-1", transcriptPath),
+      stopEvent(cwd, "session-1", transcriptPath, reply),
       cwd,
       xdgStateHome,
     )
@@ -564,7 +558,7 @@ describe("simple-english CLI hook mode", () => {
     const consumedState = JSON.parse(
       await readFile(join(xdgStateHome, "simple-english", "sessions", files[0] as string), "utf8"),
     ) as SessionState
-    expect(consumedState.lastProcessedReply).toBe("uuid:reply-1")
+    expect(consumedState.lastProcessedReply).toMatch(/^turn-uuid:prompt-1:reply:[0-9a-f]{64}$/)
     expect(consumedState.pendingFeedback).toBeUndefined()
 
     const submittedAgain = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
@@ -576,13 +570,14 @@ describe("simple-english CLI hook mode", () => {
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
     const transcriptPath = join(cwd, "session-1.jsonl")
-    await writeTranscript(transcriptPath, "This isn't permitted.")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
+    const reply = "This isn't permitted."
 
-    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
+    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath, reply), cwd, xdgStateHome)
     const firstSubmission = await runReplyHook(userPromptEvent(cwd, "session-1"), cwd, xdgStateHome)
     expect(decision(firstSubmission.output).additionalContext).toContain("[contraction]")
 
-    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
+    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath, reply), cwd, xdgStateHome)
     const duplicateSubmission = await runReplyHook(
       userPromptEvent(cwd, "session-1"),
       cwd,
@@ -590,8 +585,12 @@ describe("simple-english CLI hook mode", () => {
     )
     expect(duplicateSubmission.output).toEqual({})
 
-    await appendFile(transcriptPath, transcriptEntry("This can't continue.", "reply-2"))
-    await runReplyHook(stopEvent(cwd, "session-1", transcriptPath), cwd, xdgStateHome)
+    await appendFile(transcriptPath, promptEntry("Check it again.", "prompt-2"))
+    await runReplyHook(
+      stopEvent(cwd, "session-1", transcriptPath, "This can't continue."),
+      cwd,
+      xdgStateHome,
+    )
     const secondSubmission = await runReplyHook(
       userPromptEvent(cwd, "session-1"),
       cwd,
@@ -643,24 +642,37 @@ describe("simple-english CLI hook mode", () => {
     temporaryDirectories.push(xdgStateHome)
 
     const cleanTranscriptPath = join(cwd, "clean-session.jsonl")
-    await writeTranscript(cleanTranscriptPath, "This isn't permitted.")
-    await runReplyHook(stopEvent(cwd, "clean-session", cleanTranscriptPath), cwd, xdgStateHome)
+    await writeFile(cleanTranscriptPath, promptEntry("Check it.", "clean-prompt-1"))
+    await runReplyHook(
+      stopEvent(cwd, "clean-session", cleanTranscriptPath, "This isn't permitted."),
+      cwd,
+      xdgStateHome,
+    )
     expect(await stateFiles(xdgStateHome)).toHaveLength(1)
 
-    for (const [sessionId, reply] of [
-      ["clean-session", "Close the valve."],
-      ["soft-session", "It is important to note that the valve is open."],
-    ] as const) {
-      const transcriptPath = join(cwd, `${sessionId}.jsonl`)
-      await writeTranscript(transcriptPath, reply, `${sessionId}-clean-reply`)
-      const result = await runReplyHook(
-        stopEvent(cwd, sessionId, transcriptPath),
+    await appendFile(cleanTranscriptPath, promptEntry("Check it again.", "clean-prompt-2"))
+    const cleanResult = await runReplyHook(
+      stopEvent(cwd, "clean-session", cleanTranscriptPath, "Close the valve."),
+      cwd,
+      xdgStateHome,
+    )
+    expect(cleanResult.code).toBe(0)
+    expect(cleanResult.output).toEqual({})
+
+    const softTranscriptPath = join(cwd, "soft-session.jsonl")
+    await writeFile(softTranscriptPath, promptEntry("Check it.", "soft-prompt-1"))
+    const softResult = await runReplyHook(
+      stopEvent(
         cwd,
-        xdgStateHome,
-      )
-      expect(result.code).toBe(0)
-      expect(result.output).toEqual({})
-    }
+        "soft-session",
+        softTranscriptPath,
+        "It is important to note that the valve is open.",
+      ),
+      cwd,
+      xdgStateHome,
+    )
+    expect(softResult.code).toBe(0)
+    expect(softResult.output).toEqual({})
 
     const files = await stateFiles(xdgStateHome)
     expect(files).toHaveLength(2)
@@ -700,7 +712,7 @@ describe("simple-english CLI hook mode", () => {
     await writeFile(transcriptPath, `${toolEntry}\n${assistantEntry}\n`)
 
     const stopped = await runHook(
-      stopEvent(cwd, "large-session", transcriptPath),
+      stopEvent(cwd, "large-session", transcriptPath, "This isn't permitted."),
       cwd,
       join(repoRoot, "test", "fixtures", "failing-large-transcript-read-preload.js"),
       undefined,
@@ -732,7 +744,7 @@ describe("simple-english CLI hook mode", () => {
     await writeFile(transcriptPath, `${assistantEntry}${toolEntry}\n`)
 
     const stopped = await runHook(
-      stopEvent(cwd, "trailing-tool-session", transcriptPath),
+      stopEvent(cwd, "trailing-tool-session", transcriptPath, "This isn't permitted."),
       cwd,
       join(repoRoot, "test", "fixtures", "failing-large-transcript-read-preload.js"),
       undefined,
@@ -756,9 +768,13 @@ describe("simple-english CLI hook mode", () => {
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
     const transcriptPath = join(cwd, "first-session.jsonl")
-    await writeTranscript(transcriptPath, "This isn't permitted.")
+    await writeFile(transcriptPath, promptEntry("Check it.", "prompt-1"))
 
-    await runReplyHook(stopEvent(cwd, "first-session", transcriptPath), cwd, xdgStateHome)
+    await runReplyHook(
+      stopEvent(cwd, "first-session", transcriptPath, "This isn't permitted."),
+      cwd,
+      xdgStateHome,
+    )
 
     const otherSession = await runReplyHook(
       userPromptEvent(cwd, "second-session"),
@@ -777,13 +793,31 @@ describe("simple-english CLI hook mode", () => {
     expect(await stateFiles(xdgStateHome)).toHaveLength(1)
   })
 
-  test("allows Stop when the transcript cannot be read", async () => {
+  test("allows Stop with a non-blocking warning when last_assistant_message is missing", async () => {
     const cwd = await makeProject()
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
 
     const result = await runReplyHook(
       stopEvent(cwd, "session-1", join(cwd, "missing.jsonl")),
+      cwd,
+      xdgStateHome,
+    )
+
+    expect(result.code).toBe(0)
+    expect(result.output.continue).toBe(true)
+    expect(result.output.systemMessage).toContain("Writing-rule hook error")
+    expect(result.output.systemMessage).toContain("last_assistant_message was not provided")
+    expect(await stateFiles(xdgStateHome)).toEqual([])
+  })
+
+  test("allows Stop when the transcript cannot be read", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const result = await runReplyHook(
+      stopEvent(cwd, "session-1", join(cwd, "missing.jsonl"), "This isn't permitted."),
       cwd,
       xdgStateHome,
     )

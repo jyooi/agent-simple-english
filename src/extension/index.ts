@@ -16,7 +16,7 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui"
 import { Effect } from "effect"
 import { Type } from "typebox"
 import { blankCommitMetadata, findCommitInvocations } from "../adapter/commit-message.ts"
-import { formatViolations, violationDetails } from "../adapter/feedback.ts"
+import { formatViolations, splitViolations, violationDetails } from "../adapter/feedback.ts"
 import { formatStatusSummary, ruleSummary } from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import type { SteConfig } from "../config/schema.ts"
@@ -292,7 +292,7 @@ function showReplyReport(
   report: LintReport,
   queueFeedback: boolean,
 ): void {
-  const hard = report.violations.filter((violation) => violation.severity === "hard")
+  const { hard } = splitViolations(report.violations)
   const softCount = report.summary.total - report.summary.hard
   state.pendingReplyFeedback =
     queueFeedback && hard.length > 0 ? formatReplyFeedback(hard) : undefined
@@ -364,8 +364,7 @@ function lintProposedText(
     sourceDialect: classification.sourceDialect,
     previousText,
   })
-  const hard = report.violations.filter((violation) => violation.severity === "hard")
-  const soft = report.violations.filter((violation) => violation.severity === "soft")
+  const { hard, soft } = splitViolations(report.violations)
   notifyWarnings(ctx, path, soft)
   if (hard.length === 0) {
     if (soft.length > 0) {
@@ -457,7 +456,7 @@ function lintStrictReply(
   }
   const report = lintReply(state, text)
   showReplyReport(state, ctx, report, false)
-  const hard = report.violations.filter((violation) => violation.severity === "hard")
+  const { hard } = splitViolations(report.violations)
   if (hard.length === 0) return undefined
   return {
     block: true,

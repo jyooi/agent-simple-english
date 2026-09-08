@@ -14,7 +14,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
       severity: "hard",
       line: 1,
       column: 1,
-      suggestion: "do",
+      suggestions: ["do"],
     })
     expect(violation?.message).toContain('"do"')
     expect(violation?.message.toLowerCase()).toContain("carry out")
@@ -43,7 +43,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
     for (const [text, suggestion] of cases) {
       const report = lint("prose-file", text)
       const violation = report.violations.find((v) => v.ruleId === "phrasal-verb")
-      expect(violation?.suggestion, text).toBe(suggestion)
+      expect(violation?.suggestions, text).toEqual([suggestion])
     }
   })
 
@@ -67,7 +67,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
     })
 
     expect(report.violations).toEqual([
-      expect.objectContaining({ ruleId: "phrasal-verb", suggestion: "do" }),
+      expect.objectContaining({ ruleId: "phrasal-verb", suggestions: ["do"] }),
     ])
   })
 
@@ -120,7 +120,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
         commit: "fixture",
         path: "phrasal-verbs.json",
       },
-      entries: [{ unapproved: ["straße aus"], suggestions: ["leave"] }],
+      entries: [{ unapproved: ["strasse aus"], suggestions: ["leave"] }],
     } as const satisfies Dictionary
 
     const report = lint("prose-file", "İ STRASSE AUS now.", {
@@ -132,7 +132,7 @@ describe("lint prose-file: phrasal-verb rule", () => {
         ruleId: "phrasal-verb",
         line: 1,
         column: 3,
-        suggestion: "leave",
+        suggestions: ["leave"],
       }),
     ])
   })
