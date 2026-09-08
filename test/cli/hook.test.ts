@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import {
   appendFile,
   copyFile,
@@ -791,6 +792,28 @@ describe("simple-english CLI hook mode", () => {
     )
     expect(decision(firstSession.output).additionalContext).toContain("[contraction]")
     expect(await stateFiles(xdgStateHome)).toHaveLength(1)
+  })
+
+  test("ignores pending feedback from a pre-version-3 session state file", async () => {
+    const cwd = await makeProject()
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    const sessionsDirectory = join(xdgStateHome, "simple-english", "sessions")
+    await mkdir(sessionsDirectory, { recursive: true })
+    const stateFile = `${createHash("sha256").update("legacy-session").digest("hex")}.json`
+    await writeFile(
+      join(sessionsDirectory, stateFile),
+      JSON.stringify({
+        version: 2,
+        lastProcessedReply: "uuid:reply-1",
+        pendingFeedback: "Stale feedback from an old state format.",
+      }),
+    )
+
+    const submitted = await runReplyHook(userPromptEvent(cwd, "legacy-session"), cwd, xdgStateHome)
+
+    expect(submitted.code).toBe(0)
+    expect(submitted.output).toEqual({})
   })
 
   test("allows Stop with a non-blocking warning when last_assistant_message is missing", async () => {
