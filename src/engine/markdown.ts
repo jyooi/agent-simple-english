@@ -16,6 +16,14 @@ interface MarkdownAnalysis {
   readonly structuralBlanks: boolean[]
   readonly wordingStructuralBlanks: boolean[]
   readonly sentenceBoundaryLines: boolean[]
+  readonly blocks: BlockStructure
+}
+
+// Per line: the id of the leaf block that owns it, or -1 when no block does, and
+// the column where the block content starts after any quote or list prefix.
+export interface BlockStructure {
+  readonly ids: readonly number[]
+  readonly contentStarts: readonly number[]
 }
 
 interface AnalysisState {
@@ -31,6 +39,8 @@ interface AnalysisState {
   readonly blockQuoteLines: Uint8Array | undefined
   readonly structuralBlanks: boolean[]
   readonly sentenceBoundaryLines: boolean[]
+  readonly blockIds: number[]
+  readonly blockContentStarts: number[]
 }
 
 interface SourceRange {
@@ -147,6 +157,22 @@ const SENTENCE_BOUNDARY_TOKENS = new Set([
   "thematicBreak",
 ])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
+// One leaf block per line group. Every rule reads block structure from these ids,
+// so no rule needs its own Markdown classifier.
+const LEAF_BLOCK_TOKENS = new Set([
+  "atxHeading",
+  "codeFenced",
+  "codeIndented",
+  "definition",
+  "htmlFlow",
+  "htmlRawFlow",
+  "paragraph",
+  "setextHeadingLine",
+  "setextHeadingText",
+  "table",
+  "thematicBreak",
+  "yaml",
+])
 const DICTIONARY_TOKENS = new Set([
   "atxHeadingSequence",
   "autolink",
@@ -215,6 +241,15 @@ const createAnalysisState = (
     blockQuoteLines: exemptBlockQuotes ? new Uint8Array(parseLines.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
     sentenceBoundaryLines: parseLines.map(() => false),
+    blockIds: parseLines.map(() => -1),
+    blockContentStarts: parseLines.map(() => 0),
+  }
+}
+
+const markLeafBlock = (state: AnalysisState, token: MarkdownToken, blockId: number): void => {
+  const lastLine = Math.min(token.end.line - 1, state.parseLines.length - 1)
+  for (let line = token.start.line - 1; line <= lastLine; line++) {
+    state.blockIds[line] = blockId
   }
 }
 
@@ -426,6 +461,7 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
   const definitionEnds = includeDictionary ? definitionMaskEnds(events) : new Map<number, number>()
   const htmlFlows: SourceRange[] = []
   let blockQuoteDepth = 0
+  let nextBlockId = 0
 
   for (const [phase, token] of events) {
     if (token.type === "blockQuote" && state.blockQuoteMask !== undefined) {
@@ -441,11 +477,19 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     if (SENTENCE_BOUNDARY_TOKENS.has(token.type)) {
       state.sentenceBoundaryLines[token.start.line - 1] = true
     }
+    if (LEAF_BLOCK_TOKENS.has(token.type)) {
+      markLeafBlock(state, token, nextBlockId++)
+    }
     if (NON_PROSE_BLOCK_TOKENS.has(token.type)) {
       markNonProseBlock(state, token)
       continue
     }
     if (CONTAINER_TOKENS.has(token.type)) {
+      const line = token.start.line - 1
+      state.blockContentStarts[line] = Math.max(
+        state.blockContentStarts[line] ?? 0,
+        token.end.column - 1,
+      )
       markRange(state.proseMask, token.start.offset, token.end.offset)
       markRange(state.containerMask, token.start.offset, token.end.offset)
       if (includeDictionary) {
@@ -517,6 +561,7 @@ const analyzeMarkdown = (
       structuralBlanks: [],
       wordingStructuralBlanks: [],
       sentenceBoundaryLines: [],
+      blocks: { ids: [], contentStarts: [] },
     }
   }
 
@@ -590,6 +635,12 @@ const analyzeMarkdown = (
             (blank, lineIndex) => blank || state.blockQuoteLines?.[lineIndex] === 1,
           ),
     sentenceBoundaryLines: state.sentenceBoundaryLines,
+    blocks: {
+      ids: state.blockIds,
+      contentStarts: state.blockContentStarts.map(
+        (contentStart, index) => (starts[index] ?? 0) + contentStart,
+      ),
+    },
   }
 }
 

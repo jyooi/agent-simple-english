@@ -15,7 +15,7 @@ All cells must stay at Yes.
 | `paragraph-length` | Yes. `flags a paragraph over 6 sentences as a hard violation`. | Yes. `counts e.g. and i.e. within four sentences`; `keeps a single-capital designator after %s`; `keeps underscore-emphasized %s inside a sentence`; `keeps %s after an unlisted preceding word`. | Yes. `preserves a true sentence boundary before a capitalized word`; `preserves a true boundary after a %s`; `preserves a true boundary after quoted %s`; `preserves a true boundary after a quoted sentence`; `does not restore a capital initial from a masked dotted identifier`. |
 | `phrasal-verb` | Yes. `flags a phrasal verb as a hard violation with the approved alternative`. | Yes. `does not flag the bare verb without its particle`. | Yes. `does not match within a token`. |
 | `semicolon` | Yes. `flags a semicolon as a hard violation at its column`. | Yes. `ignores semicolons inside inline code`. | Yes. `flags a prose semicolon beside inline code at its original column`. |
-| `sentence-length` | Yes. `flags an overlong sentence across an abbreviation`. | Yes. `does not flag short sentences`. | Yes. `does not flag 25 words across an abbreviation`; `does not combine a sentence with a following heading`; `does not combine a sentence across a thematic break`; `does not combine a sentence with a following table row`; `preserves positions across structural Markdown without abbreviations`. |
+| `sentence-length` | Yes. `flags an overlong sentence across an abbreviation`. | Yes. `does not flag short sentences`. | Yes. `does not flag 25 words across an abbreviation`; `does not combine a sentence with a following heading`; `does not combine a sentence across a thematic break`; `combines a sentence with a following lone pipe line`; `preserves positions across structural Markdown without abbreviations`. |
 | `verb-progressive` | Yes. `flags progressive tense as a hard violation`. | Yes. `does not flag a bundled adjectival participle`. | Yes. `allows a listed participle after an intervening adverb`. |
 | `verb-passive` | Yes. `flags passive voice as a soft violation with a rewrite hint`. | Yes. `does not flag an allowlisted passive participle`. | Yes. `detects passive across an intervening adverb`. |
 | `verb-perfect` | Yes. `flags perfect tense as a hard violation`. | Yes. `does not flag simple past as perfect`. | Yes. `does not flag main-verb have`. |
@@ -28,6 +28,27 @@ Cross-cutting Markdown masks use the same finding, clean, and boundary audit at 
 | --- | --- | --- | --- |
 | GFM tables | Yes. `lints prose around a table at its original positions`. | Yes. `masks a valid multi-row GFM table from all prose rules`. | Yes. `does not mask table-like text with mismatched delimiter cells`. |
 | YAML frontmatter | Yes. `lints prose after frontmatter at its original position`. | Yes. `masks YAML frontmatter from all prose rules`. | Yes. `does not mask a thematic break in the middle of a document`. |
+
+## Markdown block structure
+
+The micromark block parser decides where a sentence, a paragraph, and a dictionary phrase end.
+It is the only source of block structure, and `src/engine/markdown.ts` exposes it as `BlockStructure`.
+The table names the seam tests in `block-structure.test.ts` that pin each decision.
+A drift in the block parser fails one of these cells.
+
+| Seam | Sentence segmentation | Paragraph segmentation | Dictionary soft line breaks |
+| --- | --- | --- | --- |
+| List item | Yes. `a list item ends the sentence before it`. | Yes. `a list item starts its own paragraph`. | Yes. `a list item joins its own continuation line and no other item`. |
+| Block quote | Yes. `a block quote ends the sentence before it`. | Yes. `a block quote starts its own paragraph`; `a deeper block quote ends the paragraph`. | Yes. `a block quote joins its own continuation line and no deeper quote`. |
+| Quote plus list | Yes. `a list item inside a block quote ends the sentence before it`. | Yes. `a list item inside a block quote starts its own paragraph`. | Yes. `a quoted list item joins its own continuation line only`. |
+| ATX heading | Yes. `an ATX heading ends the sentence before it`; `an ATX marker inside an HTML block does not end the sentence`. | Yes. `an ATX heading ends the paragraph`. | Yes. `an ATX heading never joins the line beside it`. |
+| Setext heading | Yes. `a setext underline keeps the sentence open across the heading`; `a setext heading joins the paragraph that follows it`. | Yes. `a setext underline ends the paragraph`. | Yes. `a setext heading joins its own text lines and stops at the underline`. |
+| Thematic break | Yes. `a thematic break ends the sentence before it`. | Yes. `a bullet thematic break ends the paragraph`; `a star thematic break ends the paragraph`. | Yes. `a thematic break never joins the lines around it`. |
+
+Two cells pin a known loss instead of the correct result.
+A setext underline binds to the line above it, so a sentence runs through the heading into the paragraph below.
+An HTML block owns every line up to the next blank line, so an ATX marker there stays part of the sentence.
+Change these expectations only with an explicit decision, because each one is user-visible output.
 
 ## HTML text-node extraction
 
