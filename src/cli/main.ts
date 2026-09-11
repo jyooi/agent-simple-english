@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises"
+import { parseArgs } from "node:util"
 import { Effect, Result } from "effect"
 import packageManifest from "../../package.json" with { type: "json" }
 import { splitViolations } from "../adapter/feedback.ts"
@@ -33,58 +34,41 @@ Options:
   --help           Print this help.
   --version        Print the package version.`
 
-interface CliArgs {
-  readonly json: boolean
-  readonly configPath: string | undefined
-  readonly kind: string | undefined
-  readonly kindMissingValue: boolean
-  readonly help: boolean
-  readonly version: boolean
-  readonly paths: readonly string[]
+const CLI_OPTIONS = {
+  json: { type: "boolean" },
+  config: { type: "string" },
+  kind: { type: "string" },
+  help: { type: "boolean" },
+  version: { type: "boolean" },
+} as const
+
+type CliArgs = ReturnType<typeof parseCliArgs>["values"]
+
+const parseCliArgs = (args: readonly string[]) =>
+  parseArgs({ args: [...args], options: CLI_OPTIONS, allowPositionals: true, strict: true })
+
+const argumentError = (cause: unknown): Error => {
+  const error = cause as { code?: string; message: string }
+  const flag = /'(--\w+)/u.exec(error.message)?.[1]
+  if (error.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") return new Error(`unknown flag "${flag}"`)
+  if (error.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" && flag === "--config") {
+    return new Error("--config requires a file path")
+  }
+  if (error.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" && flag === "--kind") {
+    return new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`)
+  }
+  return new Error(error.message)
 }
 
-const parseArgs = (args: readonly string[]): Effect.Effect<CliArgs, Error> =>
-  Effect.gen(function* () {
-    let json = false
-    let configPath: string | undefined
-    let kind: string | undefined
-    let kindMissingValue = false
-    let help = false
-    let version = false
-    const paths: string[] = []
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i] as string
-      if (arg === "--json") {
-        json = true
-      } else if (arg === "--config") {
-        const value = args[i + 1]
-        if (value === undefined || value.startsWith("--")) {
-          yield* Effect.fail(new Error("--config requires a file path"))
-        }
-        configPath = value
-        i++
-      } else if (arg === "--kind") {
-        const value = args[i + 1]
-        if (value === undefined || value.startsWith("--")) {
-          kindMissingValue = true
-        } else {
-          kind = value
-          i++
-        }
-      } else if (arg.startsWith("--kind=")) {
-        kind = arg.slice("--kind=".length)
-      } else if (arg === "--help") {
-        help = true
-      } else if (arg === "--version") {
-        version = true
-      } else if (arg.startsWith("--")) {
-        yield* Effect.fail(new Error(`unknown flag "${arg}"`))
-      } else {
-        paths.push(arg)
-      }
-    }
-    return { json, configPath, kind, kindMissingValue, help, version, paths }
-  })
+// parseArgs accepts "--kind --json" with "--json" as the value. Reject that.
+const rejectOptionValue = (values: CliArgs): Effect.Effect<void, Error> => {
+  if (values.config?.startsWith("--"))
+    return Effect.fail(new Error("--config requires a file path"))
+  if (values.kind?.startsWith("--")) {
+    return Effect.fail(new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`))
+  }
+  return Effect.void
+}
 
 const rejectUnknownFlags = (args: readonly string[]): Effect.Effect<void, Error> => {
   const flag = args.find((arg) => arg.startsWith("--"))
@@ -200,7 +184,12 @@ const observeProgram = Effect.gen(function* () {
 
 const lintProgram = Effect.gen(function* () {
   const tagger = yield* TaggerService
-  const { json, configPath, kind, kindMissingValue, help, version, paths } = yield* parseArgs(args)
+  const { values, positionals: paths } = yield* Effect.try({
+    try: () => parseCliArgs(args),
+    catch: argumentError,
+  })
+  yield* rejectOptionValue(values)
+  const { json = false, config: configPath, kind, help, version } = values
   if (help) {
     console.log(USAGE)
     return 0
@@ -208,11 +197,6 @@ const lintProgram = Effect.gen(function* () {
   if (version) {
     console.log(packageManifest.version)
     return 0
-  }
-  if (kindMissingValue) {
-    return yield* Effect.fail(
-      new Error(`--kind requires a value; expected one of: ${KINDS.join(", ")}`),
-    )
   }
   if (kind !== undefined && !isLintKind(kind)) {
     return yield* Effect.fail(
