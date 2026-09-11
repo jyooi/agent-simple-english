@@ -3,6 +3,7 @@ import type { ScopedViolation } from "./diff-match.ts"
 import { htmlComments } from "./html.ts"
 import { type MarkdownHtmlComment, markdownHtmlComments } from "./markdown.ts"
 import { type RuleId, ruleIds } from "./rules/registry.ts"
+import { lineOffsets } from "./scan.ts"
 import type { LintKind } from "./types.ts"
 
 export interface SuppressionRange {
@@ -82,16 +83,6 @@ const parseDirective = (candidate: DirectiveCandidate): SuppressionDirective => 
   }
 }
 
-const offsetsForLines = (lines: readonly string[]): readonly number[] => {
-  const offsets: number[] = []
-  let offset = 0
-  for (const line of lines) {
-    offsets.push(offset)
-    offset += line.length + 1
-  }
-  return offsets
-}
-
 const invalidFinding = (
   directive: SuppressionDirective,
   line: string,
@@ -149,7 +140,7 @@ export function analyzeSuppressions(
           ? sourceCandidates(lines, lineComments)
           : []
   const directives = candidates.map(parseDirective)
-  const offsets = offsetsForLines(lines)
+  const offsets = lineOffsets(lines)
   const ruleIdsByTargetLine = new Map<number, Set<RuleId>>()
   const invalidFindings: ScopedViolation[] = []
 

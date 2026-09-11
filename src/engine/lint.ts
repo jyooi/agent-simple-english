@@ -21,6 +21,7 @@ import { phrasalVerb } from "./rules/phrasal-verb.ts"
 import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
+import { lineOffsets } from "./scan.ts"
 import { type Sentence, segmentSentences } from "./sentences.ts"
 import { analyzeSuppressions, type SuppressionRange } from "./suppression.ts"
 import type { Tagger } from "./tagger.ts"
@@ -84,12 +85,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
     ...extracted.proseBreaks,
     undefined,
   ]
-  const lineOffsets: number[] = []
-  let nextLineOffset = 0
-  for (const line of extracted.lines) {
-    lineOffsets.push(nextLineOffset)
-    nextLineOffset += line.length + 1
-  }
+  const offsets = lineOffsets(extracted.lines)
 
   return boundaries.slice(0, -1).map((start, runIndex) => {
     const end = boundaries[runIndex + 1]
@@ -115,7 +111,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
       proseBreaks: [],
       lineOffset: firstLine,
       firstColumnOffset,
-      sourceOffset: (lineOffsets[firstLine] ?? 0) + firstColumnOffset,
+      sourceOffset: (offsets[firstLine] ?? 0) + firstColumnOffset,
     }
   })
 }
@@ -198,16 +194,6 @@ const prepareProse = (
 }
 
 const normalizeIdentity = (text: string): string => text.replace(/\s+/gu, " ").trim()
-
-const lineOffsets = (lines: readonly string[]): readonly number[] => {
-  const offsets: number[] = []
-  let nextOffset = 0
-  for (const line of lines) {
-    offsets.push(nextOffset)
-    nextOffset += line.length + 1
-  }
-  return offsets
-}
 
 const sentenceScope = (sentence: Sentence, sourceOffset: number): ViolationScope => ({
   kind: "sentence",
