@@ -3,3 +3,5 @@ dist/
 coverage/
 *.log
 .claude/settings.local.json
+.lavish/
+.backpassrc.json
