@@ -6,7 +6,7 @@ import {
   type LineCommentSpan,
   type ProseBreak,
 } from "./comments.ts"
-import { changedText } from "./diff.ts"
+import { retainedRanges } from "./diff.ts"
 import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-match.ts"
 import { extractHtmlProse } from "./html.ts"
 import { blankIdentifiers } from "./identifiers.ts"
@@ -495,7 +495,7 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
       : newFindings(
           evaluate(kind, options.previousText, options, resolved),
           current,
-          changedText(options.previousText, text).retained,
+          retainedRanges(options.previousText, text),
         )
   const violations = findings.map(({ scope, violation }) => ({
     ...violation,
