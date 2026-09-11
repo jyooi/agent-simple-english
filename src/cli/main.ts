@@ -50,7 +50,7 @@ const parseCliArgs = (args: readonly string[]) =>
 
 const argumentError = (cause: unknown): Error => {
   const error = cause as { code?: string; message: string }
-  const flag = /'(--\w+)/u.exec(error.message)?.[1]
+  const flag = /'(-{1,2}[\w-]+)/u.exec(error.message)?.[1]
   if (error.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") return new Error(`unknown flag "${flag}"`)
   if (error.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" && flag === "--config") {
     return new Error("--config requires a file path")

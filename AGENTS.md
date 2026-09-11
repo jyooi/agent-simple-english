@@ -30,15 +30,6 @@ Parent spec lives in Linear HUF-130.
 - The package-owned data format and dictionary matching semantics are documented in `src/dictionary/README.md`; load and validate dictionary and list-backed rule data before passing it into the synchronous engine.
 - Extractors (`src/engine/comments.ts`, `markdown.ts`, `html.ts`, `identifiers.ts`) blank non-prose with spaces so violation line/column always map to the original file. `test/fixtures/**` is excluded from Biome because tests pin exact byte positions in fixtures; do not let a formatter touch them.
 
-## Host adapter and hook
-
-- Reply linting (`src/cli/hook.ts`): the Stop or `turn_end` event reply text is the lint source.
-  Read the transcript only when the event omits that text.
-  Deduplicate on a stable per-turn identity, never on reply text, or a corrected reply reuses the clean turn's identity and loses its feedback.
-- Commit gating parses the Bash command statically (`src/adapter/commit-message.ts`).
-  It must find `git commit` behind wrappers such as `command`, `env`, `sudo`, `exec`, and `time`.
-  It must fail closed when shell expansion hides the message.
-
 ## Commands
 
 - `bun run test` (Vitest), `bun run lint` (Biome), `bun run typecheck` (tsc). CI (`.github/workflows/ci.yml`) runs all three on bun 1.4.0.
@@ -48,8 +39,6 @@ Parent spec lives in Linear HUF-130.
 ### Issue tracker
 
 Issues live in Linear, team Huffman (`HUF`), via the Linear MCP tools. See `docs/agents/issue-tracker.md`.
-Never use web search as a substitute for the Linear MCP tools.
-If those tools are absent from the session, ask the user instead of guessing the acceptance criteria.
 
 ### Triage labels
 

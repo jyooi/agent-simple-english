@@ -67,5 +67,7 @@ const BY_EXTENSION: Readonly<Record<string, PathClassification>> = {
 export const classifyPath = (path: string): PathClassification => {
   const dot = path.lastIndexOf(".")
   if (dot <= Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))) return PROSE
-  return BY_EXTENSION[path.slice(dot + 1).toLowerCase()] ?? PROSE
+  const extension = path.slice(dot + 1).toLowerCase()
+  if (!Object.hasOwn(BY_EXTENSION, extension)) return PROSE
+  return BY_EXTENSION[extension] ?? PROSE
 }

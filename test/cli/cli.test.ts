@@ -104,6 +104,16 @@ describe("simple-english CLI", () => {
     expect(result.stderr).not.toContain("cannot read --unknown")
   })
 
+  test.each(["--dry-run", "-h"])(
+    "names the full %s flag in the unknown flag error",
+    async (flag) => {
+      const result = await runCli([flag])
+
+      expect(result.code).toBe(2)
+      expect(result.stderr).toContain(`unknown flag "${flag}"`)
+    },
+  )
+
   test("rejects an unknown flag in hook mode", async () => {
     const result = await runCli(["hook", "--unknown"])
 
