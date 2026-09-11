@@ -360,7 +360,7 @@ The project file is `.simple-english.json` at the repository root.
 The global file is `$XDG_CONFIG_HOME/simple-english/config.json`.
 If `XDG_CONFIG_HOME` is unset or not absolute, the global path is `~/.config/simple-english/config.json`.
 
-Global and project files are deep-merged.
+Global and project files merge key by key, including the nested `rules` and `ruleDataExtensions` objects.
 Global values load first, and project values have precedence.
 The pi Adapter reads the project file only when pi trusts the project.
 The `--config` flag uses only its named file.
