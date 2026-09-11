@@ -1,6 +1,7 @@
 import type { Dictionary } from "../../dictionary/schema.ts"
 import { type CaseFoldedToken, caseFoldKey, tokenizeCaseFolded } from "../case-fold.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
 interface MarketingForm {
   readonly words: readonly string[]
@@ -124,7 +125,7 @@ export function marketing(lines: readonly string[], dictionary: Dictionary): Vio
 
       violations.push({
         ruleId: "marketing",
-        severity: "soft",
+        severity: DEFAULT_SEVERITIES.marketing,
         message: `Do not use marketing language. Delete "${match.found}".`,
         line: lineIndex + 1,
         column: match.offset + 1,

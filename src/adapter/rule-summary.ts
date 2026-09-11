@@ -1,22 +1,7 @@
 import type { SteConfig } from "../config/schema.ts"
 import { DEFAULT_MAX_SENTENCE_WORDS } from "../engine/lint.ts"
-import type { RuleId } from "../engine/rules/registry.ts"
+import { DEFAULT_SEVERITIES, type RuleId } from "../engine/rules/registry.ts"
 import type { RuleSetting } from "../engine/types.ts"
-
-const DEFAULT_RULE_SETTINGS: Readonly<Record<RuleId, RuleSetting>> = {
-  contraction: "hard",
-  "dictionary-not-approved-word": "hard",
-  hedging: "soft",
-  "invalid-suppression": "hard",
-  marketing: "soft",
-  "paragraph-length": "hard",
-  "phrasal-verb": "hard",
-  semicolon: "hard",
-  "sentence-length": "hard",
-  "verb-progressive": "hard",
-  "verb-passive": "soft",
-  "verb-perfect": "hard",
-}
 
 export const RULE_SUMMARIES: Readonly<Record<RuleId, string>> = {
   contraction: "Do not use contractions. Write the words in full.",
@@ -34,7 +19,7 @@ export const RULE_SUMMARIES: Readonly<Record<RuleId, string>> = {
 }
 
 export function resolvedRuleSetting(config: SteConfig, ruleId: RuleId): RuleSetting {
-  return config.rules?.[ruleId] ?? DEFAULT_RULE_SETTINGS[ruleId]
+  return config.rules?.[ruleId] ?? DEFAULT_SEVERITIES[ruleId]
 }
 
 export function formatFailedStatusSummary(

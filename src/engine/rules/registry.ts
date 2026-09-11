@@ -14,3 +14,20 @@ export const ruleIds = [
 ] as const
 
 export type RuleId = (typeof ruleIds)[number]
+
+export type Severity = "hard" | "soft"
+
+export const DEFAULT_SEVERITIES: Readonly<Record<RuleId, Severity>> = {
+  contraction: "hard",
+  "dictionary-not-approved-word": "hard",
+  hedging: "soft",
+  "invalid-suppression": "hard",
+  marketing: "soft",
+  "paragraph-length": "hard",
+  "phrasal-verb": "hard",
+  semicolon: "hard",
+  "sentence-length": "hard",
+  "verb-progressive": "hard",
+  "verb-passive": "soft",
+  "verb-perfect": "hard",
+}

@@ -5,6 +5,7 @@ import {
   scanCaseFoldedPhrases,
 } from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
 const phrasesByDictionary = new WeakMap<Dictionary, readonly CaseFoldedPhrase[]>()
 
@@ -22,7 +23,7 @@ const phrasesFor = (dictionary: Dictionary): readonly CaseFoldedPhrase[] => {
 export function hedging(lines: readonly string[], dictionary: Dictionary): Violation[] {
   return scanCaseFoldedPhrases(lines, phrasesFor(dictionary)).map((match) => ({
     ruleId: "hedging",
-    severity: "soft" as const,
+    severity: DEFAULT_SEVERITIES.hedging,
     message: `Do not hedge. Delete "${match.found.toLowerCase()}".`,
     line: match.line,
     column: match.column,

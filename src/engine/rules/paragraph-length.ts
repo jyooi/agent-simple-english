@@ -1,6 +1,7 @@
 import type { Paragraph } from "../paragraphs.ts"
 import { segmentSentences } from "../sentences.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
 const MAX_SENTENCES = 6
 
@@ -14,7 +15,7 @@ export function paragraphLength(paragraph: Paragraph): Violation | undefined {
   if (count <= MAX_SENTENCES) return undefined
   return {
     ruleId: "paragraph-length",
-    severity: "hard",
+    severity: DEFAULT_SEVERITIES["paragraph-length"],
     message: `Paragraph has ${count} sentences; the maximum is ${MAX_SENTENCES}.`,
     line: paragraph.line,
     column: paragraph.column,

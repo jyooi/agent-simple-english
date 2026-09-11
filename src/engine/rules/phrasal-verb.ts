@@ -5,6 +5,7 @@ import {
   scanCaseFoldedPhrases,
 } from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
 interface PhrasalVerbPattern {
   readonly suggestion: string
@@ -42,7 +43,7 @@ export function phrasalVerb(lines: readonly string[], dictionary: Dictionary): V
   return patternsFor(dictionary).flatMap(({ phrases, suggestion }) =>
     scanCaseFoldedPhrases(lines, phrases).map((match) => ({
       ruleId: "phrasal-verb",
-      severity: "hard" as const,
+      severity: DEFAULT_SEVERITIES["phrasal-verb"],
       message: `Do not use a phrasal verb. Use "${suggestion}", not "${match.found.toLowerCase()}".`,
       line: match.line,
       column: match.column,

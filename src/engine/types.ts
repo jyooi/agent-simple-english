@@ -1,11 +1,11 @@
 import type { RuleData } from "../dictionary/rule-data.ts"
 import type { DictionaryData } from "../dictionary/schema.ts"
-import type { RuleId } from "./rules/registry.ts"
+import type { RuleId, Severity } from "./rules/registry.ts"
 import type { Tagger } from "./tagger.ts"
 
 export type LintKind = "prose-file" | "slash-source" | "hash-source" | "html" | "commit-message"
 
-export type Severity = "hard" | "soft"
+export type { Severity }
 
 export type RuleSetting = Severity | "off"
 
