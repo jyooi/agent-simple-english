@@ -1,4 +1,3 @@
-import { Context, Layer } from "effect"
 import model from "wink-eng-lite-web-model"
 import winkNLP, { type ItemToken, type ItsFunction } from "wink-nlp"
 import type { TaggedToken, Tagger } from "../engine/tagger.ts"
@@ -31,14 +30,12 @@ export function makeWinkTagger(): Tagger {
   }
 }
 
-export class TaggerService extends Context.Service<TaggerService, Tagger>()("TaggerService") {}
-
-const makeLazyWinkTagger = (): Tagger => {
+// Defer the model load until the first tag call so hook events that never
+// lint prose stay fast.
+export const makeLazyWinkTagger = (): Tagger => {
   let tagger: Tagger | undefined
   return (text) => {
     tagger ??= makeWinkTagger()
     return tagger(text)
   }
 }
-
-export const WinkTaggerLive = Layer.sync(TaggerService, makeLazyWinkTagger)

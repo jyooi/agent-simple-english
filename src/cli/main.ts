@@ -10,10 +10,11 @@ import { loadRuleData } from "../dictionary/load.ts"
 import { classifyPath, type PathClassification } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { LintKind, LintReport } from "../engine/types.ts"
-import { TaggerService, WinkTaggerLive } from "../tagger/wink.ts"
+import { makeLazyWinkTagger } from "../tagger/wink.ts"
 import { hookInternalFailure, runHookMode } from "./hook.ts"
 import { observationStats, reviewObservations } from "./observation-log.ts"
 import { runSessionCommand } from "./session-command.ts"
+import { tryAsync } from "./try-async.ts"
 
 const KINDS: readonly LintKind[] = [
   "prose-file",
@@ -106,10 +107,9 @@ const readStdin = Effect.promise(async () => {
 const readInput = (path: string) =>
   path === "-"
     ? readStdin.pipe(Effect.map((text) => ({ path: "<stdin>", text })))
-    : Effect.tryPromise({
-        try: () => readFile(path, "utf8"),
-        catch: (cause) => new Error(`cannot read ${path}: ${cause}`),
-      }).pipe(Effect.map((text) => ({ path, text })))
+    : tryAsync(`cannot read ${path}`, () => readFile(path, "utf8")).pipe(
+        Effect.map((text) => ({ path, text })),
+      )
 
 const toCliReport = (
   reports: readonly { path: string; report: LintReport }[],
@@ -142,9 +142,10 @@ const render = (report: CliReport, json: boolean): string => {
 }
 
 const args = process.argv.slice(2)
+const tagger = makeLazyWinkTagger()
 
 const hookProgram = Effect.gen(function* () {
-  const output = yield* runHookMode(yield* readStdin).pipe(Effect.provide(WinkTaggerLive))
+  const output = yield* runHookMode(yield* readStdin, tagger)
   console.log(JSON.stringify(output))
   return 0
 }).pipe(
@@ -167,23 +168,14 @@ const observeProgram = Effect.gen(function* () {
     return yield* Effect.fail(new Error("Usage: simple-english observe <review|stats>"))
   }
   if (command === "review") {
-    yield* Effect.tryPromise({
-      try: () => reviewObservations(),
-      catch: (cause) => new Error(`cannot review observations: ${cause}`),
-    })
+    yield* tryAsync("cannot review observations", reviewObservations)
   } else {
-    console.log(
-      yield* Effect.tryPromise({
-        try: () => observationStats(),
-        catch: (cause) => new Error(`cannot read observation stats: ${cause}`),
-      }),
-    )
+    console.log(yield* tryAsync("cannot read observation stats", observationStats))
   }
   return 0
 })
 
 const lintProgram = Effect.gen(function* () {
-  const tagger = yield* TaggerService
   const { values, positionals: paths } = yield* Effect.try({
     try: () => parseCliArgs(args),
     catch: argumentError,
@@ -263,7 +255,7 @@ const program: Effect.Effect<number, Error> =
       ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(sessionProgram))
       : args[0] === "observe"
         ? observeProgram
-        : lintProgram.pipe(Effect.provide(WinkTaggerLive))
+        : lintProgram
 
 const handled = program.pipe(
   Effect.catch((error) =>
