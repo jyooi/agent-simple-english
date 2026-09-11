@@ -378,18 +378,23 @@ const lintProse = (
     )
 
   return [
-    ...sentences.flatMap((sentence) =>
-      sentenceLength([sentence], options.maxSentenceWords).map((violation) => ({
-        violation,
-        scope: sentenceScope(sentence, sourceOffset),
-      })),
-    ),
-    ...paragraphs.flatMap((paragraph) =>
-      paragraphLength([paragraph]).map((violation) => ({
-        violation,
-        scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
-      })),
-    ),
+    ...sentences.flatMap((sentence) => {
+      const violation = sentenceLength(sentence, options.maxSentenceWords)
+      return violation === undefined
+        ? []
+        : [{ violation, scope: sentenceScope(sentence, sourceOffset) }]
+    }),
+    ...paragraphs.flatMap((paragraph) => {
+      const violation = paragraphLength(paragraph)
+      return violation === undefined
+        ? []
+        : [
+            {
+              violation,
+              scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
+            },
+          ]
+    }),
     ...wordingFindings(contraction(prepared.wordingLines)),
     ...sentenceFindings(semicolon(prepared.lines)),
     ...(options.ruleData?.["phrasal-verb"] === undefined
