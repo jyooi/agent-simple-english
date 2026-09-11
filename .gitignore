@@ -5,3 +5,4 @@ coverage/
 .claude/settings.local.json
 .lavish/
 .backpassrc.json
+.backpass/
