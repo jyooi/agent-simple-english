@@ -3,6 +3,7 @@ import type { Dictionary, DictionaryData, DictionaryEntry } from "../../dictiona
 import type { BlockStructure } from "../markdown.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
 interface WordToken {
   readonly text: string
@@ -134,7 +135,7 @@ const approvedWordRule = (
       : [
           {
             ruleId: "dictionary-not-approved-word" as const,
-            severity: "hard" as const,
+            severity: DEFAULT_SEVERITIES["dictionary-not-approved-word"],
             message: `"${token.text}" is not in the approved-word list.`,
             suggestions: [],
             line: token.lineIndex + 1,
@@ -202,7 +203,7 @@ export function dictionaryRule(
     }
     violations.push({
       ruleId: "dictionary-not-approved-word",
-      severity: "hard",
+      severity: DEFAULT_SEVERITIES["dictionary-not-approved-word"],
       message: messageFor(match.entry.suggestions, found),
       suggestions: match.entry.suggestions,
       line: first.lineIndex + 1,

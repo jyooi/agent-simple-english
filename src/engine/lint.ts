@@ -6,7 +6,7 @@ import {
   type LineCommentSpan,
   type ProseBreak,
 } from "./comments.ts"
-import { changedText } from "./diff.ts"
+import { retainedRanges } from "./diff.ts"
 import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-match.ts"
 import { extractHtmlProse } from "./html.ts"
 import { blankIdentifiers } from "./identifiers.ts"
@@ -21,6 +21,7 @@ import { phrasalVerb } from "./rules/phrasal-verb.ts"
 import { semicolon } from "./rules/semicolon.ts"
 import { sentenceLength } from "./rules/sentence-length.ts"
 import { verbForm } from "./rules/verb-form.ts"
+import { lineOffsets } from "./scan.ts"
 import { type Sentence, segmentSentences } from "./sentences.ts"
 import { analyzeSuppressions, type SuppressionRange } from "./suppression.ts"
 import type { Tagger } from "./tagger.ts"
@@ -84,12 +85,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
     ...extracted.proseBreaks,
     undefined,
   ]
-  const lineOffsets: number[] = []
-  let nextLineOffset = 0
-  for (const line of extracted.lines) {
-    lineOffsets.push(nextLineOffset)
-    nextLineOffset += line.length + 1
-  }
+  const offsets = lineOffsets(extracted.lines)
 
   return boundaries.slice(0, -1).map((start, runIndex) => {
     const end = boundaries[runIndex + 1]
@@ -115,7 +111,7 @@ const splitProseRuns = (extracted: ExtractedProse): readonly ProseRun[] => {
       proseBreaks: [],
       lineOffset: firstLine,
       firstColumnOffset,
-      sourceOffset: (lineOffsets[firstLine] ?? 0) + firstColumnOffset,
+      sourceOffset: (offsets[firstLine] ?? 0) + firstColumnOffset,
     }
   })
 }
@@ -198,16 +194,6 @@ const prepareProse = (
 }
 
 const normalizeIdentity = (text: string): string => text.replace(/\s+/gu, " ").trim()
-
-const lineOffsets = (lines: readonly string[]): readonly number[] => {
-  const offsets: number[] = []
-  let nextOffset = 0
-  for (const line of lines) {
-    offsets.push(nextOffset)
-    nextOffset += line.length + 1
-  }
-  return offsets
-}
 
 const sentenceScope = (sentence: Sentence, sourceOffset: number): ViolationScope => ({
   kind: "sentence",
@@ -378,18 +364,23 @@ const lintProse = (
     )
 
   return [
-    ...sentences.flatMap((sentence) =>
-      sentenceLength([sentence], options.maxSentenceWords).map((violation) => ({
-        violation,
-        scope: sentenceScope(sentence, sourceOffset),
-      })),
-    ),
-    ...paragraphs.flatMap((paragraph) =>
-      paragraphLength([paragraph]).map((violation) => ({
-        violation,
-        scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
-      })),
-    ),
+    ...sentences.flatMap((sentence) => {
+      const violation = sentenceLength(sentence, options.maxSentenceWords)
+      return violation === undefined
+        ? []
+        : [{ violation, scope: sentenceScope(sentence, sourceOffset) }]
+    }),
+    ...paragraphs.flatMap((paragraph) => {
+      const violation = paragraphLength(paragraph)
+      return violation === undefined
+        ? []
+        : [
+            {
+              violation,
+              scope: paragraphScope(paragraph, prepared.structuralLines, offsets, sourceOffset),
+            },
+          ]
+    }),
     ...wordingFindings(contraction(prepared.wordingLines)),
     ...sentenceFindings(semicolon(prepared.lines)),
     ...(options.ruleData?.["phrasal-verb"] === undefined
@@ -495,7 +486,7 @@ export function lint(kind: LintKind, text: string, options: LintOptions = {}): L
       : newFindings(
           evaluate(kind, options.previousText, options, resolved),
           current,
-          changedText(options.previousText, text).retained,
+          retainedRanges(options.previousText, text),
         )
   const violations = findings.map(({ scope, violation }) => ({
     ...violation,

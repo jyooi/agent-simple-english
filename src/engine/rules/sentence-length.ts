@@ -1,24 +1,17 @@
 import type { Sentence } from "../sentences.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
-export function sentenceLength(sentences: readonly Sentence[], maxWords: number): Violation[] {
-  return sentences.flatMap((sentence) => {
-    const count = countWords(sentence.text)
-    if (count <= maxWords) {
-      return []
-    }
-    return [
-      {
-        ruleId: "sentence-length",
-        severity: "hard" as const,
-        message: `Sentence has ${count} words; the maximum is ${maxWords}.`,
-        line: sentence.line,
-        column: sentence.column,
-      },
-    ]
-  })
-}
+const countWords = (text: string): number => text.split(/\s+/).filter((word) => word !== "").length
 
-function countWords(text: string): number {
-  return text.split(/\s+/).filter((word) => word !== "").length
+export function sentenceLength(sentence: Sentence, maxWords: number): Violation | undefined {
+  const count = countWords(sentence.text)
+  if (count <= maxWords) return undefined
+  return {
+    ruleId: "sentence-length",
+    severity: DEFAULT_SEVERITIES["sentence-length"],
+    message: `Sentence has ${count} words; the maximum is ${maxWords}.`,
+    line: sentence.line,
+    column: sentence.column,
+  }
 }

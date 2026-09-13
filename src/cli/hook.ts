@@ -12,7 +12,6 @@ import { classifyPath } from "../engine/kinds.ts"
 import { lint } from "../engine/lint.ts"
 import type { Tagger } from "../engine/tagger.ts"
 import type { LintKind, LintOptions, ReportViolation } from "../engine/types.ts"
-import { TaggerService } from "../tagger/wink.ts"
 import {
   appendObservation,
   type ObservationDraft,
@@ -638,7 +637,7 @@ function recordEvaluation(event: HookEvent, evaluation: HookEvaluation): Effect.
   )
 }
 
-export function runHookMode(raw: string): Effect.Effect<HookOutput, never, TaggerService> {
+export function runHookMode(raw: string, tagger: Tagger): Effect.Effect<HookOutput, never> {
   return Effect.try({
     try: () => decodeEvent(raw),
     catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
@@ -647,7 +646,7 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
       onFailure: (error) => Effect.succeed(nonBlockingError(error.message)),
       onSuccess: (event) =>
         readSessionControl(event.sessionId).pipe(
-          Effect.flatMap((control): Effect.Effect<HookOutput, Error, TaggerService> => {
+          Effect.flatMap((control): Effect.Effect<HookOutput, Error> => {
             if (!control.enabled) {
               return Effect.succeed(
                 event.hookEventName === "PreToolUse" ? allow() : ({} as Record<string, never>),
@@ -665,18 +664,11 @@ export function runHookMode(raw: string): Effect.Effect<HookOutput, never, Tagge
                 ),
               )
             }
-            if (event.hookEventName === "Stop") {
-              return Effect.gen(function* () {
-                const tagger = yield* TaggerService
-                const evaluation = yield* evaluateReply(event, tagger)
-                return yield* recordEvaluation(event, evaluation)
-              })
-            }
-            return Effect.gen(function* () {
-              const tagger = yield* TaggerService
-              const evaluation = yield* evaluateEvent(event, tagger)
-              return yield* recordEvaluation(event, evaluation)
-            })
+            const evaluation =
+              event.hookEventName === "Stop"
+                ? evaluateReply(event, tagger)
+                : evaluateEvent(event, tagger)
+            return evaluation.pipe(Effect.flatMap((result) => recordEvaluation(event, result)))
           }),
           Effect.catch((error) =>
             Effect.succeed(

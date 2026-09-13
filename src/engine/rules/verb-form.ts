@@ -2,6 +2,7 @@ import type { Dictionary } from "../../dictionary/schema.ts"
 import { caseFoldKey } from "../case-fold.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
+import { DEFAULT_SEVERITIES } from "./registry.ts"
 
 const BE_FORMS = new Set(["am", "is", "are", "was", "were", "be", "been", "being"])
 
@@ -73,21 +74,21 @@ export function verbForm(
       if (isBeForm(token) && isProgressiveVerb(head) && !allowlisted) {
         violations.push({
           ruleId: "verb-progressive",
-          severity: "hard",
+          severity: DEFAULT_SEVERITIES["verb-progressive"],
           message: `Use a simple tense. Do not use the progressive. Found: "${found}".`,
           ...position,
         })
       } else if (isBeForm(token) && isPastParticiple(head) && !allowlisted) {
         violations.push({
           ruleId: "verb-passive",
-          severity: "soft",
+          severity: DEFAULT_SEVERITIES["verb-passive"],
           message: `Use the active voice, unless the actor is unknown. Found: "${found}".`,
           ...position,
         })
       } else if (isPerfectAuxiliary(token) && isPastParticiple(head)) {
         violations.push({
           ruleId: "verb-perfect",
-          severity: "hard",
+          severity: DEFAULT_SEVERITIES["verb-perfect"],
           message: `Use the simple past. Do not use the perfect tense. Found: "${found}".`,
           ...position,
         })

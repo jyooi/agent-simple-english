@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Schema } from "effect"
 import { formatParseErrorIssues, type ParseError } from "../schema/parse-error.ts"
+import { BUNDLED_RULE_DATA } from "./bundled-rule-data.ts"
 import type { RuleData, RuleDataExtensions, RuleDataId } from "./rule-data.ts"
 import {
   type ApprovedWordList,
@@ -12,15 +13,6 @@ import {
 } from "./schema.ts"
 
 export const BUNDLED_DICTIONARY_PATH = fileURLToPath(new URL("./data/pi-ste.json", import.meta.url))
-
-export const BUNDLED_RULE_DATA_PATHS: Readonly<Record<RuleDataId, string>> = {
-  "phrasal-verb": fileURLToPath(new URL("./data/phrasal-verbs.json", import.meta.url)),
-  hedging: fileURLToPath(new URL("./data/hedging.json", import.meta.url)),
-  marketing: fileURLToPath(new URL("./data/marketing.json", import.meta.url)),
-  "adjectival-participle": fileURLToPath(
-    new URL("./data/adjectival-participles.json", import.meta.url),
-  ),
-}
 
 type DictionaryLoadLabel = "STE dictionary" | "rule data"
 
@@ -106,16 +98,17 @@ const loadExtendedRuleData = (
   id: RuleDataId,
   extensionPaths: readonly string[],
   cwd: string,
-): Effect.Effect<Dictionary, DictionaryLoadError> =>
-  Effect.all([
-    loadDictionaryData(BUNDLED_RULE_DATA_PATHS[id], "rule data"),
-    ...extensionPaths.map((path) => loadDictionaryData(resolve(cwd, path), "rule data")),
-  ]).pipe(
-    Effect.map(([bundled, ...extensions]) => ({
+): Effect.Effect<Dictionary, DictionaryLoadError> => {
+  const bundled = BUNDLED_RULE_DATA[id]
+  return Effect.all(
+    extensionPaths.map((path) => loadDictionaryData(resolve(cwd, path), "rule data")),
+  ).pipe(
+    Effect.map((extensions) => ({
       ...bundled,
       entries: [bundled, ...extensions].flatMap((dictionary) => dictionary.entries),
     })),
   )
+}
 
 export const loadRuleData = (
   extensions: RuleDataExtensions = {},

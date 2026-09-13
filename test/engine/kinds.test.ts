@@ -572,6 +572,13 @@ describe("classifyPath: skip classification", () => {
     expect(classifyPath("page.html").skipped).toBeUndefined()
     expect(classifyPath("page.htm").skipped).toBeUndefined()
   })
+
+  test.each(["constructor", "__proto__", "toString"])("treats a .%s path as prose", (extension) => {
+    expect(classifyPath(`notes.${extension}`)).toEqual({
+      kind: "prose-file",
+      sourceDialect: "general",
+    })
+  })
 })
 
 describe("classifyPath: HTML classification", () => {

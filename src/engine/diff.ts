@@ -1,24 +1,7 @@
-export interface ChangedRange {
-  readonly start: number
-  readonly end: number
-}
-
-export interface Deletion {
-  readonly previousStart: number
-  readonly previousEnd: number
-  readonly currentOffset: number
-}
-
 export interface RetainedRange {
   readonly previousStart: number
   readonly currentStart: number
   readonly length: number
-}
-
-export interface TextChanges {
-  readonly ranges: readonly ChangedRange[]
-  readonly deletions: readonly Deletion[]
-  readonly retained: readonly RetainedRange[]
 }
 
 const DIFF_CELL_LIMIT = 1_000_000
@@ -49,16 +32,6 @@ function lineTokens(text: string): string[] {
   return tokens
 }
 
-function addRange(ranges: ChangedRange[], start: number, end: number): void {
-  if (start === end) return
-  const last = ranges.at(-1)
-  if (last && start <= last.end) {
-    ranges[ranges.length - 1] = { start: last.start, end: Math.max(last.end, end) }
-    return
-  }
-  ranges.push({ start, end })
-}
-
 function addRetained(
   retained: RetainedRange[],
   previousStart: number,
@@ -78,13 +51,26 @@ function addRetained(
   retained.push({ previousStart, currentStart, length })
 }
 
-function diffCharacters(
+function lcsTable(previous: ArrayLike<string>, current: ArrayLike<string>) {
+  const width = current.length + 1
+  const table = new Int32Array((previous.length + 1) * width)
+  const lcs = (oldIndex: number, newIndex: number) => table[oldIndex * width + newIndex] ?? 0
+  for (let oldIndex = previous.length - 1; oldIndex >= 0; oldIndex--) {
+    for (let newIndex = current.length - 1; newIndex >= 0; newIndex--) {
+      table[oldIndex * width + newIndex] =
+        previous[oldIndex] === current[newIndex]
+          ? lcs(oldIndex + 1, newIndex + 1) + 1
+          : Math.max(lcs(oldIndex + 1, newIndex), lcs(oldIndex, newIndex + 1))
+    }
+  }
+  return lcs
+}
+
+function retainCharacters(
   previous: string,
   current: string,
   previousOffset: number,
   currentOffset: number,
-  ranges: ChangedRange[],
-  deletions: Deletion[],
   retained: RetainedRange[],
   budget: DiffBudget,
 ): void {
@@ -112,98 +98,42 @@ function diffCharacters(
   const newText = current.slice(prefix, currentEnd)
   const oldBase = previousOffset + prefix
   const newBase = currentOffset + prefix
-  const suffixLength = previous.length - previousEnd
-  const retainEdges = () => {
-    addRetained(retained, previousOffset, currentOffset, prefix)
-    addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
-  }
-
-  if (oldText.length === 0) {
-    addRetained(retained, previousOffset, currentOffset, prefix)
-    addRange(ranges, newBase, newBase + newText.length)
-    addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
-    return
-  }
-  if (newText.length === 0) {
-    addRetained(retained, previousOffset, currentOffset, prefix)
-    deletions.push({
-      previousStart: oldBase,
-      previousEnd: oldBase + oldText.length,
-      currentOffset: newBase,
-    })
-    addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
-    return
-  }
-  if (!reserveCells(budget, oldText.length, newText.length)) {
-    retainEdges()
-    addRange(ranges, newBase, newBase + newText.length)
-    deletions.push({
-      previousStart: oldBase,
-      previousEnd: oldBase + oldText.length,
-      currentOffset: newBase,
-    })
-    return
-  }
 
   addRetained(retained, previousOffset, currentOffset, prefix)
-
-  const width = newText.length + 1
-  const table = new Int32Array((oldText.length + 1) * width)
-  const lcs = (oldIndex: number, newIndex: number) => table[oldIndex * width + newIndex] ?? 0
-  for (let oldIndex = oldText.length - 1; oldIndex >= 0; oldIndex--) {
-    for (let newIndex = newText.length - 1; newIndex >= 0; newIndex--) {
-      table[oldIndex * width + newIndex] =
-        oldText[oldIndex] === newText[newIndex]
-          ? lcs(oldIndex + 1, newIndex + 1) + 1
-          : Math.max(lcs(oldIndex + 1, newIndex), lcs(oldIndex, newIndex + 1))
-    }
-  }
-
-  let oldIndex = 0
-  let newIndex = 0
-  let deletionStart: number | undefined
-  let deletionPoint = 0
-  const flushDeletion = () => {
-    if (deletionStart === undefined) return
-    deletions.push({
-      previousStart: oldBase + deletionStart,
-      previousEnd: oldBase + oldIndex,
-      currentOffset: newBase + deletionPoint,
-    })
-    deletionStart = undefined
-  }
-
-  while (oldIndex < oldText.length && newIndex < newText.length) {
-    if (oldText[oldIndex] === newText[newIndex]) {
-      flushDeletion()
-      addRetained(retained, oldBase + oldIndex, newBase + newIndex, 1)
-      oldIndex++
-      newIndex++
-    } else if (lcs(oldIndex + 1, newIndex) >= lcs(oldIndex, newIndex + 1)) {
-      if (deletionStart === undefined) {
-        deletionStart = oldIndex
-        deletionPoint = newIndex
+  if (
+    oldText.length > 0 &&
+    newText.length > 0 &&
+    reserveCells(budget, oldText.length, newText.length)
+  ) {
+    const lcs = lcsTable(oldText, newText)
+    let oldIndex = 0
+    let newIndex = 0
+    while (oldIndex < oldText.length && newIndex < newText.length) {
+      if (oldText[oldIndex] === newText[newIndex]) {
+        addRetained(retained, oldBase + oldIndex, newBase + newIndex, 1)
+        oldIndex++
+        newIndex++
+      } else if (lcs(oldIndex + 1, newIndex) >= lcs(oldIndex, newIndex + 1)) {
+        oldIndex++
+      } else {
+        newIndex++
       }
-      oldIndex++
-    } else {
-      flushDeletion()
-      addRange(ranges, newBase + newIndex, newBase + newIndex + 1)
-      newIndex++
     }
   }
-  while (oldIndex < oldText.length) {
-    if (deletionStart === undefined) {
-      deletionStart = oldIndex
-      deletionPoint = newIndex
-    }
-    oldIndex++
-  }
-  flushDeletion()
-  addRange(ranges, newBase + newIndex, newBase + newText.length)
-  addRetained(retained, previousOffset + previousEnd, currentOffset + currentEnd, suffixLength)
+  addRetained(
+    retained,
+    previousOffset + previousEnd,
+    currentOffset + currentEnd,
+    previous.length - previousEnd,
+  )
 }
 
-export function changedText(previousText: string, currentText: string): TextChanges {
+/**
+ * Character ranges that survive unchanged between two texts, in document order.
+ * Line-level LCS first, then character-level LCS inside changed line chunks,
+ * with a cell budget that falls back to prefix and suffix matching on huge edits.
+ */
+export function retainedRanges(previousText: string, currentText: string): RetainedRange[] {
   const previous = lineTokens(previousText)
   const current = lineTokens(currentText)
 
@@ -229,45 +159,23 @@ export function changedText(previousText: string, currentText: string): TextChan
 
   const oldLines = previous.slice(start, previousEnd)
   const newLines = current.slice(start, currentEnd)
-  const ranges: ChangedRange[] = []
-  const deletions: Deletion[] = []
   const retained: RetainedRange[] = []
   const budget: DiffBudget = { remaining: DIFF_CELL_LIMIT }
   addRetained(retained, 0, 0, currentOffset)
 
   if (!reserveCells(budget, oldLines.length, newLines.length)) {
-    const oldText = oldLines.join("")
-    const newText = newLines.join("")
-    if (newText.length > 0) {
-      addRange(ranges, currentOffset, currentOffset + newText.length)
-    } else if (oldText.length > 0) {
-      deletions.push({
-        previousStart: previousOffset,
-        previousEnd: previousOffset + oldText.length,
-        currentOffset,
-      })
-    }
+    const oldLength = oldLines.join("").length
+    const newLength = newLines.join("").length
     addRetained(
       retained,
-      previousOffset + oldText.length,
-      currentOffset + newText.length,
-      previousText.length - previousOffset - oldText.length,
+      previousOffset + oldLength,
+      currentOffset + newLength,
+      previousText.length - previousOffset - oldLength,
     )
-    return { ranges, deletions, retained }
+    return retained
   }
 
-  const width = newLines.length + 1
-  const table = new Int32Array((oldLines.length + 1) * width)
-  const lcs = (oldIndex: number, newIndex: number) => table[oldIndex * width + newIndex] ?? 0
-  for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex--) {
-    for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex--) {
-      table[oldIndex * width + newIndex] =
-        oldLines[oldIndex] === newLines[newIndex]
-          ? lcs(oldIndex + 1, newIndex + 1) + 1
-          : Math.max(lcs(oldIndex + 1, newIndex), lcs(oldIndex, newIndex + 1))
-    }
-  }
-
+  const lcs = lcsTable(oldLines, newLines)
   let oldIndex = 0
   let newIndex = 0
   let oldChunk = ""
@@ -276,16 +184,7 @@ export function changedText(previousText: string, currentText: string): TextChan
   let newChunkOffset = currentOffset
   const flushChunk = () => {
     if (oldChunk === "" && newChunk === "") return
-    diffCharacters(
-      oldChunk,
-      newChunk,
-      oldChunkOffset,
-      newChunkOffset,
-      ranges,
-      deletions,
-      retained,
-      budget,
-    )
+    retainCharacters(oldChunk, newChunk, oldChunkOffset, newChunkOffset, retained, budget)
     oldChunk = ""
     newChunk = ""
   }
@@ -324,5 +223,5 @@ export function changedText(previousText: string, currentText: string): TextChan
   flushChunk()
   addRetained(retained, previousOffset, currentOffset, previousText.length - previousOffset)
 
-  return { ranges, deletions, retained }
+  return retained
 }

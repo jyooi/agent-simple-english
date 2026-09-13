@@ -26,7 +26,7 @@ Parent spec lives in Linear HUF-130.
 - Severity model: violations carry `hard`/`soft`; hard violations drive CLI exit code 1.
 - TDD per rule: failing engine-seam test first, then implement.
 - pi installs extension deps with `npm install --omit=dev` from the package.json next to the entry point, so runtime deps (e.g. `effect`, `wink-nlp`) must stay in `dependencies`, never `devDependencies`.
-- POS tagging is an injected boundary: the engine consumes the pure `Tagger` type (`src/engine/tagger.ts`) and silently skips tagger-dependent checks when `LintOptions.tagger` is absent; the wink-nlp implementation and its Effect layer live in `src/tagger/wink.ts`. Tagger-dependent verb verdicts are pinned, right or wrong, in `test/engine/verb-form-fixtures.test.ts`.
+- POS tagging is an injected boundary: the engine consumes the pure `Tagger` type (`src/engine/tagger.ts`) and silently skips tagger-dependent checks when `LintOptions.tagger` is absent; the wink-nlp implementation lives in `src/tagger/wink.ts`, and the CLI passes it in as a plain function. Tagger-dependent verb verdicts are pinned, right or wrong, in `test/engine/verb-form-fixtures.test.ts`.
 - The package-owned data format and dictionary matching semantics are documented in `src/dictionary/README.md`; load and validate dictionary and list-backed rule data before passing it into the synchronous engine.
 - Extractors (`src/engine/comments.ts`, `markdown.ts`, `html.ts`, `identifiers.ts`) blank non-prose with spaces so violation line/column always map to the original file. `test/fixtures/**` is excluded from Biome because tests pin exact byte positions in fixtures; do not let a formatter touch them.
 

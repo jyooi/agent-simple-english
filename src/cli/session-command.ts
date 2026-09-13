@@ -11,6 +11,7 @@ import {
   setSessionStrict,
   toggleSessionEnabled,
 } from "./session-state.ts"
+import { tryAsync } from "./try-async.ts"
 
 const USAGE = "Usage: /ase [on|off|status|strict|strict off]"
 
@@ -22,28 +23,16 @@ function modeName(control: SessionControl): "disabled" | "enabled" | "strict" {
 }
 
 const readControl = (sessionId: string) =>
-  Effect.tryPromise({
-    try: () => getSessionControl(sessionId),
-    catch: (cause) => new Error(`cannot read session state: ${cause}`),
-  })
+  tryAsync("cannot read session state", () => getSessionControl(sessionId))
 
 const updateEnabled = (sessionId: string, enabled: boolean) =>
-  Effect.tryPromise({
-    try: () => setSessionEnabled(sessionId, enabled),
-    catch: (cause) => new Error(`cannot update session state: ${cause}`),
-  })
+  tryAsync("cannot update session state", () => setSessionEnabled(sessionId, enabled))
 
 const toggleEnabled = (sessionId: string) =>
-  Effect.tryPromise({
-    try: () => toggleSessionEnabled(sessionId),
-    catch: (cause) => new Error(`cannot update session state: ${cause}`),
-  })
+  tryAsync("cannot update session state", () => toggleSessionEnabled(sessionId))
 
 const updateStrict = (sessionId: string, strict: boolean) =>
-  Effect.tryPromise({
-    try: () => setSessionStrict(sessionId, strict),
-    catch: (cause) => new Error(`cannot update session state: ${cause}`),
-  })
+  tryAsync("cannot update session state", () => setSessionStrict(sessionId, strict))
 
 function status(sessionId: string, cwd: string): Effect.Effect<string, Error> {
   return Effect.gen(function* () {

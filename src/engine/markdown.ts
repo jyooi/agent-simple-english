@@ -5,6 +5,7 @@ import { frontmatter } from "micromark-extension-frontmatter"
 import { gfmTable } from "micromark-extension-gfm-table"
 import { normalizeIdentifier } from "micromark-util-normalize-identifier"
 import { markdownSyntaxExtension } from "./markdown-syntax.ts"
+import { lineOffsets } from "./scan.ts"
 
 interface MarkdownAnalysis {
   readonly lines: string[]
@@ -95,10 +96,7 @@ export interface MarkdownHtmlComment {
 export const markdownHtmlComments = (source: string): readonly MarkdownHtmlComment[] => {
   const comments: MarkdownHtmlComment[] = []
   const seen = new Set<string>()
-  const lineStarts = [0]
-  for (let offset = 0; offset < source.length; offset++) {
-    if (source.charCodeAt(offset) === 0x0a) lineStarts.push(offset + 1)
-  }
+  const lineStarts = lineOffsets(source.split("\n"))
 
   const lineIndexAt = (offset: number): number => {
     let low = 0

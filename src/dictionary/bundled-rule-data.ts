@@ -2,13 +2,13 @@ import adjectivalParticiples from "./data/adjectival-participles.json" with { ty
 import hedging from "./data/hedging.json" with { type: "json" }
 import marketing from "./data/marketing.json" with { type: "json" }
 import phrasalVerbs from "./data/phrasal-verbs.json" with { type: "json" }
-import type { RuleData } from "./rule-data.ts"
-import { decodeDictionaryData } from "./schema.ts"
+import type { RuleDataId } from "./rule-data.ts"
+import { type Dictionary, decodeDictionaryData } from "./schema.ts"
 
 // Jiti adds a non-enumerable default property that strict schema validation rejects.
 const decodeBundledDictionary = (data: object) => decodeDictionaryData({ ...data })
 
-export const BUNDLED_RULE_DATA: RuleData = {
+export const BUNDLED_RULE_DATA: Readonly<Record<RuleDataId, Dictionary>> = {
   "phrasal-verb": decodeBundledDictionary(phrasalVerbs),
   hedging: decodeBundledDictionary(hedging),
   marketing: decodeBundledDictionary(marketing),

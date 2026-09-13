@@ -13,3 +13,13 @@ export function scanLines(lines: readonly string[], pattern: RegExp): LineMatch[
     })),
   )
 }
+
+export function lineOffsets(lines: readonly string[]): number[] {
+  const offsets: number[] = []
+  let offset = 0
+  for (const line of lines) {
+    offsets.push(offset)
+    offset += line.length + 1
+  }
+  return offsets
+}
