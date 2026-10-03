@@ -72,7 +72,7 @@ function formatRuleGroup(
   return `### ${heading}\n\n${rules.join("\n")}`
 }
 
-export function ruleSummary(config: SteConfig): string {
+function enabledRuleSections(config: SteConfig): string | undefined {
   const maxSentenceWords = config.maxSentenceWords ?? DEFAULT_MAX_SENTENCE_WORDS
   const ruleIds = Object.keys(RULE_SUMMARIES) as RuleId[]
   const sections = [
@@ -97,9 +97,20 @@ export function ruleSummary(config: SteConfig): string {
       maxSentenceWords,
     ),
   ].filter((section): section is string => section !== undefined)
+  return sections.length === 0 ? undefined : sections.join("\n\n")
+}
+
+export function ruleSummary(config: SteConfig): string {
+  const sections = enabledRuleSections(config)
   const rules =
-    sections.length === 0
+    sections === undefined
       ? "No writing rules are enabled."
-      : `Apply these enabled rules to prose that you write or edit:\n\n${sections.join("\n\n")}`
-  return `## Writing rules\n\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings.`
+      : `Write all prose in ASD-STE100 Simplified Technical English, including your replies to the user. Apply these enabled rules:\n\n${sections}`
+  return `## Writing rules\n\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings. Replies get the same check after you send them.`
+}
+
+export function explainRequest(config: SteConfig): string {
+  const sections = enabledRuleSections(config)
+  const rules = sections === undefined ? "" : `\n\nApply these enabled rules:\n\n${sections}`
+  return `## Rewrite request\n\nWrite your last reply again in ASD-STE100 Simplified Technical English. Keep all facts, code, commands, paths, and numbers the same. Do not add new content.${rules}`
 }

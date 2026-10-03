@@ -80,6 +80,7 @@ A change in one session does not change a parallel session.
 | `/ase status` | Show the mode, rule counts, and dictionary state. |
 | `/ase strict` | Enable the strict reply gate and all other checks. |
 | `/ase strict off` | Disable the strict reply gate and use reply feedback. |
+| `/ase explain` | Write the last reply again in Simplified Technical English. |
 
 Strict mode blocks a `Stop` event when the reply has a hard violation.
 Claude Code then uses the violation details to write the reply again.

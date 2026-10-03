@@ -1,6 +1,10 @@
 import { resolve } from "node:path"
 import { Effect, Result } from "effect"
-import { formatFailedStatusSummary, formatStatusSummary } from "../adapter/rule-summary.ts"
+import {
+  explainRequest,
+  formatFailedStatusSummary,
+  formatStatusSummary,
+} from "../adapter/rule-summary.ts"
 import { loadConfig } from "../config/load.ts"
 import { loadConfiguredDictionary } from "../dictionary/configured.ts"
 import { loadRuleData } from "../dictionary/load.ts"
@@ -13,7 +17,7 @@ import {
 } from "./session-state.ts"
 import { tryAsync } from "./try-async.ts"
 
-const USAGE = "Usage: /ase [on|off|status|strict|strict off]"
+const USAGE = "Usage: /ase [on|off|status|strict|strict off|explain]"
 
 type DictionaryState = "loaded" | "not loaded" | `failed (${string})`
 
@@ -71,6 +75,7 @@ export function runSessionCommand(args: readonly string[]): Effect.Effect<string
     )
   }
   if (command === "status") return status(sessionId, cwd)
+  if (command === "explain") return loadConfig(undefined, cwd).pipe(Effect.map(explainRequest))
   if (command === "on") {
     return updateEnabled(sessionId, true).pipe(Effect.as("Writing-rule enforcement enabled."))
   }

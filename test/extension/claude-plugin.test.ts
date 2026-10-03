@@ -65,7 +65,7 @@ describe("Claude Code plugin wiring", () => {
     expect(command).toContain(
       "description: Control writing-rule enforcement for this Claude Code session",
     )
-    expect(command).toContain("argument-hint: on|off|status|strict|strict off")
+    expect(command).toContain("argument-hint: on|off|status|strict|strict off|explain")
     // biome-ignore-start lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     expect(command).toContain("${CLAUDE_PLUGIN_ROOT}")
     expect(command).toContain("${CLAUDE_SESSION_ID}")
