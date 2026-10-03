@@ -515,12 +515,14 @@ describe("simple-english CLI hook mode", () => {
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
     temporaryDirectories.push(xdgStateHome)
     await runSessionCommand("session-1", cwd, "off", xdgStateHome)
-    const before = await stateFiles(xdgStateHome)
+    const files = await stateFiles(xdgStateHome)
+    const sessionFile = join(xdgStateHome, "simple-english", "sessions", files[0] as string)
+    const before = await readFile(sessionFile, "utf8")
 
     const result = await runSessionCommand("session-1", cwd, "explain", xdgStateHome)
 
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("## Rewrite request")
+    expect(result.stdout.startsWith("## Rewrite request")).toBe(true)
     expect(result.stdout).toContain(
       "Write your last reply again in ASD-STE100 Simplified Technical English.",
     )
@@ -528,7 +530,8 @@ describe("simple-english CLI hook mode", () => {
     expect(result.stdout).toContain("Keep each sentence to 18 words or fewer.")
     expect(result.stdout).not.toContain("[contraction]")
     expect(result.stdout).not.toContain("Do not use contractions.")
-    expect(await stateFiles(xdgStateHome)).toEqual(before)
+    expect(await stateFiles(xdgStateHome)).toEqual(files)
+    expect(await readFile(sessionFile, "utf8")).toBe(before)
   })
 
   test("reports a config failure for an STE rewrite request", async () => {
