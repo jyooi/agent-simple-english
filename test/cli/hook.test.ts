@@ -916,7 +916,7 @@ describe("simple-english CLI hook mode", () => {
     expect(output.additionalContext).toContain(
       "Write all prose in ASD-STE100 Simplified Technical English, including your replies to the user.",
     )
-    expect(output.additionalContext).toContain("Replies get the same check after you send them.")
+    expect(output.additionalContext).toContain("Replies are also checked.")
   })
 
   test("adds SessionStart context without tagger setup", async () => {

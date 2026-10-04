@@ -106,7 +106,7 @@ export function ruleSummary(config: SteConfig): string {
     sections === undefined
       ? "No writing rules are enabled."
       : `Write all prose in ASD-STE100 Simplified Technical English, including your replies to the user. Apply these enabled rules:\n\n${sections}`
-  return `## Writing rules\n\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings. Replies get the same check after you send them.`
+  return `## Writing rules\n\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings. Replies are also checked.`
 }
 
 export function explainRequest(config: SteConfig): string {
