@@ -100,17 +100,19 @@ function enabledRuleSections(config: SteConfig): string | undefined {
   return sections.length === 0 ? undefined : sections.join("\n\n")
 }
 
+const NO_RULES_ENABLED = "No writing rules are enabled."
+
 export function ruleSummary(config: SteConfig): string {
   const sections = enabledRuleSections(config)
   const rules =
     sections === undefined
-      ? "No writing rules are enabled."
+      ? NO_RULES_ENABLED
       : `Write all prose in ASD-STE100 Simplified Technical English, including your replies to the user. Apply these enabled rules:\n\n${sections}`
   return `## Writing rules\n\n${rules}\n\nWrites, edits, and git commit messages reject hard violations. Correct the reported text and retry. Soft violations produce warnings. Replies are also checked.`
 }
 
 export function explainRequest(config: SteConfig): string {
   const sections = enabledRuleSections(config)
-  const rules = sections === undefined ? "" : `\n\nApply these enabled rules:\n\n${sections}`
-  return `## Rewrite request\n\nWrite your last reply again in ASD-STE100 Simplified Technical English. Keep all facts, code, commands, paths, and numbers the same. Do not add new content.${rules}`
+  if (sections === undefined) return NO_RULES_ENABLED
+  return `## Rewrite request\n\nWrite your last reply again in ASD-STE100 Simplified Technical English. Keep all facts, code, commands, paths, and numbers the same. Do not add new content.\n\nApply these enabled rules:\n\n${sections}`
 }

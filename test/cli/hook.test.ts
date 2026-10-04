@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
+import { ruleIds } from "../../src/engine/rules/registry.ts"
 import { repoRoot, runCli } from "./run-cli.ts"
 
 interface HookSpecificOutput {
@@ -532,6 +533,19 @@ describe("simple-english CLI hook mode", () => {
     expect(result.stdout).not.toContain("Do not use contractions.")
     expect(await stateFiles(xdgStateHome)).toEqual(files)
     expect(await readFile(sessionFile, "utf8")).toBe(before)
+  })
+
+  test("does not ask for an STE rewrite when the config turns every rule off", async () => {
+    const cwd = await makeProject({
+      rules: Object.fromEntries(ruleIds.map((ruleId) => [ruleId, "off"])),
+    })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const result = await runSessionCommand("session-1", cwd, "explain", xdgStateHome)
+
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe("No writing rules are enabled.")
   })
 
   test("reports a config failure for an STE rewrite request", async () => {
