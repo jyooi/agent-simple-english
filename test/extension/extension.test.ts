@@ -436,6 +436,10 @@ describe("pi extension wiring", { concurrent: false }, () => {
     expect(systemPrompt).toContain("Keep each sentence to 8 words or fewer")
     expect(systemPrompt).not.toContain("Do not use contractions")
     expect(systemPrompt).toContain("git commit messages reject hard violations")
+    expect(systemPrompt).toContain(
+      "Write all prose in ASD-STE100 Simplified Technical English, including your replies to the user.",
+    )
+    expect(systemPrompt).toContain("Replies are also checked.")
 
     const steStart = systemPrompt.indexOf("### Rules derived from ASD-STE100")
     const directiveStart = systemPrompt.indexOf("### Directive validation")
