@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
+import { ruleIds } from "../../src/engine/rules/registry.ts"
 import { repoRoot, runCli } from "./run-cli.ts"
 
 interface HookSpecificOutput {
@@ -510,6 +511,54 @@ describe("simple-english CLI hook mode", () => {
     expect(decision(submitted.output).additionalContext).toContain("[contraction]")
   })
 
+  test("asks for an STE rewrite of the last reply with the enabled rules", async () => {
+    const cwd = await makeProject({ rules: { contraction: "off" }, maxSentenceWords: 18 })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+    await runSessionCommand("session-1", cwd, "off", xdgStateHome)
+    const files = await stateFiles(xdgStateHome)
+    const sessionFile = join(xdgStateHome, "simple-english", "sessions", files[0] as string)
+    const before = await readFile(sessionFile, "utf8")
+
+    const result = await runSessionCommand("session-1", cwd, "explain", xdgStateHome)
+
+    expect(result.code).toBe(0)
+    expect(result.stdout.startsWith("## Rewrite request")).toBe(true)
+    expect(result.stdout).toContain(
+      "Write your last reply again in ASD-STE100 Simplified Technical English.",
+    )
+    expect(result.stdout).toContain("[hard] Do not use semicolons.")
+    expect(result.stdout).toContain("Keep each sentence to 18 words or fewer.")
+    expect(result.stdout).not.toContain("[contraction]")
+    expect(result.stdout).not.toContain("Do not use contractions.")
+    expect(await stateFiles(xdgStateHome)).toEqual(files)
+    expect(await readFile(sessionFile, "utf8")).toBe(before)
+  })
+
+  test("does not ask for an STE rewrite when the config turns every rule off", async () => {
+    const cwd = await makeProject({
+      rules: Object.fromEntries(ruleIds.map((ruleId) => [ruleId, "off"])),
+    })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const result = await runSessionCommand("session-1", cwd, "explain", xdgStateHome)
+
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe("No writing rules are enabled.")
+  })
+
+  test("reports a config failure for an STE rewrite request", async () => {
+    const cwd = await makeProject({ rules: { "not-a-rule": "hard" } })
+    const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
+    temporaryDirectories.push(xdgStateHome)
+
+    const result = await runSessionCommand("session-1", cwd, "explain", xdgStateHome)
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("not-a-rule")
+  })
+
   test("rejects an invalid session command without changing state", async () => {
     const cwd = await makeProject()
     const xdgStateHome = await mkdtemp(join(tmpdir(), "ste-hook-state-"))
@@ -518,7 +567,7 @@ describe("simple-english CLI hook mode", () => {
     const result = await runSessionCommand("session-1", cwd, "invalid", xdgStateHome)
 
     expect(result.code).toBe(2)
-    expect(result.stderr).toContain("Usage: /ase [on|off|status|strict|strict off]")
+    expect(result.stderr).toContain("Usage: /ase [on|off|status|strict|strict off|explain]")
     expect(await stateFiles(xdgStateHome)).toEqual([])
   })
 
@@ -878,6 +927,10 @@ describe("simple-english CLI hook mode", () => {
     expect(output.additionalContext).toContain("[soft] Do not use semicolons")
     expect(output.additionalContext).toContain("Keep each sentence to 8 words or fewer")
     expect(output.additionalContext).not.toContain("Do not use contractions")
+    expect(output.additionalContext).toContain(
+      "Write all prose in ASD-STE100 Simplified Technical English, including your replies to the user.",
+    )
+    expect(output.additionalContext).toContain("Replies are also checked.")
   })
 
   test("adds SessionStart context without tagger setup", async () => {

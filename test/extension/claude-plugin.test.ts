@@ -23,6 +23,17 @@ const hooksPath = join(repoRoot, "hooks", "hooks.json")
 const aseCommandPath = join(repoRoot, "commands", "ase.md")
 const steCommandPath = join(repoRoot, "commands", "ste.md")
 
+function frontmatter(markdown: string): Record<string, string> {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---\n/u)
+  if (match === null) throw new Error("command file has no frontmatter")
+  return Object.fromEntries(
+    (match[1] ?? "").split("\n").map((line) => {
+      const separator = line.indexOf(":")
+      return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()]
+    }),
+  )
+}
+
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8")) as unknown
 }
@@ -62,10 +73,10 @@ describe("Claude Code plugin wiring", () => {
 
     await expect(access(steCommandPath)).rejects.toThrow()
 
-    expect(command).toContain(
-      "description: Control writing-rule enforcement for this Claude Code session",
-    )
-    expect(command).toContain("argument-hint: on|off|status|strict|strict off")
+    expect(frontmatter(command)).toMatchObject({
+      description: "Control writing-rule enforcement for this Claude Code session",
+      "argument-hint": "on|off|status|strict|strict off|explain",
+    })
     // biome-ignore-start lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     expect(command).toContain("${CLAUDE_PLUGIN_ROOT}")
     expect(command).toContain("${CLAUDE_SESSION_ID}")
