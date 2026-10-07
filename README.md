@@ -73,6 +73,11 @@ The `/ase` command controls the current Claude Code session.
 New sessions start in enabled mode without a strict reply gate.
 A change in one session does not change a parallel session.
 
+The full command name is `/simple-english:ase`, and it always runs.
+The short name `/ase` runs the same command.
+If a user command or a project command has the name `ase`, that command takes the short name.
+Then use the full name.
+
 | Command | Result |
 | --- | --- |
 | `/ase on` | Enable write, edit, commit, and reply checks. |

@@ -1,4 +1,5 @@
 ---
+name: ase
 description: Control writing-rule enforcement for this Claude Code session
 argument-hint: on|off|status|strict|strict off|explain
 allowed-tools: Bash
