@@ -80,7 +80,9 @@ describe("Claude Code plugin wiring", () => {
 
     await expect(access(steCommandPath)).rejects.toThrow()
 
+    // Claude Code gives a plugin command a bare name only when the frontmatter sets `name`.
     expect(frontmatter(command)).toMatchObject({
+      name: "ase",
       description: "Control writing-rule enforcement for this Claude Code session",
       "argument-hint": "on|off|status|strict|strict off|explain",
     })
