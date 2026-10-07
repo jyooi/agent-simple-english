@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, test } from "vitest"
+import { aseSuggestions, register } from "../../hooks/register.ts"
 
 interface CommandHook {
   readonly type: "command"
@@ -13,6 +14,7 @@ interface HookRegistration {
 }
 
 interface HooksFile {
+  readonly modules?: readonly string[]
   readonly hooks: Readonly<Record<string, readonly HookRegistration[]>>
 }
 
@@ -32,6 +34,11 @@ function frontmatter(markdown: string): Record<string, string> {
       return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()]
     }),
   )
+}
+
+function suggest(text: string): string[] {
+  const start = text.lastIndexOf(" ") + 1
+  return aseSuggestions(text, text.slice(start), start).map((row) => row.text)
 }
 
 async function readJson(path: string): Promise<unknown> {
@@ -142,5 +149,43 @@ describe("Claude Code plugin wiring", () => {
       expect(match).not.toBeNull()
       await expect(access(join(repoRoot, match?.[1] ?? ""))).resolves.toBeUndefined()
     }
+  })
+
+  test("loads the argument suggestion module beside the command hooks", async () => {
+    const hookFile = (await readJson(hooksPath)) as HooksFile
+    const events: string[] = []
+
+    expect(hookFile.modules).toEqual(["./register.ts"])
+    register((event) => {
+      events.push(event)
+    })
+    expect(events).toEqual(["prompt.autocomplete"])
+  })
+
+  test("suggests the ASE arguments that start with the typed word", () => {
+    expect(suggest("/simple-english:ase o")).toEqual(["on", "off"])
+    expect(suggest("/ase o")).toEqual(["on", "off"])
+    expect(suggest("/ase S")).toEqual(["status", "strict"])
+    expect(suggest("/ase e")).toEqual(["explain"])
+    expect(suggest("/ase strict o")).toEqual(["off"])
+    expect(aseSuggestions("/ase o", "o", 5)).toEqual([
+      { text: "on", description: "Enable write, edit, commit, and reply checks" },
+      { text: "off", description: "Disable all checks and leave strict mode" },
+    ])
+  })
+
+  test("suggests nothing outside the ASE argument", () => {
+    expect(suggest("/ase x")).toEqual([])
+    expect(suggest("/ase on o")).toEqual([])
+    expect(suggest("/ase strict off o")).toEqual([])
+    expect(suggest("/aseo")).toEqual([])
+    expect(suggest("/other o")).toEqual([])
+    expect(suggest("please turn o")).toEqual([])
+  })
+
+  test("removes a suggestion that the typed word already equals", () => {
+    expect(suggest("/ase on")).toEqual([])
+    expect(suggest("/ase strict")).toEqual([])
+    expect(suggest("/ase strict off")).toEqual([])
   })
 })
