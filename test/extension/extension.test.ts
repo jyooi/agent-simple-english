@@ -569,10 +569,15 @@ describe("pi extension wiring", { concurrent: false }, () => {
       { value: "off", label: "off", description: "Disable writing-rule enforcement" },
       { value: "status", label: "status", description: "Show writing-rule status" },
       { value: "strict", label: "strict", description: "Enable strict reply gating" },
+      { value: "strict off", label: "strict off", description: "Disable strict reply gating" },
     ])
     expect(pi.getArgumentCompletions("ase", "s")).toEqual([
       { value: "status", label: "status", description: "Show writing-rule status" },
       { value: "strict", label: "strict", description: "Enable strict reply gating" },
+      { value: "strict off", label: "strict off", description: "Disable strict reply gating" },
+    ])
+    expect(pi.getArgumentCompletions("ase", "strict o")).toEqual([
+      { value: "strict off", label: "strict off", description: "Disable strict reply gating" },
     ])
     expect(pi.getArgumentCompletions("ase", "missing")).toBeNull()
   })

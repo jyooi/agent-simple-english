@@ -82,6 +82,15 @@ A change in one session does not change a parallel session.
 | `/ase strict off` | Disable the strict reply gate and use reply feedback. |
 | `/ase explain` | Write the last reply again in Simplified Technical English. |
 
+Claude Code 2.1.292 or later shows argument suggestions while you type.
+Type `/ase`, press Tab to select the command, then type the first letters of an argument.
+The list shows each argument that starts with those letters, and Tab completes the first one.
+After `strict`, the list suggests `off`.
+
+An earlier Claude Code version shows only the fixed argument hint.
+Claude Code 2.1.287 to 2.1.291 also show one load error for the suggestion module at session start.
+The writing-rule hooks continue to operate on those versions.
+
 Strict mode blocks a `Stop` event when the reply has a hard violation.
 Claude Code then uses the violation details to write the reply again.
 The `stop_hook_active` check stops a second block in the same rewrite loop.
@@ -132,7 +141,7 @@ pi -e .
 
 The mode applies to the current pi session.
 The extension starts in enabled mode without strict reply gating.
-Type `/ase ` to see autocomplete suggestions for `on`, `off`, `status`, and `strict`.
+Type `/ase ` to see autocomplete suggestions for `on`, `off`, `status`, `strict`, and `strict off`.
 The list changes to match the text that you type.
 
 | Command | Result |

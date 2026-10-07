@@ -35,6 +35,7 @@ const COMMAND_COMPLETIONS: readonly AutocompleteItem[] = [
   { value: "off", label: "off", description: "Disable writing-rule enforcement" },
   { value: "status", label: "status", description: "Show writing-rule status" },
   { value: "strict", label: "strict", description: "Enable strict reply gating" },
+  { value: "strict off", label: "strict off", description: "Disable strict reply gating" },
 ]
 
 interface SessionState {
