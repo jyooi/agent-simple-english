@@ -14,8 +14,8 @@ Parent spec lives in Linear HUF-130.
 - Pure functional core: `src/engine/` is synchronous, and `src/engine/lint.ts` orchestrates it.
   Effect stays at boundaries such as CLI IO, config loading, and schema validation and loading.
   Format Schema decode failures through `src/schema/parse-error.ts` only, and import `NonEmptyTrimmedString` from `src/schema/primitives.ts` instead of `Schema`, so a later Schema change touches one file per seam.
-- `effect` is pinned to the exact version `4.0.0-rc.112`, with no caret.
-  A release candidate can still make a narrow breaking change, and the Schema module moves most.
+- `effect` is pinned to the exact version `4.0.1`, with no caret.
+  A patch release can still make a narrow breaking change, and the Schema module moves most.
   Every bump needs a full re-verification of the config and dictionary error text.
 - Effect v4 omits the rejected value from a schema issue unless the parse options set `reportInput: true`.
   A static `message` annotation also drops that value, so use the `expected` annotation per check.
