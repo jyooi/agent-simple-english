@@ -128,11 +128,6 @@ function retainCharacters(
   )
 }
 
-/**
- * Character ranges that survive unchanged between two texts, in document order.
- * Line-level LCS first, then character-level LCS inside changed line chunks,
- * with a cell budget that falls back to prefix and suffix matching on huge edits.
- */
 export function retainedRanges(previousText: string, currentText: string): RetainedRange[] {
   const previous = lineTokens(previousText)
   const current = lineTokens(currentText)

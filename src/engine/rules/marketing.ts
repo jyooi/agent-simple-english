@@ -3,7 +3,7 @@ import { type CaseFoldedToken, caseFoldKey, tokenizeCaseFolded } from "../case-f
 import {
   type CaseFoldedPhrase,
   compileCaseFoldedPhrase,
-  matchPhraseAt,
+  matchFirstListedPhraseAt,
   type PhraseMatch,
 } from "../phrase-matcher.ts"
 import type { Violation } from "../types.ts"
@@ -32,8 +32,7 @@ const marketingDataFor = (dictionary: Dictionary): CompiledMarketingData => {
   return compiled
 }
 
-// A listed single word inside a hyphenated token ("world-class-ready") still counts.
-function findMarketingComponent(
+function findListedWordInsideHyphenatedToken(
   token: CaseFoldedToken,
   componentWords: ReadonlySet<string>,
 ): PhraseMatch | undefined {
@@ -60,8 +59,8 @@ export function marketing(lines: readonly string[], dictionary: Dictionary): Vio
       if (token === undefined) continue
 
       const match =
-        matchPhraseAt(line, tokens, tokenIndex, data.phrases) ??
-        findMarketingComponent(token, data.componentWords)
+        matchFirstListedPhraseAt(line, tokens, tokenIndex, data.phrases) ??
+        findListedWordInsideHyphenatedToken(token, data.componentWords)
       if (match === undefined) continue
 
       violations.push({

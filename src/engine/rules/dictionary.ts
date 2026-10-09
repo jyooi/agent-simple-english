@@ -1,6 +1,6 @@
 import { DICTIONARY_TOKEN_SOURCE } from "../../dictionary/form.ts"
 import type { Dictionary, DictionaryData, DictionaryEntry } from "../../dictionary/schema.ts"
-import type { BlockStructure } from "../markdown.ts"
+import { type BlockStructure, NO_LEAF_BLOCK } from "../markdown.ts"
 import type { TaggedToken, Tagger } from "../tagger.ts"
 import type { Violation } from "../types.ts"
 import { DEFAULT_SEVERITIES } from "./registry.ts"
@@ -48,8 +48,7 @@ export const compileDictionary = (dictionary: DictionaryData): CompiledDictionar
       }
     : { mode: "not-approved", forms: compileForms(dictionary) }
 
-// Two words join across a line break only inside one Markdown leaf block.
-const isSoftLineBreak = (
+const isLineBreakInsideOneLeafBlock = (
   lines: readonly string[],
   blocks: BlockStructure,
   previous: WordToken,
@@ -64,14 +63,17 @@ const isSoftLineBreak = (
     return false
   }
 
-  const previousBlock = blocks.ids[previous.lineIndex] ?? -1
-  if (previousBlock < 0 || previousBlock !== blocks.ids[token.lineIndex]) {
+  const previousBlock = blocks.leafBlockIdByLine[previous.lineIndex] ?? NO_LEAF_BLOCK
+  if (previousBlock < 0 || previousBlock !== blocks.leafBlockIdByLine[token.lineIndex]) {
     return false
   }
 
   const lineEnd = previousLine.endsWith("\r") ? previousLine.length - 1 : previousLine.length
   const trailing = previousLine.slice(previous.offset + previous.text.length, lineEnd)
-  const leading = nextLine.slice(blocks.contentStarts[token.lineIndex] ?? 0, token.offset)
+  const leading = nextLine.slice(
+    blocks.contentStartAfterContainerPrefixByLine[token.lineIndex] ?? 0,
+    token.offset,
+  )
   return (trailing === "" || trailing === " ") && /^[\t ]*$/.test(leading)
 }
 
@@ -101,7 +103,7 @@ const hasWords = (
         /^\s+$/.test(line.slice(previous.offset + previous.text.length, token.offset))
       )
     }
-    return isSoftLineBreak(lines, blocks, previous, token)
+    return isLineBreakInsideOneLeafBlock(lines, blocks, previous, token)
   })
 
 const hasPartOfSpeech = (

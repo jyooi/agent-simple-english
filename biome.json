@@ -20,6 +20,18 @@
       "preset": "recommended"
     }
   },
+  "overrides": [
+    {
+      "includes": ["test/engine/suppression.test.ts", "test/extension/claude-plugin.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double",

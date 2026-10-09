@@ -11,7 +11,7 @@ import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-m
 import { extractHtmlProse } from "./html.ts"
 import { blankIdentifiers } from "./identifiers.ts"
 import { type BlockStructure, blankMarkdownForLint } from "./markdown.ts"
-import { type Paragraph, segmentParagraphs } from "./paragraphs.ts"
+import { type Paragraph, segmentParagraphsByLeafBlock } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { type CompiledDictionary, compileDictionary, dictionaryRule } from "./rules/dictionary.ts"
 import { hedging } from "./rules/hedging.ts"
@@ -296,15 +296,16 @@ const lintProse = (
     prepared.boundaryLines,
     prepared.sentenceBoundaryLines,
   )
-  const paragraphs = segmentParagraphs(
+  const paragraphs = segmentParagraphsByLeafBlock(
     prepared.structuralLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
     contentStarts.map((contentStart) => contentStart + 1),
     prepared.structuralBoundaryLines.map((line, index) => line.slice(contentStarts[index] ?? 0)),
     {
-      ids: prepared.blocks.ids,
-      contentStarts: prepared.blocks.contentStarts.map(
-        (contentStart, index) => contentStart - (contentStarts[index] ?? 0),
-      ),
+      leafBlockIdByLine: prepared.blocks.leafBlockIdByLine,
+      contentStartAfterContainerPrefixByLine:
+        prepared.blocks.contentStartAfterContainerPrefixByLine.map(
+          (contentStart, index) => contentStart - (contentStarts[index] ?? 0),
+        ),
     },
   )
   const offsets = lineOffsets(prepared.structuralLines)

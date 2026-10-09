@@ -337,9 +337,7 @@ function abbreviationIsInternal(
   return isInitial
 }
 
-// Identifier masking blanks dotted abbreviations but leaves their final periods.
-// Restore only listed abbreviations from the equal-length pre-identifier line.
-function restoreAbbreviations(
+function restoreListedAbbreviationsThatIdentifierMaskingBlanked(
   text: string,
   boundaryLine: string,
   boundaryText: string,
@@ -451,9 +449,6 @@ function sentenceTerminatorEnds(
   return ends
 }
 
-// A sentence starts at the first non-whitespace character and ends at
-// terminal punctuation and closing delimiters, at a blank line, or at EOF.
-// Sentences may span lines; position is where the sentence starts (1-based).
 export function segmentSentences(
   lines: readonly string[],
   sourceText: string = lines.join("\n"),
@@ -530,7 +525,7 @@ export function segmentSentences(
     }
     const boundaryRaw = effectiveBoundaryLines[index] ?? maskedRaw
     const currentBoundaryOffset = boundaryOffsets[index] ?? 0
-    const raw = restoreAbbreviations(
+    const raw = restoreListedAbbreviationsThatIdentifierMaskingBlanked(
       maskedRaw,
       boundaryRaw,
       boundaryText,

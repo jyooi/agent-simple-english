@@ -1,9 +1,12 @@
 import { type Schema, SchemaIssue } from "effect"
 
-// This isolates the Effect v4 `SchemaIssue` formatter calls, so a later
-// Schema change touches only this file.
-
 export type ParseError = Schema.SchemaError
+
+export const DECODE_OPTIONS_THAT_REPORT_REJECTED_VALUE = {
+  onExcessProperty: "error",
+  errors: "all",
+  reportInput: true,
+} as const
 
 export interface ParseErrorIssue {
   readonly path: ReadonlyArray<string | number>
@@ -13,8 +16,6 @@ export interface ParseErrorIssue {
 const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1()
 const formatTree = SchemaIssue.makeFormatterDefault()
 
-// A Standard Schema path segment is either a raw key or a `{ key }` wrapper,
-// and symbol keys never appear in this package's schemas.
 const pathSegments = (
   path: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined,
 ): ReadonlyArray<string | number> =>

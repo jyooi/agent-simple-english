@@ -186,8 +186,7 @@ function runSessionCommand(
   })
 }
 
-// A Lavish review page: a style block, an inline script, and one prose paragraph.
-const lavishPage = (paragraph: string): string =>
+const lavishReviewPageWithStyleAndScript = (paragraph: string): string =>
   [
     "<!doctype html>",
     "<html>",
@@ -1111,7 +1110,10 @@ describe("simple-english CLI hook mode", () => {
     const paragraph = `${Array.from({ length: 40 }, (_, index) => `word${index + 1}`).join(" ")}.`
 
     const result = await runHook(
-      event(cwd, "Write", { file_path: join(cwd, "review.html"), content: lavishPage(paragraph) }),
+      event(cwd, "Write", {
+        file_path: join(cwd, "review.html"),
+        content: lavishReviewPageWithStyleAndScript(paragraph),
+      }),
       cwd,
     )
 
@@ -1126,7 +1128,10 @@ describe("simple-english CLI hook mode", () => {
     const paragraph = "This page uses short sentences. Each sentence stays inside the limit."
 
     const result = await runHook(
-      event(cwd, "Write", { file_path: join(cwd, "review.html"), content: lavishPage(paragraph) }),
+      event(cwd, "Write", {
+        file_path: join(cwd, "review.html"),
+        content: lavishReviewPageWithStyleAndScript(paragraph),
+      }),
       cwd,
     )
 

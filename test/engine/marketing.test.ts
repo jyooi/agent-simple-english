@@ -134,6 +134,26 @@ describe("lint prose-file: marketing rule", () => {
     ])
   })
 
+  test("known limit: lowercase folding does not match sharp s with ss or final sigma with sigma", () => {
+    const extension = {
+      formatVersion: 1,
+      source: {
+        name: "test extension",
+        repository: "https://example.test/rule-data",
+        commit: "fixture",
+        path: "marketing.json",
+      },
+      entries: [{ unapproved: ["strasse", "σ"], suggestions: ["plain"] }],
+    } as const satisfies Dictionary
+    const ruleIds = (text: string) =>
+      lint("prose-file", text, { ruleData: { marketing: extension } }).violations.map(
+        (violation) => violation.ruleId,
+      )
+
+    expect(ruleIds("A STRASSE Σ platform.")).toEqual(["marketing", "marketing"])
+    expect(ruleIds("A straße ς platform.")).toEqual([])
+  })
+
   test("does not apply Turkic case equivalence", () => {
     const extension = {
       formatVersion: 1,

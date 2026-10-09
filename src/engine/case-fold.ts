@@ -6,8 +6,6 @@ export interface CaseFoldedToken {
   readonly offset: number
 }
 
-// ponytail: toLowerCase() does not fold "ss" from sharp s or merge sigma forms.
-// Add unicode-case-folding back if a dictionary needs that reach.
 export const caseFoldKey = (text: string): string => text.toLowerCase()
 
 export const tokenizeCaseFolded = (line: string): readonly CaseFoldedToken[] =>

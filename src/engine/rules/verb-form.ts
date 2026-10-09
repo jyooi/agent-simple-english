@@ -10,17 +10,13 @@ const isBeForm = (token: TaggedToken) => BE_FORMS.has(token.text.toLowerCase())
 
 const isPerfectAuxiliary = (token: TaggedToken) => token.pos === "AUX" && token.lemma === "have"
 
-// Adverbs and "not" may sit between the auxiliary and its verb
-// ("was quickly closed", "were not shown") without breaking the construct.
-const isSkippable = (token: TaggedToken) =>
+const maySitBetweenAuxiliaryAndVerb = (token: TaggedToken) =>
   token.pos === "ADV" || token.text.toLowerCase() === "not"
 
 const isProgressiveVerb = (token: TaggedToken) =>
   token.pos === "VERB" && token.text.toLowerCase().endsWith("ing")
 
-// After a be/have auxiliary, any non-"ing" verb is a past participle in
-// practice, which covers irregular forms (broken, sent, written) without a list.
-const isPastParticiple = (token: TaggedToken) =>
+const isNonProgressiveVerbAfterAuxiliary = (token: TaggedToken) =>
   token.pos === "VERB" && !token.text.toLowerCase().endsWith("ing")
 
 const allowlistByDictionary = new WeakMap<Dictionary, ReadonlySet<string>>()
@@ -42,7 +38,7 @@ const isAllowlisted = (token: TaggedToken, dictionary: Dictionary | undefined): 
 function nextContentToken(tokens: readonly TaggedToken[], start: number): TaggedToken | undefined {
   for (let i = start; i < tokens.length; i++) {
     const token = tokens[i]
-    if (token !== undefined && !isSkippable(token)) {
+    if (token !== undefined && !maySitBetweenAuxiliaryAndVerb(token)) {
       return token
     }
   }
@@ -78,14 +74,14 @@ export function verbForm(
           message: `Use a simple tense. Do not use the progressive. Found: "${found}".`,
           ...position,
         })
-      } else if (isBeForm(token) && isPastParticiple(head) && !allowlisted) {
+      } else if (isBeForm(token) && isNonProgressiveVerbAfterAuxiliary(head) && !allowlisted) {
         violations.push({
           ruleId: "verb-passive",
           severity: DEFAULT_SEVERITIES["verb-passive"],
           message: `Use the active voice, unless the actor is unknown. Found: "${found}".`,
           ...position,
         })
-      } else if (isPerfectAuxiliary(token) && isPastParticiple(head)) {
+      } else if (isPerfectAuxiliary(token) && isNonProgressiveVerbAfterAuxiliary(head)) {
         violations.push({
           ruleId: "verb-perfect",
           severity: DEFAULT_SEVERITIES["verb-perfect"],

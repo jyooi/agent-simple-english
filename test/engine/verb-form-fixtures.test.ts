@@ -3,8 +3,6 @@ import { BUNDLED_RULE_DATA } from "../../src/dictionary/bundled-rule-data.ts"
 import { lint } from "../../src/engine/lint.ts"
 import { makeWinkTagger } from "../../src/tagger/wink.ts"
 
-// Fixture suite against the real wink-nlp tagger. Each entry pins the accepted
-// verdict, right or wrong, so tagger or rule changes surface as diffs here.
 const tagger = makeWinkTagger()
 
 const ruleIds = (text: string) =>

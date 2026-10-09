@@ -2,16 +2,9 @@ import { parser as htmlParser } from "@lezer/html"
 import type { ExtractedComments, ProseBreak } from "./comments.ts"
 import type { MarkdownHtmlComment } from "./markdown.ts"
 
-// These elements hold code, markup, or preformatted content, never prose.
-// `code` is also inline, so a semicolon in inline code stays quiet while the
-// sentence around it still reads as one sentence.
-const IGNORED_CONTENT_TAGS = new Set(["code", "pre", "script", "style", "textarea"])
+const NON_PROSE_CONTENT_TAGS = new Set(["code", "pre", "script", "style", "textarea"])
 
-// Phrasing elements that wrap words inside one sentence.
-// They never start a prose block, so a sentence split across them counts as one sentence.
-// Every other element starts a prose block.
-// That rule separates a heading, a list item, a table cell, and bare text in a `div`.
-const INLINE_TAGS = new Set([
+const PHRASING_TAGS_INSIDE_ONE_SENTENCE = new Set([
   "a",
   "abbr",
   "b",
@@ -46,11 +39,7 @@ const INLINE_TAGS = new Set([
   "wbr",
 ])
 
-/**
- * Find every single-line HTML comment in the document with the lezer parser.
- * The markdown finder cannot see comments that markdown would read as indented code.
- */
-export function htmlComments(source: string): readonly MarkdownHtmlComment[] {
+export function singleLineHtmlComments(source: string): readonly MarkdownHtmlComment[] {
   const comments: MarkdownHtmlComment[] = []
   const lineStarts = [0]
   for (let offset = 0; offset < source.length; offset++) {
@@ -80,15 +69,9 @@ export function htmlComments(source: string): readonly MarkdownHtmlComment[] {
 
 interface OpenElement {
   readonly tag: string
-  readonly inline: boolean
+  readonly startsProseBlock: boolean
 }
 
-/**
- * Keep the text nodes of an HTML document and blank every other byte with a space.
- * Attribute values, comments, entity references, tags, and ignored element content all go.
- * Each prose block becomes one prose break, so sentences never join across a block edge.
- * The masked lines keep the width of the source lines, so positions stay exact.
- */
 export function extractHtmlProse(source: string): ExtractedComments {
   const keep = new Uint8Array(source.length)
   const blockEdges: number[] = []
@@ -103,10 +86,10 @@ export function extractHtmlProse(source: string): ExtractedComments {
           tagName === null || tagName === undefined
             ? ""
             : source.slice(tagName.from, tagName.to).toLowerCase()
-        const inline = INLINE_TAGS.has(tag)
-        if (!inline) blockEdges.push(ref.from)
-        if (IGNORED_CONTENT_TAGS.has(tag)) ignoreDepth += 1
-        open.push({ tag, inline })
+        const startsProseBlock = !PHRASING_TAGS_INSIDE_ONE_SENTENCE.has(tag)
+        if (startsProseBlock) blockEdges.push(ref.from)
+        if (NON_PROSE_CONTENT_TAGS.has(tag)) ignoreDepth += 1
+        open.push({ tag, startsProseBlock })
         return
       }
       if (ref.name === "Text" && ignoreDepth === 0) keep.fill(1, ref.from, ref.to)
@@ -115,8 +98,8 @@ export function extractHtmlProse(source: string): ExtractedComments {
       if (ref.name !== "Element") return
       const element = open.pop()
       if (element === undefined) return
-      if (IGNORED_CONTENT_TAGS.has(element.tag)) ignoreDepth -= 1
-      if (!element.inline) blockEdges.push(ref.to)
+      if (NON_PROSE_CONTENT_TAGS.has(element.tag)) ignoreDepth -= 1
+      if (element.startsProseBlock) blockEdges.push(ref.to)
     },
   })
 

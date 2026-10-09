@@ -1,4 +1,4 @@
-import type { BlockStructure } from "./markdown.ts"
+import { type BlockStructure, NO_LEAF_BLOCK } from "./markdown.ts"
 
 export interface Paragraph {
   readonly lines: readonly string[]
@@ -15,9 +15,7 @@ interface OpenParagraph {
   readonly boundaryLines: string[]
 }
 
-// One paragraph per Markdown leaf block. Each line drops the quote and list
-// prefix that the block parser found, so a rule reads block content only.
-export function segmentParagraphs(
+export function segmentParagraphsByLeafBlock(
   lines: readonly string[],
   columns: readonly number[],
   boundaryLines: readonly string[],
@@ -32,7 +30,7 @@ export function segmentParagraphs(
   }
 
   lines.forEach((raw, index) => {
-    const blockId = blocks.ids[index] ?? -1
+    const blockId = blocks.leafBlockIdByLine[index] ?? NO_LEAF_BLOCK
     if (blockId < 0) {
       close()
       return
@@ -48,7 +46,7 @@ export function segmentParagraphs(
       }
     }
 
-    const contentStart = blocks.contentStarts[index] ?? 0
+    const contentStart = blocks.contentStartAfterContainerPrefixByLine[index] ?? 0
     open.lines.push(raw.slice(contentStart))
     open.boundaryLines.push((boundaryLines[index] ?? raw).slice(contentStart))
   })

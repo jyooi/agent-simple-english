@@ -3,11 +3,9 @@ import { decodeDictionaryData } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 import type { TaggedToken, Tagger } from "../../src/engine/tagger.ts"
 
-// Stub tagger: each input line maps to a "word/POS/lemma ..." annotation,
-// mirroring real wink-nlp output so the rule logic is tested without the model.
-function stubTagger(annotations: Record<string, string>): Tagger {
+function stubTagger(wordPosLemmaAnnotationByLine: Record<string, string>): Tagger {
   return (text) => {
-    const annotation = annotations[text]
+    const annotation = wordPosLemmaAnnotationByLine[text]
     if (annotation === undefined) {
       throw new Error(`stub tagger has no annotation for: "${text}"`)
     }

@@ -27,11 +27,10 @@ export interface CliOptions {
 
 export const makeTempDir = (): Promise<string> => mkdtemp(join(tmpdir(), "ste-cli-"))
 
-// HOME defaults to an empty temp dir so tests never read the developer's real global config.
-const hermeticHome = makeTempDir()
+const emptyHomeWithoutDeveloperConfig = makeTempDir()
 
 export async function runCli(args: string[], options: CliOptions = {}): Promise<CliResult> {
-  const home = options.home ?? (await hermeticHome)
+  const home = options.home ?? (await emptyHomeWithoutDeveloperConfig)
   const env = {
     ...process.env,
     HOME: home,
