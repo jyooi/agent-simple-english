@@ -20,11 +20,11 @@ interface MarkdownAnalysis {
   readonly blocks: BlockStructure
 }
 
-// Per line: the id of the leaf block that owns it, or -1 when no block does, and
-// the column where the block content starts after any quote or list prefix.
+export const NO_LEAF_BLOCK = -1
+
 export interface BlockStructure {
-  readonly ids: readonly number[]
-  readonly contentStarts: readonly number[]
+  readonly leafBlockIdByLine: readonly number[]
+  readonly contentStartAfterContainerPrefixByLine: readonly number[]
 }
 
 interface AnalysisState {
@@ -155,8 +155,6 @@ const SENTENCE_BOUNDARY_TOKENS = new Set([
   "thematicBreak",
 ])
 const CONTAINER_TOKENS = new Set(["blockQuotePrefix", "listItemIndent", "listItemPrefix"])
-// One leaf block per line group. Every rule reads block structure from these ids,
-// so no rule needs its own Markdown classifier.
 const LEAF_BLOCK_TOKENS = new Set([
   "atxHeading",
   "codeFenced",
@@ -239,7 +237,7 @@ const createAnalysisState = (
     blockQuoteLines: exemptBlockQuotes ? new Uint8Array(parseLines.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
     sentenceBoundaryLines: parseLines.map(() => false),
-    blockIds: parseLines.map(() => -1),
+    blockIds: parseLines.map(() => NO_LEAF_BLOCK),
     blockContentStarts: parseLines.map(() => 0),
   }
 }
@@ -559,7 +557,7 @@ const analyzeMarkdown = (
       structuralBlanks: [],
       wordingStructuralBlanks: [],
       sentenceBoundaryLines: [],
-      blocks: { ids: [], contentStarts: [] },
+      blocks: { leafBlockIdByLine: [], contentStartAfterContainerPrefixByLine: [] },
     }
   }
 
@@ -634,8 +632,8 @@ const analyzeMarkdown = (
           ),
     sentenceBoundaryLines: state.sentenceBoundaryLines,
     blocks: {
-      ids: state.blockIds,
-      contentStarts: state.blockContentStarts.map(
+      leafBlockIdByLine: state.blockIds,
+      contentStartAfterContainerPrefixByLine: state.blockContentStarts.map(
         (contentStart, index) => (starts[index] ?? 0) + contentStart,
       ),
     },

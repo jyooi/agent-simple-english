@@ -35,16 +35,17 @@ export interface PhraseMatch {
   readonly tokenCount: number
 }
 
-// Longest phrase first when callers sort their list that way.
-export function matchPhraseAt(
+export function matchFirstListedPhraseAt(
   line: string,
   tokens: readonly CaseFoldedToken[],
   start: number,
-  phrases: readonly CaseFoldedPhrase[],
+  phrasesInPriorityOrder: readonly CaseFoldedPhrase[],
 ): PhraseMatch | undefined {
   const first = tokens[start]
   if (first === undefined) return undefined
-  const phrase = phrases.find((candidate) => matchesPhrase(line, tokens, start, candidate))
+  const phrase = phrasesInPriorityOrder.find((candidate) =>
+    matchesPhrase(line, tokens, start, candidate),
+  )
   if (phrase === undefined) return undefined
   const last = tokens[start + phrase.words.length - 1]
   if (last === undefined) return undefined
@@ -67,7 +68,7 @@ export function scanCaseFoldedPhrases(
 
     const tokens = tokenizeCaseFolded(line)
     for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
-      const match = matchPhraseAt(line, tokens, tokenIndex, phrases)
+      const match = matchFirstListedPhraseAt(line, tokens, tokenIndex, phrases)
       if (match === undefined) continue
       matches.push({ found: match.found, line: lineIndex + 1, column: match.offset + 1 })
       tokenIndex += match.tokenCount - 1

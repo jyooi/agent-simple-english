@@ -2,10 +2,6 @@ import { describe, expect, test } from "vitest"
 import type { Dictionary } from "../../src/dictionary/schema.ts"
 import { lint } from "../../src/engine/lint.ts"
 
-// Block structure decides where a sentence, a paragraph, and a dictionary phrase
-// end. Each seam below pins that decision for one Markdown construct so a drift
-// in the block parser fails here instead of in user output.
-
 const dictionary = {
   formatVersion: 1,
   source: {
@@ -30,9 +26,7 @@ const positions = (text: string): Array<[string, number, number]> =>
 const messages = (text: string): string[] =>
   lint("prose-file", text, { dictionary }).violations.map((violation) => violation.message)
 
-describe("block structure: sentence segmentation", () => {
-  // The abbreviation lookahead reads past the end of a line. A block start must
-  // stop it, or the sentence absorbs the next block and reports a false length.
+describe("block structure: a block start stops the abbreviation lookahead of a sentence", () => {
   const opener = `${words(24)}, etc.`
 
   test("a list item ends the sentence before it", () => {
@@ -52,9 +46,7 @@ describe("block structure: sentence segmentation", () => {
     expect(positions(`${opener}\n> - # Continue.`)).toEqual([])
   })
 
-  // An HTML block owns every line up to the next blank line. An ATX marker there
-  // is HTML data, not a heading, so it does not end the sentence.
-  test("an ATX marker inside an HTML block does not end the sentence", () => {
+  test("an ATX marker inside an HTML block is HTML data and does not end the sentence", () => {
     expect(messages(`<div>\n${opener}\n# Continue here.\n</div>`)).toEqual([
       "Sentence has 29 words; the maximum is 25.",
     ])
@@ -68,9 +60,7 @@ describe("block structure: sentence segmentation", () => {
     expect(positions(`${opener}\n- - -\nContinue.`)).toEqual([])
   })
 
-  // A setext underline binds to the line above it, so the heading text and the
-  // underline stay one block and the sentence runs on. This pins that loss.
-  test("a setext underline keeps the sentence open across the heading", () => {
+  test("a setext underline binds to the line above it and keeps the sentence open, a pinned loss", () => {
     expect(positions(`${opener}\n===\nContinue.`)).toEqual([["sentence-length", 1, 1]])
   })
 
@@ -79,53 +69,51 @@ describe("block structure: sentence segmentation", () => {
   })
 })
 
-describe("block structure: paragraph segmentation", () => {
-  // Seven sentences exceed the cap. A paragraph boundary splits them into three
-  // plus four and reports nothing, so a missed boundary shows up as a violation.
-  const head = "One. Two. Three."
-  const tail = "Four. Five. Six. Seven."
+describe("block structure: a paragraph boundary splits seven sentences below the cap", () => {
+  const threeSentences = "One. Two. Three."
+  const fourSentences = "Four. Five. Six. Seven."
 
   test("a list item starts its own paragraph", () => {
-    expect(positions(`${head}\n- ${tail}`)).toEqual([])
-    expect(positions(`${head}\n1. ${tail}`)).toEqual([])
-    expect(positions(`- ${head}\n- ${tail}`)).toEqual([])
+    expect(positions(`${threeSentences}\n- ${fourSentences}`)).toEqual([])
+    expect(positions(`${threeSentences}\n1. ${fourSentences}`)).toEqual([])
+    expect(positions(`- ${threeSentences}\n- ${fourSentences}`)).toEqual([])
   })
 
   test("a block quote starts its own paragraph", () => {
-    expect(positions(`${head}\n> ${tail}`)).toEqual([])
+    expect(positions(`${threeSentences}\n> ${fourSentences}`)).toEqual([])
   })
 
   test("a list item inside a block quote starts its own paragraph", () => {
-    expect(positions(`${head}\n> - ${tail}`)).toEqual([])
-    expect(positions(`> - ${head}\n> - ${tail}`)).toEqual([])
-    expect(positions(`> - ${head}\n>   ${tail}`)).toEqual([["paragraph-length", 1, 1]])
+    expect(positions(`${threeSentences}\n> - ${fourSentences}`)).toEqual([])
+    expect(positions(`> - ${threeSentences}\n> - ${fourSentences}`)).toEqual([])
+    expect(positions(`> - ${threeSentences}\n>   ${fourSentences}`)).toEqual([
+      ["paragraph-length", 1, 1],
+    ])
   })
 
   test("an ATX heading ends the paragraph", () => {
-    expect(positions(`${head}\n## A heading\n${tail}`)).toEqual([])
-    expect(positions(`${head}\n> - # Head\n${tail}`)).toEqual([])
+    expect(positions(`${threeSentences}\n## A heading\n${fourSentences}`)).toEqual([])
+    expect(positions(`${threeSentences}\n> - # Head\n${fourSentences}`)).toEqual([])
   })
 
   test("a bullet thematic break ends the paragraph", () => {
-    expect(positions(`${head}\n- - -\n${tail}`)).toEqual([])
+    expect(positions(`${threeSentences}\n- - -\n${fourSentences}`)).toEqual([])
   })
 
   test("a star thematic break ends the paragraph", () => {
-    expect(positions(`${head}\n***\n${tail}`)).toEqual([])
+    expect(positions(`${threeSentences}\n***\n${fourSentences}`)).toEqual([])
   })
 
   test("a setext underline ends the paragraph", () => {
-    expect(positions(`${head}\n===\n${tail}`)).toEqual([])
+    expect(positions(`${threeSentences}\n===\n${fourSentences}`)).toEqual([])
   })
 
   test("a deeper block quote ends the paragraph", () => {
-    expect(positions(`> ${head}\n> > ${tail}`)).toEqual([])
+    expect(positions(`> ${threeSentences}\n> > ${fourSentences}`)).toEqual([])
   })
 })
 
-describe("block structure: dictionary soft line breaks", () => {
-  // A two-word form matches across a line break only inside one block. Each seam
-  // pins one joined case and one separated case.
+describe("block structure: a dictionary form joins across a line break only inside one block", () => {
   const joined: [string, number, number][] = [["dictionary-not-approved-word", 1, 3]]
 
   test("a list item joins its own continuation line and no other item", () => {

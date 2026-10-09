@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Schema } from "effect"
-import { formatParseErrorIssues, type ParseError } from "../schema/parse-error.ts"
+import {
+  DECODE_OPTIONS_THAT_REPORT_REJECTED_VALUE,
+  formatParseErrorIssues,
+  type ParseError,
+} from "../schema/parse-error.ts"
 import { BUNDLED_RULE_DATA } from "./bundled-rule-data.ts"
 import type { RuleData, RuleDataExtensions, RuleDataId } from "./rule-data.ts"
 import {
@@ -41,14 +45,14 @@ const formatParseError = (error: ParseError): string => {
   return path === "" ? `invalid dictionary data: ${issue.message}` : `${path}: ${issue.message}`
 }
 
-// v4 omits the rejected value from an issue unless reportInput is on.
-const decodeOptions = { onExcessProperty: "error", errors: "all", reportInput: true } as const
-
-const decodeDictionary = Schema.decodeEffect(Schema.fromJsonString(DictionarySchema), decodeOptions)
+const decodeDictionary = Schema.decodeEffect(
+  Schema.fromJsonString(DictionarySchema),
+  DECODE_OPTIONS_THAT_REPORT_REJECTED_VALUE,
+)
 
 const decodeApprovedWordList = Schema.decodeEffect(
   Schema.fromJsonString(ApprovedWordListSchema),
-  decodeOptions,
+  DECODE_OPTIONS_THAT_REPORT_REJECTED_VALUE,
 )
 
 const readDictionaryFile = (

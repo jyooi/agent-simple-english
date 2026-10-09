@@ -5,33 +5,27 @@ import type { TaggedToken, Tagger } from "../engine/tagger.ts"
 export function makeWinkTagger(): Tagger {
   const nlp = winkNLP(model, ["sbd", "pos"])
   const its = nlp.its
-  // wink-nlp's d.ts declares its.lemma with a signature token.out() rejects;
-  // at runtime it is a valid token helper, so cast to the accepted shape.
-  const lemma = its.lemma as unknown as ItsFunction<string>
+  const lemmaWithTypeThatTokenOutAccepts = its.lemma as unknown as ItsFunction<string>
   return (text) => {
     const doc = nlp.readDoc(text)
     const tokens: TaggedToken[] = []
-    // wink-nlp does not expose character offsets, so recover them by scanning
-    // for each token value in order; values are verbatim slices of the input.
-    let cursor = 0
+    let scanCursor = 0
     doc.tokens().each((token: ItemToken) => {
       const value = token.out(its.value)
-      const found = text.indexOf(value, cursor)
-      const offset = found === -1 ? cursor : found
+      const found = text.indexOf(value, scanCursor)
+      const offset = found === -1 ? scanCursor : found
       tokens.push({
         text: value,
         pos: token.out(its.pos),
-        lemma: token.out(lemma),
+        lemma: token.out(lemmaWithTypeThatTokenOutAccepts),
         offset,
       })
-      cursor = offset + value.length
+      scanCursor = offset + value.length
     })
     return tokens
   }
 }
 
-// Defer the model load until the first tag call so hook events that never
-// lint prose stay fast.
 export const makeLazyWinkTagger = (): Tagger => {
   let tagger: Tagger | undefined
   return (text) => {

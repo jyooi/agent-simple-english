@@ -3,6 +3,7 @@ import type { RuleDataExtensions } from "../dictionary/rule-data.ts"
 import { type RuleId, ruleIds } from "../engine/rules/registry.ts"
 import type { RuleSetting } from "../engine/types.ts"
 import {
+  DECODE_OPTIONS_THAT_REPORT_REJECTED_VALUE,
   formatParseErrorIssues,
   formatParseErrorTree,
   type ParseError,
@@ -25,8 +26,6 @@ const RulesSchema = Schema.Struct(
   Object.fromEntries(ruleIds.map((id) => [id, Schema.optionalKey(RuleSettingSchema)])),
 )
 
-// One refinement over Unknown, rather than Number plus two checks, so that a
-// wrong type and a wrong number both report the same text and the value.
 const MaxSentenceWordsSchema = Schema.Unknown.pipe(
   Schema.refine(
     (value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0,
@@ -51,12 +50,10 @@ const SteConfigSchema = Schema.Struct({
   approvedWordsPath: Schema.optionalKey(NonEmptyTrimmedString),
 })
 
-const decodeUnknown = Schema.decodeUnknownEffect(SteConfigSchema, {
-  onExcessProperty: "error",
-  errors: "all",
-  // v4 omits the rejected value from an issue unless this option is on.
-  reportInput: true,
-})
+const decodeUnknown = Schema.decodeUnknownEffect(
+  SteConfigSchema,
+  DECODE_OPTIONS_THAT_REPORT_REJECTED_VALUE,
+)
 
 export class ConfigError extends Error {
   readonly _tag = "ConfigError"

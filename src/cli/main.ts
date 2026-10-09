@@ -61,8 +61,7 @@ const argumentError = (cause: unknown): Error => {
   return new Error(error.message)
 }
 
-// parseArgs accepts "--kind --json" with "--json" as the value. Reject that.
-const rejectOptionValue = (values: CliArgs): Effect.Effect<void, Error> => {
+const rejectFlagAsOptionValue = (values: CliArgs): Effect.Effect<void, Error> => {
   if (values.config?.startsWith("--"))
     return Effect.fail(new Error("--config requires a file path"))
   if (values.kind?.startsWith("--")) {
@@ -180,7 +179,7 @@ const lintProgram = Effect.gen(function* () {
     try: () => parseCliArgs(args),
     catch: argumentError,
   })
-  yield* rejectOptionValue(values)
+  yield* rejectFlagAsOptionValue(values)
   const { json = false, config: configPath, kind, help, version } = values
   if (help) {
     console.log(USAGE)

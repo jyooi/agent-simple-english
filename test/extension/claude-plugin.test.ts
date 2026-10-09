@@ -75,22 +75,19 @@ describe("Claude Code plugin wiring", () => {
     ])
   })
 
-  test("defines only the session ASE command", async () => {
+  test("defines only the session ASE command, and sets the frontmatter name that gives it a bare name", async () => {
     const command = await readFile(aseCommandPath, "utf8")
 
     await expect(access(steCommandPath)).rejects.toThrow()
 
-    // Claude Code gives a plugin command a bare name only when the frontmatter sets `name`.
     expect(frontmatter(command)).toMatchObject({
       name: "ase",
       description: "Control writing-rule enforcement for this Claude Code session",
       "argument-hint": "on|off|status|strict|strict off|explain",
     })
-    // biome-ignore-start lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     expect(command).toContain("${CLAUDE_PLUGIN_ROOT}")
     expect(command).toContain("${CLAUDE_SESSION_ID}")
     expect(command).toContain("${CLAUDE_PROJECT_DIR}")
-    // biome-ignore-end lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     expect(command).toContain("$ARGUMENTS")
     expect(command).toContain('src/cli/main.ts" session')
   })

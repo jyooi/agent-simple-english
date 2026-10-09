@@ -1,6 +1,6 @@
 import type { LineCommentSpan } from "./comments.ts"
 import type { ScopedViolation } from "./diff-match.ts"
-import { htmlComments } from "./html.ts"
+import { singleLineHtmlComments } from "./html.ts"
 import { type MarkdownHtmlComment, markdownHtmlComments } from "./markdown.ts"
 import { DEFAULT_SEVERITIES, type RuleId, ruleIds } from "./rules/registry.ts"
 import { lineOffsets } from "./scan.ts"
@@ -135,7 +135,7 @@ export function analyzeSuppressions(
     kind === "prose-file"
       ? commentCandidates(markdownHtmlComments(text))
       : kind === "html"
-        ? commentCandidates(htmlComments(text))
+        ? commentCandidates(singleLineHtmlComments(text))
         : kind === "slash-source" || kind === "hash-source"
           ? sourceCandidates(lines, lineComments)
           : []

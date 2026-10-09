@@ -7,9 +7,7 @@ export interface PathClassification {
 }
 
 const PROSE: PathClassification = { kind: "prose-file", sourceDialect: "general" }
-// Data and style files carry rules and structured data rather than prose,
-// so the writing rules would misread them as sentences (HUF-308).
-const SKIPPED: PathClassification = { ...PROSE, skipped: true }
+const DATA_OR_STYLE_NOT_PROSE: PathClassification = { ...PROSE, skipped: true }
 const HTML: PathClassification = { kind: "html", sourceDialect: "general" }
 
 const slash = (sourceDialect: SourceDialect): PathClassification => ({
@@ -51,17 +49,17 @@ const BY_EXTENSION: Readonly<Record<string, PathClassification>> = {
   toml: hash("general"),
   html: HTML,
   htm: HTML,
-  css: SKIPPED,
-  scss: SKIPPED,
-  less: SKIPPED,
-  json: SKIPPED,
-  jsonc: SKIPPED,
-  svg: SKIPPED,
-  xml: SKIPPED,
-  typ: SKIPPED,
-  csv: SKIPPED,
-  tsv: SKIPPED,
-  lock: SKIPPED,
+  css: DATA_OR_STYLE_NOT_PROSE,
+  scss: DATA_OR_STYLE_NOT_PROSE,
+  less: DATA_OR_STYLE_NOT_PROSE,
+  json: DATA_OR_STYLE_NOT_PROSE,
+  jsonc: DATA_OR_STYLE_NOT_PROSE,
+  svg: DATA_OR_STYLE_NOT_PROSE,
+  xml: DATA_OR_STYLE_NOT_PROSE,
+  typ: DATA_OR_STYLE_NOT_PROSE,
+  csv: DATA_OR_STYLE_NOT_PROSE,
+  tsv: DATA_OR_STYLE_NOT_PROSE,
+  lock: DATA_OR_STYLE_NOT_PROSE,
 }
 
 export const classifyPath = (path: string): PathClassification => {

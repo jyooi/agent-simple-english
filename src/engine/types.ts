@@ -37,15 +37,8 @@ export interface LintOptions {
   readonly exemptBlockQuotes?: boolean
   readonly dictionary?: DictionaryData
   readonly ruleData?: RuleData
-  // POS tagger for the verb-form rules and POS-aware dictionary entries.
   readonly tagger?: Tagger
   readonly sourceDialect?: SourceDialect
-  /**
-   * The previous document text used to report only new violations.
-   * The engine compares sentence-scoped and paragraph-scoped violations structurally.
-   * Omit this value to lint the current document in full.
-   * Violation positions refer to the current text.
-   */
   readonly previousText?: string
 }
 

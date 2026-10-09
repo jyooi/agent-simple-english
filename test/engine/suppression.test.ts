@@ -17,7 +17,6 @@ const sourceSuppressionVerdicts: readonly SourceSuppressionVerdict[] = [
   {
     name: "JavaScript regexp inside a template expression",
     path: "example.js",
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     text: "const value = `${/}/.test(input)\n// ste-disable-next-line unknown\n}`",
     expectedRuleIds: [],
     note: "accepted false negative pending a JavaScript lexer",
@@ -192,7 +191,6 @@ describe("lint: inline suppression directives", () => {
 
   test("a directive inside a JavaScript template expression is validated", () => {
     const classification = classifyPath("example.js")
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: the test checks the literal placeholder text
     const text = "const value = `${input\n// ste-disable-next-line unknown\n}`"
 
     expect(

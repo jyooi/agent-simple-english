@@ -40,7 +40,7 @@
   "scripts": {
     "test": "vitest run",
     "bench:markdown": "vitest bench test/engine/markdown.bench.ts",
-    "lint": "biome check .",
+    "lint": "biome check . && bun scripts/check-no-comments.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
