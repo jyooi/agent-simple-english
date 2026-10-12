@@ -30,6 +30,12 @@ Parent spec lives in Linear HUF-130.
 - The package-owned data format and dictionary matching semantics are documented in `src/dictionary/README.md`; load and validate dictionary and list-backed rule data before passing it into the synchronous engine.
 - Extractors (`src/engine/comments.ts`, `markdown.ts`, `html.ts`, `identifiers.ts`) blank non-prose with spaces so violation line/column always map to the original file. `test/fixtures/**` is excluded from Biome because tests pin exact byte positions in fixtures; do not let a formatter touch them.
 
+- `hooks/` runs in the hooks module worker of Claude Code 2.1.296 or later, with no Node.js APIs and only relative imports.
+  It starts the CLI (`reply-check`) for a lint and reads the session state file directly.
+  Run `claude plugin validate .` after each change there.
+  When `hooks/reply-hold.ts` blocks a `Stop` event, it must not call the lower `Stop` hooks.
+  Claude Code prints the block reason, with the held reply, below its command hook summary.
+
 ## Commands
 
 - `bun run test` (Vitest), `bun run lint` (Biome, then `scripts/check-no-comments.ts`), `bun run typecheck` (tsc). CI (`.github/workflows/ci.yml`) runs all three on bun 1.4.0.

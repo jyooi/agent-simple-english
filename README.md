@@ -38,6 +38,7 @@ A config, dictionary, or rule-data load error makes enabled write, edit, and com
 ## Install the Claude Code Adapter
 
 Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Bun](https://bun.sh) first.
+The plugin needs Claude Code 2.1.296 or later.
 Then use the standard local plugin flow:
 
 ```sh
@@ -87,22 +88,37 @@ Then use the full name.
 | `/ase strict off` | Disable the strict reply gate and use reply feedback. |
 | `/ase explain` | Write the last reply again in Simplified Technical English. |
 
-Claude Code 2.1.292 or later shows argument suggestions while you type.
+Claude Code shows argument suggestions while you type.
 Type `/ase`, press Tab to select the command, then type the first letters of an argument.
 The list shows each argument that starts with those letters, and Tab completes the first one.
 After `strict`, the list suggests `off`.
 
-An earlier Claude Code version shows only the fixed argument hint.
-Claude Code 2.1.287 to 2.1.291 also show one load error for the suggestion module at session start.
-The writing-rule hooks continue to operate on those versions.
+### Strict reply hold
 
-Strict mode blocks a `Stop` event when the reply has a hard violation.
-Claude Code then uses the violation details to write the reply again.
-The `stop_hook_active` check stops a second block in the same rewrite loop.
+Strict mode holds each reply of the main conversation until the reply check completes.
+Claude Code shows no reply text during the hold.
+A reply with no hard violation then shows unchanged.
+For a reply with a hard violation, Claude Code shows one notice line in place of the text.
+The model then gets the held text and the violation details, and it writes the reply again.
+The Adapter holds and checks that rewrite the same way.
 
-Claude Code shows streamed reply text before the `Stop` hook runs.
-Thus, strict mode can reject the completed reply, but it cannot redact text that Claude Code already showed.
-The pi Adapter does not have this gap because its `say` tool hides strict reply text before approval.
+The Adapter blocks a maximum of two replies in one turn.
+It then shows the next reply as the model wrote it, also when that reply has a hard violation.
+A step that has text and a tool call uses the same hold, and the tool runs.
+The hold does not apply to subagent replies.
+If the reply check fails, the Adapter shows the reply and adds one warning line.
+After an interrupt during the hold, Claude Code shows no text for that reply.
+
+The hold has these limits:
+
+- Strict mode shows no streamed text, because a held reply appears only when it is complete.
+- The transcript file contains the held text in the feedback message for the model.
+  The `stream-json` output of `claude -p` also contains that message.
+- A `Stop` hook from another source does not run for a blocked reply.
+  It runs for the reply that the user sees.
+
+The `Stop` command hook stays as a second layer.
+It blocks one `Stop` event when a reply with a hard violation showed after a failed reply check.
 
 ### Reply feedback loop
 
@@ -184,6 +200,17 @@ Malformed JSON returns a non-blocking error so Claude Code can continue.
 The hook also allows the event when configuration, dictionary, rule-data, tagger, transcript, state, or file processing fails.
 It adds warning text for these operational failures.
 Observation-write failures are silent and do not change the hook output or decision.
+
+### Claude Code reply check
+
+The `reply-check` subcommand reads one JSON object from standard input.
+The object has the `session_id`, `cwd`, and `text` fields.
+The subcommand checks the text as a reply with the config of that working directory.
+
+It writes one JSON object, which has a `feedback` field only when the text has a hard violation.
+It also records one denied reply Observation for that text.
+An input or load error causes exit code 2.
+The hooks module of the plugin runs this subcommand for the strict reply hold.
 
 ### Review hook observations
 

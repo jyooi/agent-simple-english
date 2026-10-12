@@ -1,5 +1,5 @@
 {
-  "description": "Inject active writing rules, gate changes, and return reply feedback on the next prompt.",
+  "description": "Inject active writing rules, gate changes, hold strict replies, and return reply feedback on the next prompt.",
 
   "modules": ["./register.ts"],
 

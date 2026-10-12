@@ -1,3 +1,5 @@
+import { blockHeldReply, holdReply, restoreReply } from "./reply-hold.ts"
+
 interface Suggestion {
   readonly text: string
   readonly description: string
@@ -41,11 +43,19 @@ export function aseSuggestions(text: string, token: string, start: number): read
   return words.filter((word) => word.text.startsWith(typed) && word.text !== typed)
 }
 
-export function register(on: (event: "prompt.autocomplete", hook: AutocompleteHook) => void): void {
+interface On {
+  (event: "prompt.autocomplete", hook: AutocompleteHook): unknown
+  (event: "turn.step", hook: typeof holdReply): { catch(handler: typeof restoreReply): void }
+  (event: "classic.Stop", hook: typeof blockHeldReply): unknown
+}
+
+export function register(on: On): void {
   on("prompt.autocomplete", async (_engine, input, next) => ({
     suggestions: [
       ...aseSuggestions(input.text, input.token, input.start),
       ...(await next(input)).suggestions,
     ],
   }))
+  on("turn.step", holdReply).catch(restoreReply)
+  on("classic.Stop", blockHeldReply)
 }
