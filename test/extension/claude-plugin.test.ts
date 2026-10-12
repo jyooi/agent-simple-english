@@ -150,15 +150,18 @@ describe("Claude Code plugin wiring", () => {
     }
   })
 
-  test("loads the argument suggestion module beside the command hooks", async () => {
+  test("loads the hooks module beside the command hooks", async () => {
     const hookFile = (await readJson(hooksPath)) as HooksFile
     const events: string[] = []
+    const errorHandlers: string[] = []
 
     expect(hookFile.modules).toEqual(["./register.ts"])
-    register((event) => {
+    register((event: string) => {
       events.push(event)
+      return { catch: () => void errorHandlers.push(event) }
     })
-    expect(events).toEqual(["prompt.autocomplete"])
+    expect(events).toEqual(["prompt.autocomplete", "turn.step", "classic.Stop"])
+    expect(errorHandlers).toEqual(["turn.step"])
   })
 
   test("suggests the ASE arguments that start with the typed word", () => {

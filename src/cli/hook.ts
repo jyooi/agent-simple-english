@@ -105,14 +105,14 @@ export type HookOutput =
   | StopDecision
   | Record<string, never>
 
-function record(value: unknown, name: string): Record<string, unknown> {
+export function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${name} must be a JSON object`)
   }
   return value as Record<string, unknown>
 }
 
-function stringField(value: Record<string, unknown>, name: string): string {
+export function stringField(value: Record<string, unknown>, name: string): string {
   const field = value[name]
   if (typeof field !== "string") throw new Error(`${name} must be a string`)
   return field
@@ -441,7 +441,7 @@ const takePendingFeedback = (sessionId: string) =>
 const readSessionControl = (sessionId: string) =>
   tryAsync("cannot read session state", () => getSessionControl(sessionId))
 
-const loadLintOptions = (cwd: string, tagger: Tagger) =>
+export const loadLintOptions = (cwd: string, tagger: Tagger) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(undefined, cwd)
     const dictionaryPath = process.env.SIMPLE_ENGLISH_DICTIONARY

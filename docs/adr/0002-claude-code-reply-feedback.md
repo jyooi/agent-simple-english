@@ -3,8 +3,8 @@
 ADR 0001 defines the per-host enforcement ceiling policy.
 The `Stop` and `UserPromptSubmit` hooks increase the Claude Code enforcement ceiling.
 This decision adds deferred reply feedback to that ceiling.
-Session controls add a strict Stop gate.
-ADR 0001 records its redaction limit.
+Session controls add a strict mode.
+[ADR 0005](0005-claude-code-strict-reply-hold.md) defines its reply hold, and the strict Stop gate stays as a second layer.
 
 The `Stop` hook reads `last_assistant_message` from the event.
 This event field is authoritative because the transcript can lag behind the completed reply.

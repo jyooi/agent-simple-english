@@ -13,6 +13,7 @@ import type { LintKind, LintReport } from "../engine/types.ts"
 import { makeLazyWinkTagger } from "../tagger/wink.ts"
 import { hookInternalFailure, runHookMode } from "./hook.ts"
 import { observationStats, reviewObservations } from "./observation-log.ts"
+import { runReplyCheck } from "./reply-check.ts"
 import { runSessionCommand } from "./session-command.ts"
 import { tryAsync } from "./try-async.ts"
 
@@ -156,6 +157,11 @@ const hookProgram = Effect.gen(function* () {
   ),
 )
 
+const replyCheckProgram = Effect.gen(function* () {
+  console.log(JSON.stringify(yield* runReplyCheck(yield* readStdin, tagger)))
+  return 0
+})
+
 const sessionProgram = Effect.gen(function* () {
   console.log(yield* runSessionCommand(args.slice(1)))
   return 0
@@ -250,11 +256,13 @@ const lintProgram = Effect.gen(function* () {
 const program: Effect.Effect<number, Error> =
   args[0] === "hook"
     ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(hookProgram))
-    : args[0] === "session"
-      ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(sessionProgram))
-      : args[0] === "observe"
-        ? observeProgram
-        : lintProgram
+    : args[0] === "reply-check"
+      ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(replyCheckProgram))
+      : args[0] === "session"
+        ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(sessionProgram))
+        : args[0] === "observe"
+          ? observeProgram
+          : lintProgram
 
 const handled = program.pipe(
   Effect.catch((error) =>

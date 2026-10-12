@@ -40,6 +40,11 @@ A soft violation only produces a warning.
 The mode that applies the host's strongest available reply gate to hard violations.
 Host support follows the [per-host enforcement ceilings](docs/adr/0001-per-host-enforcement-ceiling.md).
 
+**Reply hold**:
+The strict mode gate of the Claude Code Adapter that keeps reply text off the screen until the text has no hard violation.
+[ADR 0005](docs/adr/0005-claude-code-strict-reply-hold.md) defines it.
+_Avoid_: redaction, buffer
+
 **Observation**:
 One logged record of one lint decision at an enforcement boundary.
 An Observation embeds zero or more Findings.
