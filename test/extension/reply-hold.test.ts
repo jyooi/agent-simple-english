@@ -120,6 +120,20 @@ const newTurn = (agentId?: string) => {
 
 const stopEvent = { hook_event_name: "Stop", stop_hook_active: false }
 
+const toolPieces: Piece[] = [
+  { kind: "text", index: 0, ref: 1, text: "I'll run it." },
+  { kind: "tool", index: 1, ref: 2, id: "toolu_1", name: "Bash" },
+  { kind: "input", index: 1, ref: 3, json: '{"command":"true"}' },
+  { kind: "stop", ref: 4, stopReason: "tool_use", usage: null },
+]
+
+const toolResult: StepResult = {
+  answer: "I'll run it.",
+  toolUses: [{ name: "Bash", input: { command: "true" } }],
+  stopReason: "tool_use",
+  usage: null,
+}
+
 describe("Claude Code strict reply hold", () => {
   test("passes the stream on piece by piece when the session is not strict", async () => {
     const { $, events, runs, stream, show } = session({ strict: false })
@@ -213,24 +227,12 @@ describe("Claude Code strict reply hold", () => {
     expect(second).toEqual({ additionalContext: ["x"] })
   })
 
-  test("runs the tool of a held step and blocks once for each held text of the turn", async () => {
+  test("runs the tool of a held step and blocks one time when the last step is also held", async () => {
     const { $, stream, show } = session({
       strict: true,
       checks: [hard("- first"), hard("- second")],
     })
     const turn = newTurn()
-    const toolPieces: Piece[] = [
-      { kind: "text", index: 0, ref: 1, text: "I'll run it." },
-      { kind: "tool", index: 1, ref: 2, id: "toolu_1", name: "Bash" },
-      { kind: "input", index: 1, ref: 3, json: '{"command":"true"}' },
-      { kind: "stop", ref: 4, stopReason: "tool_use", usage: null },
-    ]
-    const toolResult: StepResult = {
-      answer: "I'll run it.",
-      toolUses: [{ name: "Bash", input: { command: "true" } }],
-      stopReason: "tool_use",
-      usage: null,
-    }
     const last = textReply("It isn't ready.")
 
     const toolStep = await show(holdReply($, turn, stream(toolPieces, toolResult)))
@@ -241,8 +243,49 @@ describe("Claude Code strict reply hold", () => {
       { kind: "text", index: 0, ref: 1, text: REPLY_HOLD_NOTICE },
       ...toolPieces.slice(1),
     ])
-    expect(blocked.block).toContain("<held-reply>\nI'll run it.\n</held-reply>\n\n- first")
-    expect(blocked.block).toContain("<held-reply>\nIt isn't ready.\n</held-reply>\n\n- second")
+    expect(blocked).toEqual({
+      block: [
+        "The writing rules held the reply text below. The user did not see it.",
+        "<held-reply>\nI'll run it.\n</held-reply>\n\n- first",
+        "<held-reply>\nIt isn't ready.\n</held-reply>\n\n- second",
+        "Write the full reply again. Correct each violation. Do not mention this message.",
+      ].join("\n\n"),
+    })
+    await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
+  })
+
+  test("does not block a clean last reply after a held tool step", async () => {
+    const { $, stream, show } = session({
+      strict: true,
+      checks: [hard("- first"), clean, hard("- third"), hard("- fourth"), hard("- fifth")],
+    })
+    const turn = newTurn()
+    const last = textReply("The command is complete.")
+    const bad = textReply("It isn't ready.")
+
+    const toolStep = await show(holdReply($, turn, stream(toolPieces, toolResult)))
+    const lastStep = await show(
+      holdReply($, { ...turn, index: 1 }, stream(last.pieces, last.result)),
+    )
+    let lowerHooks = 0
+    const stopped = await blockHeldReply($, stopEvent, async () => {
+      lowerHooks += 1
+      return {}
+    })
+
+    expect(toolStep.shown[0]).toEqual({ kind: "text", index: 0, ref: 1, text: REPLY_HOLD_NOTICE })
+    expect(lastStep).toEqual({ shown: last.pieces, result: last.result })
+    expect(stopped).toEqual({})
+    expect(lowerHooks).toBe(1)
+
+    await show(holdReply($, { ...turn, index: 2 }, stream(bad.pieces, bad.result)))
+    const firstBlock = await blockHeldReply($, stopEvent, async () => ({}))
+    await show(holdReply($, { ...turn, index: 3 }, stream(bad.pieces, bad.result)))
+    const secondBlock = await blockHeldReply($, stopEvent, async () => ({}))
+
+    expect(firstBlock.block).not.toContain("I'll run it.")
+    expect(firstBlock.block).toContain("- third")
+    expect(secondBlock.block).toContain("- fourth")
   })
 
   test("shows the third reply of a turn with no check after two blocks", async () => {

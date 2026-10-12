@@ -43,7 +43,7 @@ interface HeldReply {
 
 type StopResult = Readonly<Record<string, unknown>>
 
-let turn: { id: string; blocks: number; held: HeldReply[] } = { id: "", blocks: 0, held: [] }
+let turn = { id: "", blocks: 0, held: [] as HeldReply[], lastStepHeld: false }
 
 export async function sessionStatePath(
   sessionId: string,
@@ -117,7 +117,8 @@ export async function* holdReply(
   next: StepNext,
 ): AsyncGenerator<Piece, StepResult> {
   if (e.agentId !== undefined) return yield* next(e)
-  if (turn.id !== e.turnId) turn = { id: e.turnId, blocks: 0, held: [] }
+  if (turn.id !== e.turnId) turn = { id: e.turnId, blocks: 0, held: [], lastStepHeld: false }
+  turn.lastStepHeld = false
   if (turn.blocks >= BLOCK_LIMIT || !(await strictSession($))) return yield* next(e)
 
   const { pieces, result } = await readAll(next(e))
@@ -142,6 +143,7 @@ export async function* holdReply(
   }
 
   turn.held.push({ reply: result.answer, feedback })
+  turn.lastStepHeld = true
   yield* noticePieces(pieces)
   return result
 }
@@ -170,7 +172,8 @@ export async function blockHeldReply(
   next: (e: unknown) => Promise<StopResult>,
 ): Promise<StopResult> {
   const held = turn.held.splice(0)
-  if (held.length === 0) return next(e)
+  if (!turn.lastStepHeld) return next(e)
+  turn.lastStepHeld = false
   turn.blocks += 1
   return { block: blockReason(held) }
 }

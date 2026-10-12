@@ -102,9 +102,16 @@ For a reply with a hard violation, Claude Code shows one notice line in place of
 The model then gets the held text and the violation details, and it writes the reply again.
 The Adapter holds and checks that rewrite the same way.
 
-The Adapter blocks a maximum of two replies in one turn.
-It then shows the next reply as the model wrote it, also when that reply has a hard violation.
+The model gets a maximum of two rewrites in one turn.
+The sequence is: the Adapter blocks the first reply, the Adapter blocks the first rewrite, and Claude Code shows the second rewrite.
+The second rewrite shows as the model wrote it, also when it has a hard violation.
+
 A step that has text and a tool call uses the same hold, and the tool runs.
+For such a step with a hard violation, Claude Code shows the notice line, and the Adapter keeps the text.
+The Adapter blocks only when the last reply of the turn has a hard violation.
+The model then also gets the kept text and the violation details of the earlier steps.
+If the last reply has no hard violation, the Adapter does not block, and the reply shows one time.
+The kept text of a step with a tool call does not use one of the two rewrites.
 The hold does not apply to subagent replies.
 If the reply check fails, the Adapter shows the reply and adds one warning line.
 After an interrupt during the hold, Claude Code shows no text for that reply.

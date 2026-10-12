@@ -16,8 +16,12 @@ If the text has no hard violation, the hook yields the pieces unchanged.
 If the text has a hard violation, the hook yields one notice in place of the text.
 It keeps the text and the violation details for the `Stop` event.
 
-The `classic.Stop` hook of the module then blocks the `Stop` event.
+The `classic.Stop` hook of the module then blocks the `Stop` event, but only when the last step of the turn was held.
 The block reason gives the held text and the violation details to the model, which writes the reply again.
+A step that has text and a tool call can also be held, and its tool runs.
+The block reason also lists the held text and the violation details of those earlier steps.
+If the last step has no hard violation, the hook does not block, because a block would show a correct reply two times.
+The held text of the earlier steps then shows only as the notice, and it does not count as a block.
 We selected this path and not a side request with `$.model.complete`.
 The main model has the full conversation, so the rewrite keeps the technical content, and the model reads its violations.
 The pi Adapter uses the same contract through its `say` tool.
@@ -27,7 +31,8 @@ Claude Code prints each block reason below its summary of the `Stop` command hoo
 That print showed the held text in a test, and the summary appears only when a lower hook runs.
 The lower hooks run at the `Stop` event of the reply that the user sees.
 
-The module blocks a maximum of two replies in one turn, and Claude Code then shows the next reply unchanged.
+The model gets a maximum of two rewrites in one turn.
+The sequence is: the module blocks the first reply, the module blocks the first rewrite, and Claude Code shows the second rewrite unchanged.
 Claude Code accepts a block when `stop_hook_active` is true, so the module counts the blocks.
 We did not select a notice that stays until a rewrite passes.
 A rule that the model cannot satisfy would then hide every reply.
