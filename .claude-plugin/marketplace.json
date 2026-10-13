@@ -11,7 +11,7 @@
     {
       "name": "simple-english",
       "description": "Apply technical and house-style writing rules to writes, edits, git commit messages, and replies. Needs Claude Code 2.1.296 or later.",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "author": {
         "name": "JIA YI"
       },
