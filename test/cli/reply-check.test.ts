@@ -82,6 +82,58 @@ describe("simple-english reply-check", () => {
     ])
   })
 
+  test("gives no feedback for vertical lists directly below a label line", async () => {
+    const cwd = await makeDirectory("ste-reply-check-")
+    const reply = [
+      "**B. Second group**",
+      "5. `epsilon` - explains how one part works. It reads the code. **yes**",
+      "6. `zeta` - finds the cause of a change. It reads the history. **yes**",
+      "7. `eta` - gives one plain answer. It replaces the old tool. **no**",
+      "8. `theta` - finds what a change can break. It shows real code. **yes**",
+      "",
+      "**C. Names**",
+      "- 29 `attack-the-premise`, 30 `boundary-discipline`, 31 `build-the-lever`, 32 `encode-lessons`",
+      "- 33 `exhaust-the-design-space`, 34 `experience-first`, 35 `explain-the-number`, 36 `fix-root-causes`",
+      "- 37 `foundational-thinking`, 38 `guard-the-context`, 39 `laziness-protocol`, 40 `make-idempotent`",
+      "- 41 `migrate-callers`, 42 `minimize-reader-load`, 43 `model-the-domain`, 44 `never-block`",
+    ].join("\n")
+
+    const result = await runCli(["reply-check"], {
+      stdin: request(cwd, reply),
+      xdgStateHome: await makeDirectory("ste-reply-state-"),
+    })
+
+    expect(result).toMatchObject({ code: 0, stderr: "" })
+    expect(JSON.parse(result.stdout)).toEqual({})
+  })
+
+  test("gives the length feedback for one list item that is too long", async () => {
+    const cwd = await makeDirectory("ste-reply-check-")
+    const reply = [
+      "**B. Second group**",
+      "5. Open the valve. Read the gauge. Write the value. Close the valve. Stop. Wait. Go.",
+      "6. Close the door.",
+      "",
+      "**C. Names**",
+      `- ${Array.from({ length: 26 }, (_, index) => `name${index + 1}`).join(" ")}`,
+      "- alpha, beta",
+    ].join("\n")
+
+    const result = await runCli(["reply-check"], {
+      stdin: request(cwd, reply),
+      xdgStateHome: await makeDirectory("ste-reply-state-"),
+    })
+
+    expect(result).toMatchObject({ code: 0, stderr: "" })
+    expect(JSON.parse(result.stdout)).toEqual({
+      feedback: [
+        "Writing rules blocked reply for assistant reply:",
+        "- line 2, column 1 [paragraph-length]: Paragraph has 7 sentences; the maximum is 6. Suggested fix: Split the paragraph into shorter paragraphs.",
+        "- line 6, column 3 [sentence-length]: Sentence has 26 words; the maximum is 25. Suggested fix: Split the sentence into shorter sentences.",
+      ].join("\n"),
+    })
+  })
+
   test("uses the project config of the given working directory", async () => {
     const cwd = await makeDirectory("ste-reply-check-")
     await writeFile(

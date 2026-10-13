@@ -69,6 +69,18 @@ describe("block structure: a block start stops the abbreviation lookahead of a s
   })
 })
 
+describe("block structure: a list item starts a new sentence", () => {
+  test("a list item ends an open sentence that has no terminator", () => {
+    expect(positions(`- ${words(13)}\n- ${words(13)}`)).toEqual([])
+    expect(positions(`${words(13)}\n- ${words(13)}`)).toEqual([])
+    expect(positions(`> - ${words(13)}\n> - ${words(13)}`)).toEqual([])
+  })
+
+  test("a list item keeps its own continuation line in the sentence", () => {
+    expect(positions(`- ${words(13)}\n  ${words(13)}`)).toEqual([["sentence-length", 1, 3]])
+  })
+})
+
 describe("block structure: a paragraph boundary splits seven sentences below the cap", () => {
   const threeSentences = "One. Two. Three."
   const fourSentences = "Four. Five. Six. Seven."
@@ -77,6 +89,25 @@ describe("block structure: a paragraph boundary splits seven sentences below the
     expect(positions(`${threeSentences}\n- ${fourSentences}`)).toEqual([])
     expect(positions(`${threeSentences}\n1. ${fourSentences}`)).toEqual([])
     expect(positions(`- ${threeSentences}\n- ${fourSentences}`)).toEqual([])
+  })
+
+  test("an ordered list item with any start number starts its own paragraph", () => {
+    expect(positions(`${threeSentences}\n5. ${fourSentences}`)).toEqual([])
+    expect(positions(`${threeSentences}\n10) ${fourSentences}`)).toEqual([])
+    expect(positions(`Label\n5. ${threeSentences} Four. Five. Six.`)).toEqual([])
+    expect(positions(`Label\n5. ${threeSentences} ${fourSentences}`)).toEqual([
+      ["paragraph-length", 2, 1],
+    ])
+  })
+
+  test("a decimal number at a line start is not an ordered list marker", () => {
+    expect(positions(`${threeSentences} The mass is\n3.5 kg. ${fourSentences}`)).toEqual([
+      ["paragraph-length", 1, 1],
+    ])
+  })
+
+  test("a wrapped line that starts with a number and a full stop starts a list item, a pinned loss", () => {
+    expect(positions(`${threeSentences} This was in\n2024. ${fourSentences}`)).toEqual([])
   })
 
   test("a block quote starts its own paragraph", () => {
