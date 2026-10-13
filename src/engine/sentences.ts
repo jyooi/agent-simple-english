@@ -1,3 +1,5 @@
+import type { SentenceBoundary } from "./markdown.ts"
+
 export interface Sentence {
   readonly text: string
   readonly line: number
@@ -454,7 +456,7 @@ export function segmentSentences(
   sourceText: string = lines.join("\n"),
   structuralBlanks: readonly boolean[] = lines.map((line) => line.trim() === ""),
   boundaryLines: readonly string[] = lines,
-  sentenceBoundaryLines: readonly boolean[] = lines.map(() => false),
+  sentenceBoundaryLines: readonly SentenceBoundary[] = lines.map(() => "none"),
 ): Sentence[] {
   const sentences: Sentence[] = []
   const lineOffsets = [0]
@@ -467,7 +469,8 @@ export function segmentSentences(
   const boundaryOffsets: number[] = []
   const paragraphEnds: number[] = []
   const lookaheadBreaks = lines.map(
-    (_line, index) => (structuralBlanks[index] ?? true) || (sentenceBoundaryLines[index] ?? false),
+    (_line, index) =>
+      (structuralBlanks[index] ?? true) || (sentenceBoundaryLines[index] ?? "none") !== "none",
   )
   let boundaryOffset = 0
   for (const line of effectiveBoundaryLines) {
@@ -519,6 +522,7 @@ export function segmentSentences(
   }
 
   lines.forEach((maskedRaw, index) => {
+    if (sentenceBoundaryLines[index] === "starts-sentence") close()
     if (maskedRaw.trim() === "") {
       if (structuralBlanks[index] ?? true) close()
       return

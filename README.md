@@ -502,6 +502,8 @@ See [Configuration](#configuration) for list selection, precedence, and load err
 Default: hard.
 Reports a prose paragraph that has more than six sentences.
 Markdown block boundaries and list items start separate paragraphs.
+An ordered list item starts a list with any start number, also directly below a paragraph line.
+CommonMark keeps such a line in the paragraph when the number is not 1.
 Sentence counts use the [`sentence-length`](#sentence-length) segmentation rules.
 
 #### `phrasal-verb`
@@ -527,6 +529,8 @@ Sentence segmentation recognizes only `e.g.`, `i.e.`, `etc.`, `vs.`, `Fig.`, `No
 It keeps an abbreviation in the current sentence when lowercase prose follows it.
 It preserves a sentence boundary before capitalized prose, except after a single capital letter or before a short `Fig.` or `No.` designator such as `Fig. A` or `No. 7`.
 Markdown block boundaries stop abbreviation lookahead.
+
+The start of a list item ends the sentence before it.
 
 #### `verb-progressive`
 

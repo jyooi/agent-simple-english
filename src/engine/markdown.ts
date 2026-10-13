@@ -16,9 +16,11 @@ interface MarkdownAnalysis {
   readonly wordingDictionaryLines: string[]
   readonly structuralBlanks: boolean[]
   readonly wordingStructuralBlanks: boolean[]
-  readonly sentenceBoundaryLines: boolean[]
+  readonly sentenceBoundaryLines: SentenceBoundary[]
   readonly blocks: BlockStructure
 }
+
+export type SentenceBoundary = "none" | "stops-lookahead" | "starts-sentence"
 
 export const NO_LEAF_BLOCK = -1
 
@@ -39,7 +41,7 @@ interface AnalysisState {
   readonly blockQuoteMask: Uint8Array | undefined
   readonly blockQuoteLines: Uint8Array | undefined
   readonly structuralBlanks: boolean[]
-  readonly sentenceBoundaryLines: boolean[]
+  readonly sentenceBoundaryLines: SentenceBoundary[]
   readonly blockIds: number[]
   readonly blockContentStarts: number[]
 }
@@ -236,7 +238,7 @@ const createAnalysisState = (
     blockQuoteMask: exemptBlockQuotes ? new Uint8Array(source.length) : undefined,
     blockQuoteLines: exemptBlockQuotes ? new Uint8Array(parseLines.length) : undefined,
     structuralBlanks: parseLines.map((line) => line.trim() === ""),
-    sentenceBoundaryLines: parseLines.map(() => false),
+    sentenceBoundaryLines: parseLines.map(() => "none"),
     blockIds: parseLines.map(() => NO_LEAF_BLOCK),
     blockContentStarts: parseLines.map(() => 0),
   }
@@ -470,8 +472,14 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
     }
     if (phase !== "enter") continue
 
-    if (SENTENCE_BOUNDARY_TOKENS.has(token.type)) {
-      state.sentenceBoundaryLines[token.start.line - 1] = true
+    const line = token.start.line - 1
+    if (token.type === "listItemPrefix") {
+      state.sentenceBoundaryLines[line] = "starts-sentence"
+    } else if (
+      SENTENCE_BOUNDARY_TOKENS.has(token.type) &&
+      state.sentenceBoundaryLines[line] === "none"
+    ) {
+      state.sentenceBoundaryLines[line] = "stops-lookahead"
     }
     if (LEAF_BLOCK_TOKENS.has(token.type)) {
       markLeafBlock(state, token, nextBlockId++)
@@ -481,7 +489,6 @@ const analyzeEvents = (state: AnalysisState, includeDictionary: boolean): void =
       continue
     }
     if (CONTAINER_TOKENS.has(token.type)) {
-      const line = token.start.line - 1
       state.blockContentStarts[line] = Math.max(
         state.blockContentStarts[line] ?? 0,
         token.end.column - 1,

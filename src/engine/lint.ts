@@ -10,7 +10,7 @@ import { retainedRanges } from "./diff.ts"
 import { newFindings, type ScopedViolation, type ViolationScope } from "./diff-match.ts"
 import { extractHtmlProse } from "./html.ts"
 import { blankIdentifiers } from "./identifiers.ts"
-import { type BlockStructure, blankMarkdownForLint } from "./markdown.ts"
+import { type BlockStructure, blankMarkdownForLint, type SentenceBoundary } from "./markdown.ts"
 import { type Paragraph, segmentParagraphsByLeafBlock } from "./paragraphs.ts"
 import { contraction } from "./rules/contraction.ts"
 import { type CompiledDictionary, compileDictionary, dictionaryRule } from "./rules/dictionary.ts"
@@ -65,7 +65,7 @@ interface PreparedProse {
   readonly wordingStructuralLines: readonly string[]
   readonly structuralBlanks: readonly boolean[]
   readonly wordingStructuralBlanks: readonly boolean[]
-  readonly sentenceBoundaryLines: readonly boolean[]
+  readonly sentenceBoundaryLines: readonly SentenceBoundary[]
   readonly blocks: BlockStructure
 }
 

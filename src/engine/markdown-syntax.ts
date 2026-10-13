@@ -1,3 +1,4 @@
+import { list } from "micromark-core-commonmark"
 import {
   asciiAlpha,
   asciiAlphanumeric,
@@ -163,9 +164,20 @@ const rawHtmlFlow: Construct = {
   tokenize: tokenizeRawHtmlFlow,
 }
 
+const orderedListAfterParagraph: Construct = {
+  ...list,
+  tokenize(this: TokenizeContext, effects: Effects, ok: State, nok: State): State {
+    const context: TokenizeContext = Object.create(this, { interrupt: { value: false } })
+    return list.tokenize.call(context, effects, ok, nok)
+  },
+}
+
 export const markdownSyntaxExtension: Extension = {
   disable: {
     null: ["labelEnd", "labelStartImage", "labelStartLink"],
   },
+  document: Object.fromEntries(
+    Array.from({ length: 10 }, (_, digit) => [48 + digit, orderedListAfterParagraph]),
+  ),
   flow: { 60: rawHtmlFlow },
 }
