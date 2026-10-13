@@ -688,8 +688,8 @@ describe("lint prose-file: dictionary rule", () => {
     ).toEqual([])
   })
 
-  test("keeps noninterrupting ordered list markers in the paragraph", () => {
-    const report = lint("prose-file", "Alphaword\n2. [target]: Betaword", {
+  test("reads an ordered list marker with any start number as a list item", () => {
+    const report = lint("prose-file", "Alphaword\n2. Betaword", {
       dictionary: approvedWordList,
     })
 
@@ -698,30 +698,17 @@ describe("lint prose-file: dictionary rule", () => {
         ruleId: "dictionary-not-approved-word",
         severity: "hard",
         snippet: expect.any(String),
-        message: '"2" is not in the approved-word list.',
-        suggestions: [],
-        line: 2,
-        column: 1,
-      },
-      {
-        ruleId: "dictionary-not-approved-word",
-        severity: "hard",
-        snippet: expect.any(String),
-        message: '"target" is not in the approved-word list.',
-        suggestions: [],
-        line: 2,
-        column: 5,
-      },
-      {
-        ruleId: "dictionary-not-approved-word",
-        severity: "hard",
-        snippet: expect.any(String),
         message: '"Betaword" is not in the approved-word list.',
         suggestions: [],
         line: 2,
-        column: 14,
+        column: 4,
       },
     ])
+    expect(
+      lint("prose-file", "Alphaword\n2. [target]: Betaword", {
+        dictionary: approvedWordList,
+      }).violations,
+    ).toEqual([])
   })
 
   test("checks unbalanced definition destinations as prose", () => {
