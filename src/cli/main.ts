@@ -145,24 +145,23 @@ const args = process.argv.slice(2)
 const tagger = makeLazyWinkTagger()
 
 const hookProgram = Effect.gen(function* () {
-  const output = yield* runHookMode(yield* readStdin, tagger)
+  yield* rejectUnknownFlags(args.slice(1))
+  const output = yield* readStdin.pipe(
+    Effect.andThen((input) => runHookMode(input, tagger)),
+    Effect.catchCause((cause) => Effect.succeed(hookInternalFailure(cause))),
+  )
   console.log(JSON.stringify(output))
   return 0
-}).pipe(
-  Effect.catchCause((cause) =>
-    Effect.sync(() => {
-      console.log(JSON.stringify(hookInternalFailure(cause)))
-      return 0
-    }),
-  ),
-)
+})
 
 const replyCheckProgram = Effect.gen(function* () {
+  yield* rejectUnknownFlags(args.slice(1))
   console.log(JSON.stringify(yield* runReplyCheck(yield* readStdin, tagger)))
   return 0
 })
 
 const sessionProgram = Effect.gen(function* () {
+  yield* rejectUnknownFlags(args.slice(1))
   console.log(yield* runSessionCommand(args.slice(1)))
   return 0
 })
@@ -253,16 +252,14 @@ const lintProgram = Effect.gen(function* () {
   return report.summary.hard > 0 ? 1 : 0
 })
 
-const program: Effect.Effect<number, Error> =
-  args[0] === "hook"
-    ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(hookProgram))
-    : args[0] === "reply-check"
-      ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(replyCheckProgram))
-      : args[0] === "session"
-        ? rejectUnknownFlags(args.slice(1)).pipe(Effect.andThen(sessionProgram))
-        : args[0] === "observe"
-          ? observeProgram
-          : lintProgram
+const COMMANDS = new Map<string | undefined, Effect.Effect<number, Error>>([
+  ["hook", hookProgram],
+  ["reply-check", replyCheckProgram],
+  ["session", sessionProgram],
+  ["observe", observeProgram],
+])
+
+const program = COMMANDS.get(args[0]) ?? lintProgram
 
 const handled = program.pipe(
   Effect.catch((error) =>
