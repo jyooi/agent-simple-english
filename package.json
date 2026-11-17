@@ -41,7 +41,8 @@
     "test": "vitest run",
     "bench:markdown": "vitest bench test/engine/markdown.bench.ts",
     "lint": "biome check . && bun scripts/check-no-comments.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "bun scripts/check-verification.ts"
   },
   "dependencies": {
     "@lezer/html": "^1.3.12",
