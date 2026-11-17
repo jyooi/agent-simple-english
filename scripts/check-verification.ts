@@ -65,9 +65,14 @@ function hasSkill(): boolean {
 }
 
 async function tlaTools(tool: VerificationRecord["tool"]): Promise<string> {
-  const path =
-    process.env.TLA2TOOLS_JAR ??
-    join(repositoryRoot, "node_modules", ".cache", "tla2tools", tool.version, "tla2tools.jar")
+  const path = join(
+    repositoryRoot,
+    "node_modules",
+    ".cache",
+    "tla2tools",
+    tool.version,
+    "tla2tools.jar",
+  )
   if (!existsSync(path)) {
     const response = await fetch(tool.url)
     if (!response.ok) throw new Error(`cannot download ${tool.url}: HTTP ${response.status}`)
@@ -127,8 +132,17 @@ async function tlc(
   }
 }
 
-export const coveredDigest = (covers: VerificationRecord["covers"]): string =>
-  sha256(covers.map((cover) => `${cover.sha256}  ${cover.file}\n`).join(""))
+async function coveredDigest(root: string, record: VerificationRecord): Promise<string> {
+  const model = await Promise.all(
+    [record.model.spec, record.model.config].map(async (name) => {
+      const file = posix.join(skillPath, name)
+      return { file, sha256: sha256(await readFile(join(root, file))) }
+    }),
+  )
+  return sha256(
+    [...record.covers, ...model].map((cover) => `${cover.sha256}  ${cover.file}\n`).join(""),
+  )
+}
 
 export const chartDigest = (text: string): string | undefined => {
   const body = /^```mermaid[ \t]*\n([\s\S]*?)^```[ \t]*$/mu.exec(text)?.[1]
@@ -175,7 +189,7 @@ export async function checkChart(root: string, record: VerificationRecord): Prom
   const inChange = new Set(
     changes.filter(([status]) => status !== "D").map(([, path = ""]) => path),
   )
-  const digest = coveredDigest(record.covers)
+  const digest = await coveredDigest(root, record)
   const problems: string[] = []
   for (const chart of charts) {
     const text = await git(root, "show", `HEAD:${chart}`)
@@ -200,7 +214,7 @@ export async function checkChart(root: string, record: VerificationRecord): Prom
     }
     if (touchesVerification && !text.includes(digest)) {
       problems.push(
-        `The change touches verified code or the model, and ${chart} does not name the covered digest ${digest} of record.json. Confirm the chart against the change, then write the digest in it.`,
+        `The change touches verified code or the model, and ${chart} does not name the covered digest ${digest}. Confirm the chart against the change, then write the digest in it.`,
       )
     }
   }

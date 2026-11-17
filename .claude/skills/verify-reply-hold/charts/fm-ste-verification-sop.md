@@ -102,4 +102,4 @@ Bugs that the chart marks:
 
 The chart shows "you interrupt" only from "The model writes". It does not draw steps that stay in one chart state.
 
-Covered digest: `ca49447b0b4b36e310ff015dc617a189b35a79cbc83e927d6011bc5900c61079`
+Covered digest: `ca8fe6bb0c2d19da4a9ef2f030c9f1a1a0d689391655c84f24a10431e4d753ba`

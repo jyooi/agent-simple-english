@@ -19,7 +19,6 @@ bun run verify
 
 The check needs Java 11 or later on the `PATH`.
 The first run downloads TLC 1.7.4 into `node_modules/.cache/tla2tools/1.7.4/` and checks its SHA-256 against `record.json`.
-Set `TLA2TOOLS_JAR` to use another copy of the same file.
 The `verify` job of `.github/workflows/verification.yml` runs the same command on each PR.
 
 The check fails in each of these cases, and it names the cause:
@@ -164,7 +163,11 @@ Move `syncCommit` only after you confirm that the model describes the code at th
 Each PR adds one state chart file to `charts/` in this skill folder.
 The file name is the branch name, with a hyphen in place of each character that is not a letter, a digit, `.`, `_`, or `-`, and the extension `.md`.
 For example, the branch `fm/ste-verification-sop` has the file `charts/fm-ste-verification-sop.md`.
-The check runs before the PR exists, so do not put the chart in the PR text or in a PR comment.
+The check runs before the PR exists, so it reads only the committed chart file and its SVG image.
+After the pipeline pushes the branch, post one PR comment that shows the SVG image at the pushed commit and links the chart file.
+For example, write `![State chart](https://github.com/<owner>/<repo>/blob/<commit>/<image path>?raw=true)` and a link to the chart file at the same commit.
+No check depends on that comment.
+Do not add the chart to the PR text, because the pipeline writes the full PR text again on each run.
 
 The file contains a Mermaid chart of the states that the PR changes, and the states around them that a reader needs to follow the change.
 It does not show the full application.
@@ -174,16 +177,16 @@ When the PR changes the reply hold, you can start from a copy of `ReplyHold.tla`
 When the PR changes no behavior that moves between states, write "No state change" at the start of a line, and one sentence that says why.
 
 When the PR changes a covered file, `ReplyHold.tla`, or `ReplyHold.cfg`, the chart file must name the covered digest.
-The covered digest is the SHA-256 of the `sha256sum` lines of the covered files, in the order of `record.json`.
+The covered digest is the SHA-256 of the `sha256sum` lines of the covered files, in the order of `record.json`, then `ReplyHold.tla` and `ReplyHold.cfg`.
 Get it after `record.json` holds the new digests:
 
 ```sh
-sha256sum hooks/reply-hold.ts hooks/register.ts hooks/hooks.json src/cli/hook.ts src/cli/reply-check.ts | sha256sum
+sha256sum hooks/reply-hold.ts hooks/register.ts hooks/hooks.json src/cli/hook.ts src/cli/reply-check.ts .claude/skills/verify-reply-hold/ReplyHold.tla .claude/skills/verify-reply-hold/ReplyHold.cfg | sha256sum
 ```
 
 The check also prints the expected digest when it fails.
 Write it in the chart file as `Covered digest: <digest>`.
-A chart with an old digest shows that the chart is older than the covered code, so draw the chart again from the change before you write the new digest.
+A chart with an old digest shows that the chart is older than the covered code or the model, so draw the chart again from the change before you write the new digest.
 When the PR changes no covered file and no model file, the chart file needs no digest.
 
 ### Image of the chart

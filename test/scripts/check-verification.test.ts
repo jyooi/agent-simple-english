@@ -8,7 +8,10 @@ import { checkChart } from "../../scripts/check-verification.ts"
 const chartPath = ".claude/skills/verify-reply-hold/charts/feature-x.md"
 const coveredFile = "hooks/reply-hold.ts"
 const coveredSha = "f49ee8269d9f774ee95181efccf65ec1a6201c8dffc6b55d44903e37538625d2"
-const digest = "cf21e8211ab6a14bdd4a3111a4786570924bfa819a0746f883e523ad019012e8"
+const specPath = ".claude/skills/verify-reply-hold/ReplyHold.tla"
+const configPath = ".claude/skills/verify-reply-hold/ReplyHold.cfg"
+const digest = "e3243dc2b06fc43c2f3a5491cb06c64af94609b8312301681e08d1708f773b83"
+const changedModelDigest = "c4c107aacab86b475a43359bd98e59794a6f20df6561eb316cfe0e1827c5f0d0"
 const imagePath = ".claude/skills/verify-reply-hold/charts/feature-x.svg"
 const chartDigest = "4a86c6636a2039878fcd01471deaf08b41ed06c016fd8b203c8fedd102989189"
 const olderChartDigest = "3b0b858af0541122e291223190856bd5ef968e320f54a7afd4d49c8044c62e80"
@@ -50,7 +53,12 @@ const commit = (files: Record<string, string>): void => {
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "check-chart-"))
   git("init", "-q", "-b", "main")
-  commit({ [coveredFile]: "one\n", "README.md": "one\n" })
+  commit({
+    [coveredFile]: "one\n",
+    "README.md": "one\n",
+    [specPath]: "---- MODULE ReplyHold ----\n====\n",
+    [configPath]: "INVARIANTS\n  TypeOK\n",
+  })
   git("update-ref", "refs/remotes/origin/main", "HEAD")
   git("checkout", "-q", "-b", "feature/x")
 })
@@ -98,13 +106,13 @@ describe("state chart file of a change", () => {
     expect(await checkChart(root, record)).toEqual([expect.stringContaining(digest)])
   })
 
-  test("fails when the model changed and the chart names an old covered digest", async () => {
+  test("fails when only the model changed and the chart names the covered digest before the change", async () => {
     commit({
-      ".claude/skills/verify-reply-hold/ReplyHold.tla": "---- MODULE ReplyHold ----\n",
-      [chartPath]: `${mermaid}\nCovered digest: ${"0".repeat(64)}\n`,
+      [specPath]: "---- MODULE ReplyHold ----\nVARIABLE x\n====\n",
+      [chartPath]: `${mermaid}\nCovered digest: ${digest}\n`,
       [imagePath]: image(chartDigest),
     })
-    expect(await checkChart(root, record)).toEqual([expect.stringContaining(digest)])
+    expect(await checkChart(root, record)).toEqual([expect.stringContaining(changedModelDigest)])
   })
 
   test("passes when a covered file changed and the chart names the covered digest", async () => {
