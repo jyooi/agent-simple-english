@@ -612,8 +612,12 @@ bun run test
 bun run bench:markdown
 bun run lint
 bun run typecheck
+bun run verify
 npm publish --dry-run
 ```
+
+`bun run verify` needs Java 11 or later.
+The [verify-reply-hold skill](.claude/skills/verify-reply-hold/SKILL.md) tells what it checks.
 
 Actual npm publishing is a separate release action.
 

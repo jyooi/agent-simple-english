@@ -1,0 +1,84 @@
+{
+  "syncCommit": "b38b1e4c99e6acc3d6fd210822f0b0fc79f3d587",
+  "tool": {
+    "name": "TLC",
+    "version": "1.7.4",
+    "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+  },
+  "model": {
+    "spec": "ReplyHold.tla",
+    "config": "ReplyHold.cfg"
+  },
+  "covers": [
+    {
+      "file": "hooks/reply-hold.ts",
+      "functions": [
+        "holdReply",
+        "restoreReply",
+        "blockHeldReply",
+        "replyFeedback",
+        "strictSession",
+        "BLOCK_LIMIT",
+        "turn"
+      ],
+      "sha256": "f49ee8269d9f774ee95181efccf65ec1a6201c8dffc6b55d44903e37538625d2"
+    },
+    {
+      "file": "hooks/register.ts",
+      "functions": [
+        "register"
+      ],
+      "sha256": "04f6080178bdcc82e3c1d4335870720bebd8204c877f9d9fc547ded7269f8cec"
+    },
+    {
+      "file": "hooks/hooks.json",
+      "functions": [
+        "the Stop command hook"
+      ],
+      "sha256": "e310bd311386f311eaaa3fad3b30070759ae530ed494e34a67ee2596964571d0"
+    },
+    {
+      "file": "src/cli/hook.ts",
+      "functions": [
+        "evaluateReply"
+      ],
+      "sha256": "d65ebdfea6d1727ec9efbb0718b875216bc690c780fcd2ad973f5ad557c6afcd"
+    },
+    {
+      "file": "src/cli/reply-check.ts",
+      "functions": [
+        "runReplyCheck"
+      ],
+      "sha256": "a46b12d638dc75e7829053edaab16ae03e2b584c2da040552749dddebf81989a"
+    }
+  ],
+  "properties": [
+    {
+      "name": "HeldTextStaysHidden",
+      "status": "holds",
+      "break": {
+        "code": "hooks/reply-hold.ts holdReply yields the pieces in place of noticePieces(pieces)",
+        "find": "  /\\ shown' = [text |-> \"notice\", check |-> \"dirty\", stopBlocks |-> stopBlocks]",
+        "replace": "  /\\ Show(\"dirty\")"
+      }
+    },
+    {
+      "name": "RewritesFinite",
+      "status": "holds",
+      "break": {
+        "code": "hooks/reply-hold.ts holdReply starts a new turn record at each step",
+        "find": "  /\\ LET current == IF hold.id = turnId",
+        "replace": "  /\\ LET current == IF FALSE"
+      }
+    },
+    {
+      "name": "NoticeIsFollowed",
+      "status": "finding"
+    },
+    {
+      "name": "RewritesBounded",
+      "status": "finding"
+    }
+  ]
+}
