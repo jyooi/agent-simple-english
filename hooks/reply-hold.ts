@@ -43,7 +43,13 @@ interface HeldReply {
 
 type StopResult = Readonly<Record<string, unknown>>
 
-let turn = { id: "", blocks: 0, held: [] as HeldReply[], lastStepHeld: false }
+let turn = {
+  id: "",
+  blocks: 0,
+  held: [] as HeldReply[],
+  blocked: [] as HeldReply[],
+  noticeIsLast: false,
+}
 
 export async function sessionStatePath(
   sessionId: string,
@@ -117,9 +123,13 @@ export async function* holdReply(
   next: StepNext,
 ): AsyncGenerator<Piece, StepResult> {
   if (e.agentId !== undefined) return yield* next(e)
-  if (turn.id !== e.turnId) turn = { id: e.turnId, blocks: 0, held: [], lastStepHeld: false }
-  turn.lastStepHeld = false
-  if (turn.blocks >= BLOCK_LIMIT || !(await strictSession($))) return yield* next(e)
+  if (turn.id !== e.turnId) {
+    turn = { id: e.turnId, blocks: 0, held: [], blocked: [], noticeIsLast: false }
+  }
+  if (turn.blocks >= BLOCK_LIMIT || !(await strictSession($))) {
+    turn.noticeIsLast = false
+    return yield* next(e)
+  }
 
   const { pieces, result } = await readAll(next(e))
   if (next.signal.aborted) return result
@@ -128,6 +138,7 @@ export async function* holdReply(
     return result
   }
 
+  turn.noticeIsLast = false
   let feedback: string | undefined
   try {
     feedback = await replyFeedback($, result.answer)
@@ -143,7 +154,7 @@ export async function* holdReply(
   }
 
   turn.held.push({ reply: result.answer, feedback })
-  turn.lastStepHeld = true
+  turn.noticeIsLast = true
   yield* noticePieces(pieces)
   return result
 }
@@ -172,8 +183,12 @@ export async function blockHeldReply(
   next: (e: unknown) => Promise<StopResult>,
 ): Promise<StopResult> {
   const held = turn.held.splice(0)
-  if (!turn.lastStepHeld) return next(e)
-  turn.lastStepHeld = false
+  if (!turn.noticeIsLast || turn.blocks >= BLOCK_LIMIT) {
+    const result = await next(e)
+    if (result.block !== undefined) turn.blocks += 1
+    return result
+  }
+  if (held.length > 0) turn.blocked = held
   turn.blocks += 1
-  return { block: blockReason(held) }
+  return { block: blockReason(turn.blocked) }
 }
