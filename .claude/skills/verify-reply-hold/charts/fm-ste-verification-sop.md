@@ -58,8 +58,13 @@ stateDiagram-v2
   s10 --> s8: the step shows
   s10 --> s6: the step shows, and a tool runs
   s1 --> s10: the model writes [after two rewrites]
+  classDef tan fill:#e5d9ce,color:#1f1f1f
+  classDef blue fill:#c3e0ff,color:#1f1f1f
+  classDef yellow fill:#f0dcbf,color:#1f1f1f
+  classDef teal fill:#bfe3df,color:#1f1f1f
   classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
   classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  classDef bugPath stroke:#1680f3,stroke-width:2.5px
   class s0 tan
   class s0 bugPath
   class s1 blue

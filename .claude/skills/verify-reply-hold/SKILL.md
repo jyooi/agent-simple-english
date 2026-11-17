@@ -165,6 +165,7 @@ The check runs before the PR exists, so do not put the chart in the PR text or i
 
 The file contains a Mermaid chart of the states that the PR changes, and the states around them that a reader needs to follow the change.
 It does not show the full application.
+The chart must define each class that it applies with a `classDef` line, because a Mermaid viewer ignores a class with no definition.
 Write the TLA+ model of the chart in a scratch folder outside the repository, and draw it with the `/statechart` skill.
 When the PR changes the reply hold, you can start from a copy of `ReplyHold.tla` with smaller bounds.
 When the PR changes no behavior that moves between states, write "No state change" at the start of a line, and one sentence that says why.
