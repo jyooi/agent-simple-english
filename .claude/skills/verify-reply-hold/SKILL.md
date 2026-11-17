@@ -1,6 +1,6 @@
 ---
 name: verify-reply-hold
-description: Model-check the strict reply hold of the Claude Code Adapter with TLC, and add the State chart part to each PR. Use when a change touches hooks/reply-hold.ts, hooks/register.ts, hooks/hooks.json, evaluateReply in src/cli/hook.ts, or src/cli/reply-check.ts, when you open a PR, or when bun run verify fails.
+description: Model-check the strict reply hold of the Claude Code Adapter with TLC, and add the state chart file of each PR. Use when a change touches hooks/reply-hold.ts, hooks/register.ts, hooks/hooks.json, evaluateReply in src/cli/hook.ts, or src/cli/reply-check.ts, when you open a PR, or when bun run verify fails.
 ---
 
 # Verify the strict reply hold
@@ -28,9 +28,12 @@ The check fails in each of these cases, and it names the cause:
 2. A covered file changed, and its SHA-256 in `record.json` did not.
 3. TLC finds a violation of a property with the status `holds`, or a recorded finding no longer breaks.
 4. TLC does not catch the recorded break of a property with the status `holds`.
-5. In CI on a PR, the PR text and the PR comments have no State chart part.
+5. The change adds no state chart file, as "State chart file of each PR" tells you.
+6. A state chart file has no Mermaid chart and no "No state change" note.
+7. The change touches a covered file, `ReplyHold.tla`, or `ReplyHold.cfg`, and the state chart file does not name the covered digest.
 
-A local run has no PR data, so it does not check case 5.
+The check finds the change from the merge base of `HEAD` and `origin/main` to `HEAD`.
+It does not check cases 5 to 7 when `HEAD` has no change from `origin/main`, for example on `main`.
 
 ## Tell if a change touches verified code
 
@@ -108,15 +111,15 @@ Each action in `ReplyHold.tla` is one indivisible step in the code at the sync c
 | Action | Code |
 | --- | --- |
 | `UserPrompts` | Claude Code starts a turn with a new turn ID. |
-| `StepStarts` | `hooks/reply-hold.ts:180-183`: reset `turn` for a new turn ID, clear `lastStepHeld`, and compare `blocks` with `BLOCK_LIMIT`. The model picks the reply that the model writes. |
-| `PassesOn` | `hooks/reply-hold.ts:183`: `return yield* next(e)` after two blocks. |
-| `ReadsStep` | `hooks/reply-hold.ts:185-190`: `readAll`, and a step with no text shows unchanged. |
-| `CheckPasses` | `hooks/reply-hold.ts:194` and `201-204`: the check gives no feedback, and the pieces show. |
-| `CheckHolds` | `hooks/reply-hold.ts:206-208`: push the held reply, set `lastStepHeld`, and show the notice. |
-| `CheckFails` | `hooks/reply-hold.ts:195-204`: the check throws, the hook logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:212-228`) handles has the same result. |
-| `UserInterrupts` | `hooks/reply-hold.ts:186`, `196`, and `200`: after an abort, the hook returns and shows nothing. |
-| `HookBlocksStop` | `hooks/reply-hold.ts:235-239`: `blockHeldReply` blocks when the last step was held, and it counts the block. |
-| `CommandHookBlocksStop` | `hooks/reply-hold.ts:236` calls the `Stop` command hook of `hooks/hooks.json`. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
+| `StepStarts` | `hooks/reply-hold.ts:120-122`: reset `turn` for a new turn ID, clear `lastStepHeld`, and compare `blocks` with `BLOCK_LIMIT`. The model picks the reply that the model writes. |
+| `PassesOn` | `hooks/reply-hold.ts:122`: `return yield* next(e)` after two blocks. |
+| `ReadsStep` | `hooks/reply-hold.ts:124-129`: `readAll`, and a step with no text shows unchanged. |
+| `CheckPasses` | `hooks/reply-hold.ts:133` and `140-143`: the check gives no feedback, and the pieces show. |
+| `CheckHolds` | `hooks/reply-hold.ts:145-147`: push the held reply, set `lastStepHeld`, and show the notice. |
+| `CheckFails` | `hooks/reply-hold.ts:131-143`: the check throws, the hook logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:151-167`) handles has the same result. |
+| `UserInterrupts` | `hooks/reply-hold.ts:125`, `135`, and `139`: after an abort, the hook returns and shows nothing. |
+| `HookBlocksStop` | `hooks/reply-hold.ts:174-178`: `blockHeldReply` blocks when the last step was held, and it counts the block. |
+| `CommandHookBlocksStop` | `hooks/reply-hold.ts:175` calls the `Stop` command hook of `hooks/hooks.json`. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
 | `TurnEnds` | The two `Stop` hooks allow the stop. |
 | `AllTurnsDone` | The model has no more turns. |
 
@@ -153,20 +156,30 @@ The SHA-256 digests in `record.json` name the exact content that the model descr
 To find the newest main commit that the record describes, find the newest main commit where each covered file has its recorded digest.
 Move `syncCommit` only after you confirm that the model describes the code at the new commit.
 
-## State chart part of each PR
+## State chart file of each PR
 
-Each PR needs a State chart part: a heading "State chart", then a Mermaid chart or the words "No state change".
-Put it in the PR text or in one PR comment.
-The no-mistakes pipeline writes the full PR text again on each later run, so prefer one PR comment.
+Each PR adds one state chart file to `charts/` in this skill folder.
+The file name is the branch name, with a hyphen in place of each character that is not a letter, a digit, `.`, `_`, or `-`, and the extension `.md`.
+For example, the branch `fm/ste-verification-sop` has the file `charts/fm-ste-verification-sop.md`.
+The check runs before the PR exists, so do not put the chart in the PR text or in a PR comment.
 
-The chart shows only the behavior that the PR changes, and the states around it that a reader needs to follow the change.
+The file contains a Mermaid chart of the states that the PR changes, and the states around them that a reader needs to follow the change.
 It does not show the full application.
 Write the TLA+ model of the chart in a scratch folder outside the repository, and draw it with the `/statechart` skill.
 When the PR changes the reply hold, you can start from a copy of `ReplyHold.tla` with smaller bounds.
-When the PR changes no behavior that moves between states, write "No state change" and one sentence that says why.
+When the PR changes no behavior that moves between states, write "No state change" at the start of a line, and one sentence that says why.
 
-The `verify` job reads the PR text and comments when the PR opens, when the PR text changes, and on each push.
-A new comment does not start the job.
-After you post the comment, run the failed `verify` job again.
+When the PR changes a covered file, `ReplyHold.tla`, or `ReplyHold.cfg`, the chart file must name the covered digest.
+The covered digest is the SHA-256 of the `sha256sum` lines of the covered files, in the order of `record.json`.
+Get it after `record.json` holds the new digests:
+
+```sh
+sha256sum hooks/reply-hold.ts hooks/register.ts hooks/hooks.json src/cli/hook.ts src/cli/reply-check.ts | sha256sum
+```
+
+The check also prints the expected digest when it fails.
+Write it in the chart file as `Covered digest: <digest>`.
+A chart with an old digest shows that the chart is older than the covered code, so draw the chart again from the change before you write the new digest.
+When the PR changes no covered file and no model file, the chart file needs no digest.
 
 For drift that builds up across many commits, use the `/maintain-formal-verification-skill` skill.

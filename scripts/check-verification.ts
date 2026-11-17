@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, join, posix } from "node:path"
 import { promisify } from "node:util"
 
 interface Break {
@@ -32,7 +32,10 @@ interface TlcRun {
 const runFile = promisify(execFile)
 const repositoryRoot = join(import.meta.dirname, "..")
 const skillName = "verify-reply-hold"
-const skillDirectory = join(repositoryRoot, ".claude", "skills", skillName)
+const skillPath = posix.join(".claude", "skills", skillName)
+const skillDirectory = join(repositoryRoot, skillPath)
+const chartDirectory = posix.join(skillPath, "charts")
+const defaultBranch = "origin/main"
 const passed = "Model checking completed. No error has been found."
 
 const sha256 = (data: string | Uint8Array): string =>
@@ -49,9 +52,6 @@ const tlcError = (run: TlcRun): string => {
     .slice(0, 200)
     .join("\n")
 }
-
-export const hasStateChartPart = (text: string): boolean =>
-  /^#{1,6} State chart[ \t]*\r?\n[\s\S]*?(?:```mermaid|No state change)/imu.test(text)
 
 function hasSkill(): boolean {
   const path = join(skillDirectory, "SKILL.md")
@@ -127,46 +127,58 @@ async function tlc(
   }
 }
 
-async function githubJson(path: string): Promise<unknown> {
-  const token = process.env.GITHUB_TOKEN
-  const response = await fetch(`${process.env.GITHUB_API_URL ?? "https://api.github.com"}${path}`, {
-    headers: {
-      accept: "application/vnd.github+json",
-      ...(token === undefined || token === "" ? {} : { authorization: `Bearer ${token}` }),
-    },
-  })
-  if (!response.ok) throw new Error(`cannot read ${path}: HTTP ${response.status}`)
-  return response.json()
-}
+export const coveredDigest = (covers: VerificationRecord["covers"]): string =>
+  sha256(covers.map((cover) => `${cover.sha256}  ${cover.file}\n`).join(""))
 
-async function checkPullRequest(): Promise<string[]> {
-  const eventPath = process.env.GITHUB_EVENT_PATH
-  if (process.env.GITHUB_EVENT_NAME !== "pull_request" || eventPath === undefined) {
-    console.log("State chart part: not checked, because this run has no pull request data.")
+const git = async (root: string, ...args: string[]): Promise<string> =>
+  (await runFile("git", args, { cwd: root, maxBuffer: 64 * 1024 * 1024 })).stdout.trim()
+
+export async function checkChart(root: string, record: VerificationRecord): Promise<string[]> {
+  let base: string
+  try {
+    base = await git(root, "merge-base", defaultBranch, "HEAD")
+  } catch {
+    return [
+      `Cannot find the merge base of HEAD and ${defaultBranch}. Fetch ${defaultBranch} with the full history.`,
+    ]
+  }
+  if (base === (await git(root, "rev-parse", "HEAD"))) {
+    console.log(`State chart file: not checked, because HEAD has no change from ${defaultBranch}.`)
     return []
   }
-  const event = JSON.parse(await readFile(eventPath, "utf8")) as {
-    pull_request?: { number?: number }
+  const changes = (await git(root, "diff", "--name-status", "--no-renames", base, "HEAD"))
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => line.split("\t"))
+  const charts = changes
+    .filter(([status, path]) => status === "A" && posix.dirname(path ?? "") === chartDirectory)
+    .map(([, path = ""]) => path)
+  if (charts.length === 0) {
+    return [
+      `The change adds no state chart file to ${chartDirectory}. Follow the ${skillName} skill to add one.`,
+    ]
   }
-  const number = event.pull_request?.number
-  const repository = process.env.GITHUB_REPOSITORY
-  if (number === undefined || repository === undefined) {
-    return ["The pull request event has no pull request number or repository."]
+  const verified = new Set([
+    ...record.covers.map((cover) => cover.file),
+    posix.join(skillPath, record.model.spec),
+    posix.join(skillPath, record.model.config),
+  ])
+  const touchesVerification = changes.some(([, path = ""]) => verified.has(path))
+  const digest = coveredDigest(record.covers)
+  const problems: string[] = []
+  for (const chart of charts) {
+    const text = await git(root, "show", `HEAD:${chart}`)
+    if (!/^```mermaid[ \t]*$/mu.test(text) && !/^No state change\b/mu.test(text)) {
+      problems.push(`${chart} has no mermaid chart and no "No state change" note.`)
+    }
+    if (touchesVerification && !text.includes(digest)) {
+      problems.push(
+        `The change touches verified code or the model, and ${chart} does not name the covered digest ${digest} of record.json. Confirm the chart against the change, then write the digest in it.`,
+      )
+    }
   }
-  const pull = (await githubJson(`/repos/${repository}/pulls/${number}`)) as {
-    body?: string | null
-  }
-  const comments = (await githubJson(
-    `/repos/${repository}/issues/${number}/comments?per_page=100`,
-  )) as { body?: string | null }[]
-  const texts = [pull.body ?? "", ...comments.map((comment) => comment.body ?? "")]
-  if (texts.some(hasStateChartPart)) {
-    console.log(`State chart part: found in pull request ${number}.`)
-    return []
-  }
-  return [
-    `Pull request ${number} has no State chart part. Add a "State chart" heading with a mermaid chart of the changed behavior, or with the words "No state change", to the PR text or to one PR comment. Then run this job again.`,
-  ]
+  if (problems.length === 0) console.log(`State chart file: ${charts.join(", ")}.`)
+  return problems
 }
 
 async function checkModel(record: VerificationRecord): Promise<string[]> {
@@ -269,11 +281,11 @@ async function check(): Promise<string[]> {
       )
     }
   }
-  const [modelProblems, pullRequestProblems] = await Promise.all([
+  const [modelProblems, chartProblems] = await Promise.all([
     checkModel(record),
-    checkPullRequest(),
+    checkChart(repositoryRoot, record),
   ])
-  return [...problems, ...modelProblems, ...pullRequestProblems]
+  return [...problems, ...modelProblems, ...chartProblems]
 }
 
 if (import.meta.main) {

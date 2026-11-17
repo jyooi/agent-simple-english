@@ -1,30 +1,108 @@
-import { describe, expect, test } from "vitest"
-import { hasStateChartPart } from "../../scripts/check-verification.ts"
+import { execFileSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
+import { checkChart } from "../../scripts/check-verification.ts"
 
-describe("State chart part of a PR", () => {
-  test("accepts a State chart heading with a mermaid chart", () => {
-    expect(
-      hasStateChartPart(
-        "## Summary\n\nText.\n\n## State chart\n\n```mermaid\nstateDiagram-v2\n```\n",
-      ),
-    ).toBe(true)
+const chartPath = ".claude/skills/verify-reply-hold/charts/feature-x.md"
+const coveredFile = "hooks/reply-hold.ts"
+const coveredSha = "f49ee8269d9f774ee95181efccf65ec1a6201c8dffc6b55d44903e37538625d2"
+const digest = "cf21e8211ab6a14bdd4a3111a4786570924bfa819a0746f883e523ad019012e8"
+
+const record = {
+  tool: { version: "1.7.4", url: "", sha256: "" },
+  model: { spec: "ReplyHold.tla", config: "ReplyHold.cfg" },
+  covers: [{ file: coveredFile, sha256: coveredSha }],
+  properties: [],
+}
+
+let root: string
+
+const git = (...args: string[]): string =>
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=test",
+      "-c",
+      "user.email=test@example.com",
+      "-c",
+      "commit.gpgsign=false",
+    ].concat(args),
+    { cwd: root, encoding: "utf8" },
+  )
+
+const commit = (files: Record<string, string>): void => {
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), text)
+  }
+  git("add", "-A")
+  git("commit", "-q", "-m", "change")
+}
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "check-chart-"))
+  git("init", "-q", "-b", "main")
+  commit({ [coveredFile]: "one\n", "README.md": "one\n" })
+  git("update-ref", "refs/remotes/origin/main", "HEAD")
+  git("checkout", "-q", "-b", "feature/x")
+})
+
+afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+const mermaid = "## State chart\n\n```mermaid\nstateDiagram-v2\n  [*] --> a\n```\n"
+
+describe("state chart file of a change", () => {
+  test("is not checked when HEAD has no change from origin/main", async () => {
+    git("checkout", "-q", "main")
+    expect(await checkChart(root, record)).toEqual([])
   })
 
-  test("accepts a State chart heading with the no state change note", () => {
-    expect(
-      hasStateChartPart("### State chart\r\nNo state change: this PR changes only docs."),
-    ).toBe(true)
+  test("fails when the change adds no chart file", async () => {
+    commit({ "README.md": "two\n" })
+    expect(await checkChart(root, record)).toEqual([
+      expect.stringContaining("adds no state chart file"),
+    ])
   })
 
-  test("rejects a mermaid chart with no State chart heading", () => {
-    expect(hasStateChartPart("## Diagram\n\n```mermaid\nstateDiagram-v2\n```\n")).toBe(false)
+  test("fails when the change only edits a chart file of an earlier change", async () => {
+    git("checkout", "-q", "main")
+    commit({ [chartPath]: "No state change: docs.\n" })
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "-q", "-b", "feature/y")
+    commit({ [chartPath]: "No state change: other docs.\n" })
+    expect(await checkChart(root, record)).toEqual([
+      expect.stringContaining("adds no state chart file"),
+    ])
   })
 
-  test("rejects a State chart heading with no chart and no note", () => {
-    expect(hasStateChartPart("## State chart\n\nTo do.\n")).toBe(false)
+  test("passes with a no state change note when no verified file changed", async () => {
+    commit({ "README.md": "two\n", [chartPath]: "No state change: this PR changes only docs.\n" })
+    expect(await checkChart(root, record)).toEqual([])
   })
 
-  test("rejects the words State chart when they are not a heading", () => {
-    expect(hasStateChartPart("See the State chart\n```mermaid\nstateDiagram-v2\n```\n")).toBe(false)
+  test("fails when the chart file has no mermaid chart and no note", async () => {
+    commit({ [chartPath]: "## State chart\n\nTo do.\n" })
+    expect(await checkChart(root, record)).toEqual([expect.stringContaining("no mermaid chart")])
+  })
+
+  test("fails when a covered file changed and the chart does not name the covered digest", async () => {
+    commit({ [coveredFile]: "two\n", [chartPath]: mermaid })
+    expect(await checkChart(root, record)).toEqual([expect.stringContaining(digest)])
+  })
+
+  test("fails when the model changed and the chart names an old covered digest", async () => {
+    commit({
+      ".claude/skills/verify-reply-hold/ReplyHold.tla": "---- MODULE ReplyHold ----\n",
+      [chartPath]: `${mermaid}\nCovered digest: ${"0".repeat(64)}\n`,
+    })
+    expect(await checkChart(root, record)).toEqual([expect.stringContaining(digest)])
+  })
+
+  test("passes when a covered file changed and the chart names the covered digest", async () => {
+    commit({ [coveredFile]: "two\n", [chartPath]: `${mermaid}\nCovered digest: ${digest}\n` })
+    expect(await checkChart(root, record)).toEqual([])
   })
 })
