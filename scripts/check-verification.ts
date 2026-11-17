@@ -130,6 +130,11 @@ async function tlc(
 export const coveredDigest = (covers: VerificationRecord["covers"]): string =>
   sha256(covers.map((cover) => `${cover.sha256}  ${cover.file}\n`).join(""))
 
+export const chartDigest = (text: string): string | undefined => {
+  const body = /^```mermaid[ \t]*\n([\s\S]*?)^```[ \t]*$/mu.exec(text)?.[1]
+  return body === undefined ? undefined : sha256(body)
+}
+
 const git = async (root: string, ...args: string[]): Promise<string> =>
   (await runFile("git", args, { cwd: root, maxBuffer: 64 * 1024 * 1024 })).stdout.trim()
 
@@ -151,7 +156,10 @@ export async function checkChart(root: string, record: VerificationRecord): Prom
     .filter((line) => line !== "")
     .map((line) => line.split("\t"))
   const charts = changes
-    .filter(([status, path]) => status === "A" && posix.dirname(path ?? "") === chartDirectory)
+    .filter(
+      ([status, path = ""]) =>
+        status === "A" && posix.dirname(path) === chartDirectory && path.endsWith(".md"),
+    )
     .map(([, path = ""]) => path)
   if (charts.length === 0) {
     return [
@@ -164,12 +172,31 @@ export async function checkChart(root: string, record: VerificationRecord): Prom
     posix.join(skillPath, record.model.config),
   ])
   const touchesVerification = changes.some(([, path = ""]) => verified.has(path))
+  const inChange = new Set(
+    changes.filter(([status]) => status !== "D").map(([, path = ""]) => path),
+  )
   const digest = coveredDigest(record.covers)
   const problems: string[] = []
   for (const chart of charts) {
     const text = await git(root, "show", `HEAD:${chart}`)
-    if (!/^```mermaid[ \t]*$/mu.test(text) && !/^No state change\b/mu.test(text)) {
+    const drawn = chartDigest(text)
+    if (drawn === undefined && !/^No state change\b/mu.test(text)) {
       problems.push(`${chart} has no mermaid chart and no "No state change" note.`)
+    }
+    if (drawn !== undefined) {
+      const image = chart.replace(/\.md$/u, ".svg")
+      const named = inChange.has(image)
+        ? /Chart digest: ([0-9a-f]{64})/u.exec(await git(root, "show", `HEAD:${image}`))?.[1]
+        : undefined
+      if (!inChange.has(image)) {
+        problems.push(
+          `${chart} has a chart, and the change has no SVG image ${image}. Render the chart to that file as the ${skillName} skill says.`,
+        )
+      } else if (named !== drawn) {
+        problems.push(
+          `${image} is older than the chart text of ${chart}: the image names chart digest ${named ?? "none"}, and the chart text has ${drawn}. Render the image again from the chart text, and write the new digest in it.`,
+        )
+      }
     }
     if (touchesVerification && !text.includes(digest)) {
       problems.push(

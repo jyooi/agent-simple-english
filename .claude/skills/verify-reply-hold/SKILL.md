@@ -31,9 +31,12 @@ The check fails in each of these cases, and it names the cause:
 5. The change adds no state chart file, as "State chart file of each PR" tells you.
 6. A state chart file has no Mermaid chart and no "No state change" note.
 7. The change touches a covered file, `ReplyHold.tla`, or `ReplyHold.cfg`, and the state chart file does not name the covered digest.
+8. A state chart file has a Mermaid chart, and the change has no SVG image of it.
+9. The SVG image names a chart digest that is not the digest of the chart text.
 
 The check finds the change from the merge base of `HEAD` and `origin/main` to `HEAD`.
-It does not check cases 5 to 7 when `HEAD` has no change from `origin/main`, for example on `main`.
+It reads the committed files, so commit the chart file and its image before you run it.
+It does not check cases 5 to 9 when `HEAD` has no change from `origin/main`, for example on `main`.
 
 ## Tell if a change touches verified code
 
@@ -182,5 +185,21 @@ The check also prints the expected digest when it fails.
 Write it in the chart file as `Covered digest: <digest>`.
 A chart with an old digest shows that the chart is older than the covered code, so draw the chart again from the change before you write the new digest.
 When the PR changes no covered file and no model file, the chart file needs no digest.
+
+### Image of the chart
+
+Each chart file with a Mermaid chart also has an SVG image in the change.
+A person can read an SVG image at any zoom.
+Render the Mermaid text to an SVG file as the render guide of the `/statechart` skill says.
+Give the image the base name of the chart file and the extension `.svg`, in the same folder.
+For example, `charts/fm-ste-verification-sop.md` has the image `charts/fm-ste-verification-sop.svg`.
+Show the image in the chart file with a relative link above the Mermaid text, such as `![State chart](fm-ste-verification-sop.svg)`.
+
+The image must name the chart digest as `Chart digest: <digest>`, for example in a `desc` element at the start of the SVG.
+The chart digest is the SHA-256 of the lines between the line `` ```mermaid `` and the closing fence, with each line end.
+The check compares the digest in the image with the digest of the chart text, and it does not render.
+When the two differ, the image is older than the chart text, so render the image again and write the new digest.
+The check prints the expected digest when it fails.
+A "No state change" note needs no image.
 
 For drift that builds up across many commits, use the `/maintain-formal-verification-skill` skill.

@@ -3,6 +3,8 @@
 This chart shows the behavior that this PR adds a check for: one strict-mode turn of the reply hold, from `hooks/reply-hold.ts` and the `Stop` command hook.
 TLC drew it from a scratch copy of `ReplyHold.tla` with one turn and one tool step (426 states).
 
+![State chart of the strict reply hold in one turn](fm-ste-verification-sop.svg)
+
 ```mermaid
 ---
 title: "Strict reply hold in one turn"
