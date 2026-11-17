@@ -38,6 +38,9 @@ The model gets a maximum of two rewrites in one turn.
 The sequence is: the module blocks the first reply, the module blocks the first rewrite, and Claude Code shows the second rewrite unchanged.
 Claude Code accepts a block when `stop_hook_active` is true, so the module counts the blocks.
 It also counts a block of a lower `Stop` hook, such as the `Stop` command hook, so a turn has two blocks or fewer.
+If the second rewrite has no text, the notice stays the last text.
+We accept this, because a third block would break the limit of two.
+
 We did not select a notice that stays until a rewrite passes.
 A rule that the model cannot satisfy would then hide every reply.
 

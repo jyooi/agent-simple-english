@@ -335,6 +335,30 @@ describe("Claude Code strict reply hold", () => {
     await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
   })
 
+  test("does not block a third time when the second rewrite has no text", async () => {
+    const { $, runs, stream, show } = session({
+      strict: true,
+      checks: [hard("- first"), hard("- second")],
+    })
+    const turn = newTurn()
+    const { pieces, result } = textReply("This isn't permitted.")
+
+    await show(holdReply($, turn, stream(pieces, result)))
+    await blockHeldReply($, stopEvent, async () => ({}))
+    await show(holdReply($, { ...turn, index: 1 }, stream(pieces, result)))
+    await blockHeldReply($, stopEvent, async () => ({}))
+    const empty = await show(
+      holdReply($, { ...turn, index: 2 }, stream(noTextStep.pieces, noTextStep.result)),
+    )
+    const lowerHook = async () => ({ additionalContext: ["x"] })
+
+    expect(empty).toEqual({ shown: noTextStep.pieces, result: noTextStep.result })
+    expect(runs).toHaveLength(2)
+    await expect(blockHeldReply($, stopEvent, lowerHook)).resolves.toEqual({
+      additionalContext: ["x"],
+    })
+  })
+
   test("does not block when a clean reply follows a step with no text after a held tool step", async () => {
     const { $, stream, show } = session({ strict: true, checks: [hard("- first"), clean] })
     const turn = newTurn()
