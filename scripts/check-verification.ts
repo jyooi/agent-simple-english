@@ -46,7 +46,7 @@ const tlcError = (run: TlcRun): string => {
   const start = lines.findIndex((line) => line.startsWith("Error:"))
   return lines
     .slice(start === -1 ? 0 : start)
-    .slice(0, 40)
+    .slice(0, 200)
     .join("\n")
 }
 
