@@ -122,7 +122,7 @@ Each action in `ReplyHold.tla` is one indivisible step in the code at the sync c
 | `ReadsStep` | `hooks/reply-hold.ts:147-155`: `readAll`, a step with no text shows unchanged and keeps `noticeIsLast`, and a step with text clears `noticeIsLast` and `uncheckedIsLast`. |
 | `CheckPasses` | `hooks/reply-hold.ts:158` and `166-169`: the check gives no feedback, and the pieces show. |
 | `CheckHolds` | `hooks/reply-hold.ts:171-173`: push the held reply, set `noticeIsLast`, and show the notice. |
-| `CheckFails` | `hooks/reply-hold.ts:157-169`: the check throws, the hook sets `uncheckedIsLast`, logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:177-197`) handles has the same result. |
+| `CheckFails` | `hooks/reply-hold.ts:157-169`: the check throws, the hook sets `uncheckedIsLast`, logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:177-196`) handles has the same result. |
 | `UserInterrupts` | `hooks/reply-hold.ts:148`, `160`, and `165`: after an abort, the hook returns and shows nothing. |
 | `HookBlocksStop` | `hooks/reply-hold.ts:204-214`: `blockHeldReply` blocks when `noticeIsLast` is set and the turn has fewer than two blocks, and it counts the block. The block keeps `noticeIsLast`. |
 | `CommandHookBlocksStop` | `hooks/reply-hold.ts:204-210` calls the `Stop` command hook of `hooks/hooks.json`. It counts a block of that hook when `uncheckedIsLast` is set and `stop_hook_active` is false. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
