@@ -16,7 +16,7 @@ NothingShown == [text |-> "none", check |-> "none", stopBlocks |-> 0]
 Init ==
   /\ phase = "idle"
   /\ turnId = 0
-  /\ hold = [id |-> 0, blocks |-> 0, noticeIsLast |-> FALSE]
+  /\ hold = [id |-> 0, blocks |-> 0, noticeIsLast |-> FALSE, uncheckedIsLast |-> FALSE]
   /\ reply = [text |-> "none", tool |-> FALSE]
   /\ shown = NothingShown
   /\ stopBlocks = 0
@@ -50,9 +50,9 @@ StepStarts ==
        /\ reply' = [text |-> text, tool |-> tool]
   /\ LET current == IF hold.id = turnId
                       THEN hold
-                      ELSE [id |-> turnId, blocks |-> 0, noticeIsLast |-> FALSE]
+                      ELSE [id |-> turnId, blocks |-> 0, noticeIsLast |-> FALSE, uncheckedIsLast |-> FALSE]
      IN /\ hold' = IF current.blocks >= BlockLimit
-                      THEN [current EXCEPT !.noticeIsLast = FALSE]
+                      THEN [current EXCEPT !.noticeIsLast = FALSE, !.uncheckedIsLast = TRUE]
                       ELSE current
         /\ phase' = IF current.blocks >= BlockLimit THEN "passing" ELSE "reading"
   /\ UNCHANGED <<turnId, shown, stopBlocks, stopActive, toolSteps>>
@@ -66,7 +66,7 @@ PassesOn ==
 
 ReadsStep ==
   /\ phase = "reading"
-  /\ hold' = IF reply.text = "none" THEN hold ELSE [hold EXCEPT !.noticeIsLast = FALSE]
+  /\ hold' = IF reply.text = "none" THEN hold ELSE [hold EXCEPT !.noticeIsLast = FALSE, !.uncheckedIsLast = FALSE]
   /\ phase' = IF reply.text = "none" THEN AfterStep ELSE "checking"
   /\ toolSteps' = IF reply.text = "none" THEN NextToolSteps ELSE toolSteps
   /\ UNCHANGED <<turnId, reply, shown, stopBlocks, stopActive>>
@@ -90,10 +90,11 @@ CheckHolds ==
 
 CheckFails ==
   /\ phase = "checking"
+  /\ hold' = [hold EXCEPT !.uncheckedIsLast = TRUE]
   /\ Show("error")
   /\ phase' = AfterStep
   /\ toolSteps' = NextToolSteps
-  /\ UNCHANGED <<turnId, hold, reply, stopBlocks, stopActive>>
+  /\ UNCHANGED <<turnId, reply, stopBlocks, stopActive>>
 
 UserInterrupts ==
   /\ phase \in {"reading", "checking"}
@@ -115,7 +116,7 @@ CommandHookBlocksStop ==
   /\ ~(hold.noticeIsLast /\ hold.blocks < BlockLimit)
   /\ ~stopActive
   /\ reply.text = "dirty"
-  /\ hold' = [hold EXCEPT !.blocks = @ + 1]
+  /\ hold' = IF hold.uncheckedIsLast THEN [hold EXCEPT !.blocks = @ + 1] ELSE hold
   /\ stopBlocks' = stopBlocks + 1
   /\ stopActive' = TRUE
   /\ phase' = "step"
@@ -154,6 +155,7 @@ TypeOK ==
   /\ turnId \in 0..MaxTurns
   /\ hold.blocks \in 0..BlockLimit + 1
   /\ hold.noticeIsLast \in BOOLEAN
+  /\ hold.uncheckedIsLast \in BOOLEAN
   /\ reply.text \in Texts
   /\ shown.text \in Texts \cup {"notice"}
   /\ toolSteps \in 0..MaxToolSteps

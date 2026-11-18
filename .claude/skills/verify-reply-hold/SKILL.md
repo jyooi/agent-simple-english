@@ -96,6 +96,9 @@ The model assumes these facts about Claude Code 2.1.296 or later:
 - After a Stop block in a turn, `stop_hook_active` is true.
 - Claude Code sends `Stop` only when a step ends with no tool call, and it sends no `Stop` after an interrupt.
 - The reply check and the `Stop` command hook use the same lint, so both find the same hard violations.
+- The `Stop` command hook blocks only when the last step has text with a hard violation.
+  The model has no case where `last_assistant_message` holds the text of an earlier step after a last step with no text.
+  A scratch model that blocks in that case also kept all four properties, but a person did not confirm the value that Claude Code sends.
 - The session stays in strict mode.
 
 ## What the check does not cover
