@@ -1,5 +1,5 @@
 {
-  "syncCommit": "b38b1e4c99e6acc3d6fd210822f0b0fc79f3d587",
+  "syncCommit": "e4e759e23c7d2ba22483d6bdc8c7086fb8bcefbc",
   "tool": {
     "name": "TLC",
     "version": "1.7.4",
@@ -77,8 +77,8 @@
       "status": "holds",
       "break": {
         "code": "hooks/reply-hold.ts holdReply clears noticeIsLast at the start of each step, also for a step with no text",
-        "find": "  /\\ hold' = IF reply.text = \"none\" THEN hold ELSE [hold EXCEPT !.noticeIsLast = FALSE]",
-        "replace": "  /\\ hold' = [hold EXCEPT !.noticeIsLast = FALSE]"
+        "find": "  /\\ hold' = IF reply.text = \"none\" THEN hold ELSE [hold EXCEPT !.noticeIsLast = FALSE, !.uncheckedIsLast = FALSE]",
+        "replace": "  /\\ hold' = [hold EXCEPT !.noticeIsLast = FALSE, !.uncheckedIsLast = FALSE]"
       }
     },
     {
@@ -86,8 +86,8 @@
       "status": "holds",
       "break": {
         "code": "hooks/reply-hold.ts blockHeldReply does not count a block of a lower Stop hook",
-        "find": "  /\\ reply.text = \"dirty\"\n  /\\ hold' = [hold EXCEPT !.blocks = @ + 1]",
-        "replace": "  /\\ reply.text = \"dirty\"\n  /\\ UNCHANGED hold"
+        "find": "  /\\ hold' = IF hold.uncheckedIsLast THEN [hold EXCEPT !.blocks = @ + 1] ELSE hold",
+        "replace": "  /\\ UNCHANGED hold"
       }
     }
   ]
