@@ -104,6 +104,7 @@ async function tlc(
     await writeFile(join(directory, "Check.cfg"), config)
     const args = [
       "-XX:+UseParallelGC",
+      `-Djava.io.tmpdir=${directory}`,
       "-cp",
       jar,
       "tlc2.TLC",
