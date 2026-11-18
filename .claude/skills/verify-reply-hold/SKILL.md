@@ -58,22 +58,23 @@ Examples are a new writer of the `turn` record, a new `classic.Stop` or `turn.st
 | --- | --- | --- | --- |
 | `HeldTextStaysHidden` | holds | In strict mode, the user never sees reply text with a hard violation, unless the reply check failed or the turn had two Stop blocks. | The user sees text that breaks the writing rules. |
 | `RewritesFinite` | holds | A turn has three Stop blocks or fewer. | The model rewrites without end, and the turn never ends. |
-| `NoticeIsFollowed` | finding | When a turn ends, the last text on the screen is not the hold notice. | The user sees "A corrected reply follows", and no reply follows. The held text is lost. |
-| `RewritesBounded` | finding | A turn has two Stop blocks or fewer, as ADR 0005 states. | After a failed reply check, the model writes one more rewrite than the ADR permits. |
+| `NoticeIsFollowed` | holds | When a turn ends, the last text on the screen is not the hold notice, unless the turn had two Stop blocks. | The user sees "A corrected reply follows", and no reply follows. The held text is lost. |
+| `RewritesBounded` | holds | A turn has two Stop blocks or fewer, as ADR 0005 states. The block of the `Stop` command hook counts. | After a failed reply check, the model writes one more rewrite than the ADR permits. |
 
-A property with the status `finding` breaks on the current code.
-The check expects it to break, and it fails when it stops breaking.
-`RewritesFinite` is the bound that the code has now.
-It guards against an endless loop, which the `RewritesBounded` finding cannot show.
+A property can have the status `finding`.
+It then breaks on the current code, the check expects it to break, and the check fails when it stops breaking.
+No property has this status now.
+`RewritesFinite` is a looser bound than `RewritesBounded`.
+It has its own recorded break, so a lost turn record shows as an endless loop.
 
-The `NoticeIsFollowed` path: the model writes a step with a hard violation and a tool call.
-The hold shows the notice, and the tool runs.
-The model then ends the turn with a step that has no text.
-The hold does not block the stop, because it did not hold the last step.
+Each step with no text leaves the notice as the last text on the screen.
+The hold blocks the stop while the last text on the screen is the notice, and the turn has fewer than two Stop blocks.
+Claude Code retries once after a step with no visible output, and it ends the turn after two such steps.
+Replay these paths in the real tool to see a fault again:
 
-The `RewritesBounded` path: the reply check fails, so the first reply shows unchanged.
-The `Stop` command hook blocks the stop.
-The hold then holds the first two rewrites and blocks two times, so the turn has three Stop blocks.
+1. A step with a hard violation and a tool call, then two steps with no text.
+2. A step with a hard violation, one Stop block, then two steps with no text.
+3. A failed reply check, one block of the `Stop` command hook, then two blocks of the hold.
 
 Each property with the status `holds` has a recorded break in `record.json`.
 The check applies the break to a copy of the model in a temporary folder, and TLC must find the violation.
@@ -88,6 +89,8 @@ It removes no state of the current model, and it lets a broken model end.
 
 The model assumes these facts about Claude Code 2.1.296 or later:
 
+- Claude Code retries once after a step with no visible output, and it sends `Stop` after two such steps in a row.
+  The model has no retry. A step with no text and no tool call sends `Stop`, which reaches the same states, because a step with no text changes no state.
 - Each step of one turn has the same turn ID, also each rewrite after a Stop block.
 - A new prompt starts a new turn ID.
 - After a Stop block in a turn, `stop_hook_active` is true.
@@ -101,6 +104,7 @@ The model assumes these facts about Claude Code 2.1.296 or later:
 - Strict mode off, and a failed read of the session state file, which acts as strict mode off for that step.
 - An interrupt during a step that the hook passes on with no check.
 - A failed lint in the `Stop` command hook, which allows the stop.
+- The `Stop` hooks of other plugins and of user settings. The hold counts their block only when the `Stop` command hook can also block.
 - Text that has only spaces, which the hook treats as no text.
 - Lint accuracy and the text of the feedback. The engine tests cover them.
 - The route of the `reply-check` subcommand in `src/cli/main.ts`. If that route breaks, each check fails, and the hold shows each reply.
@@ -113,15 +117,15 @@ Each action in `ReplyHold.tla` is one indivisible step in the code at the sync c
 | Action | Code |
 | --- | --- |
 | `UserPrompts` | Claude Code starts a turn with a new turn ID. |
-| `StepStarts` | `hooks/reply-hold.ts:120-122`: reset `turn` for a new turn ID, clear `lastStepHeld`, and compare `blocks` with `BLOCK_LIMIT`. The model picks the reply that the model writes. |
-| `PassesOn` | `hooks/reply-hold.ts:122`: `return yield* next(e)` after two blocks. |
-| `ReadsStep` | `hooks/reply-hold.ts:124-129`: `readAll`, and a step with no text shows unchanged. |
-| `CheckPasses` | `hooks/reply-hold.ts:133` and `140-143`: the check gives no feedback, and the pieces show. |
-| `CheckHolds` | `hooks/reply-hold.ts:145-147`: push the held reply, set `lastStepHeld`, and show the notice. |
-| `CheckFails` | `hooks/reply-hold.ts:131-143`: the check throws, the hook logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:151-167`) handles has the same result. |
-| `UserInterrupts` | `hooks/reply-hold.ts:125`, `135`, and `139`: after an abort, the hook returns and shows nothing. |
-| `HookBlocksStop` | `hooks/reply-hold.ts:174-178`: `blockHeldReply` blocks when the last step was held, and it counts the block. |
-| `CommandHookBlocksStop` | `hooks/reply-hold.ts:175` calls the `Stop` command hook of `hooks/hooks.json`. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
+| `StepStarts` | `hooks/reply-hold.ts:131-143`: reset `turn` for a new turn ID, compare `blocks` with `BLOCK_LIMIT`, and after two blocks clear `noticeIsLast` and set `uncheckedIsLast`. The model picks the reply that the model writes. |
+| `PassesOn` | `hooks/reply-hold.ts:144`: `return yield* next(e)` after two blocks. |
+| `ReadsStep` | `hooks/reply-hold.ts:147-155`: `readAll`, a step with no text shows unchanged and keeps `noticeIsLast`, and a step with text clears `noticeIsLast` and `uncheckedIsLast`. |
+| `CheckPasses` | `hooks/reply-hold.ts:158` and `166-169`: the check gives no feedback, and the pieces show. |
+| `CheckHolds` | `hooks/reply-hold.ts:171-173`: push the held reply, set `noticeIsLast`, and show the notice. |
+| `CheckFails` | `hooks/reply-hold.ts:157-169`: the check throws, the hook sets `uncheckedIsLast`, logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:177-196`) handles has the same result. |
+| `UserInterrupts` | `hooks/reply-hold.ts:148`, `160`, and `165`: after an abort, the hook returns and shows nothing. |
+| `HookBlocksStop` | `hooks/reply-hold.ts:204-214`: `blockHeldReply` blocks when `noticeIsLast` is set and the turn has fewer than two blocks, and it counts the block. The block keeps `noticeIsLast`. |
+| `CommandHookBlocksStop` | `hooks/reply-hold.ts:204-210` calls the `Stop` command hook of `hooks/hooks.json`. It counts a block of that hook when `uncheckedIsLast` is set and `stop_hook_active` is false. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
 | `TurnEnds` | The two `Stop` hooks allow the stop. |
 | `AllTurnsDone` | The model has no more turns. |
 

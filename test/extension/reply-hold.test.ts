@@ -134,6 +134,11 @@ const toolResult: StepResult = {
   usage: null,
 }
 
+const noTextStep: { pieces: Piece[]; result: StepResult } = {
+  pieces: [{ kind: "stop", ref: 1, stopReason: "end_turn", usage: null }],
+  result: { answer: "", toolUses: [], stopReason: "end_turn", usage: null },
+}
+
 describe("Claude Code strict reply hold", () => {
   test("passes the stream on piece by piece when the session is not strict", async () => {
     const { $, events, runs, stream, show } = session({ strict: false })
@@ -200,14 +205,17 @@ describe("Claude Code strict reply hold", () => {
   test("shows a notice for a reply with hard violations and blocks the Stop event", async () => {
     const { $, stream, show } = session({ strict: true, checks: [hard("- line 1: contraction")] })
     const { pieces, result } = textReply("This isn't permitted.")
+    const rewrite = textReply("This is not permitted.")
+    const turn = newTurn()
 
-    const output = await show(holdReply($, newTurn(), stream(pieces, result)))
+    const output = await show(holdReply($, turn, stream(pieces, result)))
     let lowerHooks = 0
     const lower = async () => {
       lowerHooks += 1
       return { additionalContext: ["x"] }
     }
     const blocked = await blockHeldReply($, stopEvent, lower)
+    await show(holdReply($, { ...turn, index: 1 }, stream(rewrite.pieces, rewrite.result)))
     const second = await blockHeldReply($, stopEvent, lower)
 
     expect(output.result).toEqual(result)
@@ -234,10 +242,12 @@ describe("Claude Code strict reply hold", () => {
     })
     const turn = newTurn()
     const last = textReply("It isn't ready.")
+    const rewrite = textReply("It is not ready.")
 
     const toolStep = await show(holdReply($, turn, stream(toolPieces, toolResult)))
     await show(holdReply($, { ...turn, index: 1 }, stream(last.pieces, last.result)))
     const blocked = await blockHeldReply($, stopEvent, async () => ({}))
+    await show(holdReply($, { ...turn, index: 2 }, stream(rewrite.pieces, rewrite.result)))
 
     expect(toolStep.shown).toEqual([
       { kind: "text", index: 0, ref: 1, text: REPLY_HOLD_NOTICE },
@@ -288,6 +298,82 @@ describe("Claude Code strict reply hold", () => {
     expect(secondBlock.block).toContain("- fourth")
   })
 
+  test("blocks when steps with no text end the turn after a held tool step", async () => {
+    const { $, stream, show } = session({ strict: true, checks: [hard("- first")] })
+    const turn = newTurn()
+
+    await show(holdReply($, turn, stream(toolPieces, toolResult)))
+    await show(holdReply($, { ...turn, index: 1 }, stream(noTextStep.pieces, noTextStep.result)))
+    await show(holdReply($, { ...turn, index: 2 }, stream(noTextStep.pieces, noTextStep.result)))
+    const blocked = await blockHeldReply($, stopEvent, async () => ({}))
+    const rewrite = textReply("The command is complete.")
+    await show(holdReply($, { ...turn, index: 3 }, stream(rewrite.pieces, rewrite.result)))
+
+    expect(blocked.block).toContain("<held-reply>\nI'll run it.\n</held-reply>\n\n- first")
+    await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
+  })
+
+  test("blocks again when the rewrite has no text and the block limit is not reached", async () => {
+    const { $, runs, stream, show } = session({ strict: true, checks: [hard("- first")] })
+    const turn = newTurn()
+    const { pieces, result } = textReply("This isn't permitted.")
+
+    await show(holdReply($, turn, stream(pieces, result)))
+    const first = await blockHeldReply($, stopEvent, async () => ({}))
+    await show(holdReply($, { ...turn, index: 1 }, stream(noTextStep.pieces, noTextStep.result)))
+    await show(holdReply($, { ...turn, index: 2 }, stream(noTextStep.pieces, noTextStep.result)))
+    const second = await blockHeldReply($, stopEvent, async () => ({}))
+    const rewrite = textReply("This is not permitted.")
+    const third = await show(
+      holdReply($, { ...turn, index: 3 }, stream(rewrite.pieces, rewrite.result)),
+    )
+
+    expect(first.block).toContain("<held-reply>\nThis isn't permitted.\n</held-reply>\n\n- first")
+    expect(second).toEqual(first)
+    expect(third).toEqual({ shown: rewrite.pieces, result: rewrite.result })
+    expect(runs).toHaveLength(1)
+    await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
+  })
+
+  test("does not block a third time when the second rewrite has no text", async () => {
+    const { $, runs, stream, show } = session({
+      strict: true,
+      checks: [hard("- first"), hard("- second")],
+    })
+    const turn = newTurn()
+    const { pieces, result } = textReply("This isn't permitted.")
+
+    await show(holdReply($, turn, stream(pieces, result)))
+    await blockHeldReply($, stopEvent, async () => ({}))
+    await show(holdReply($, { ...turn, index: 1 }, stream(pieces, result)))
+    await blockHeldReply($, stopEvent, async () => ({}))
+    const empty = await show(
+      holdReply($, { ...turn, index: 2 }, stream(noTextStep.pieces, noTextStep.result)),
+    )
+    const lowerHook = async () => ({ additionalContext: ["x"] })
+
+    expect(empty).toEqual({ shown: noTextStep.pieces, result: noTextStep.result })
+    expect(runs).toHaveLength(2)
+    await expect(blockHeldReply($, stopEvent, lowerHook)).resolves.toEqual({
+      additionalContext: ["x"],
+    })
+  })
+
+  test("does not block when a clean reply follows a step with no text after a held tool step", async () => {
+    const { $, stream, show } = session({ strict: true, checks: [hard("- first"), clean] })
+    const turn = newTurn()
+    const last = textReply("The command is complete.")
+
+    await show(holdReply($, turn, stream(toolPieces, toolResult)))
+    await show(holdReply($, { ...turn, index: 1 }, stream(noTextStep.pieces, noTextStep.result)))
+    const lastStep = await show(
+      holdReply($, { ...turn, index: 2 }, stream(last.pieces, last.result)),
+    )
+
+    expect(lastStep).toEqual({ shown: last.pieces, result: last.result })
+    await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
+  })
+
   test("shows the third reply of a turn with no check after two blocks", async () => {
     const { $, events, runs, stream, show } = session({
       strict: true,
@@ -306,6 +392,79 @@ describe("Claude Code strict reply hold", () => {
     expect(third).toEqual({ shown: pieces, result })
     expect(events.slice(0, 2)).toEqual(["produce:0", "show:0"])
     expect(runs).toHaveLength(2)
+    await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
+  })
+
+  test("counts a block of a lower Stop hook as one of the two rewrites", async () => {
+    const { $, runs, stream, show } = session({
+      strict: true,
+      checks: [new Error("simulated reply check failure"), hard("- second"), hard("- third")],
+    })
+    const turn = newTurn()
+    const { pieces, result } = textReply("This isn't permitted.")
+
+    const first = await show(holdReply($, turn, stream(pieces, result)))
+    const commandHookBlock = await blockHeldReply($, stopEvent, async () => ({ block: "lower" }))
+    const second = await show(holdReply($, { ...turn, index: 1 }, stream(pieces, result)))
+    const hookBlock = await blockHeldReply($, stopEvent, async () => ({}))
+    const third = await show(holdReply($, { ...turn, index: 2 }, stream(pieces, result)))
+
+    expect(first).toEqual({ shown: pieces, result })
+    expect(commandHookBlock).toEqual({ block: "lower" })
+    expect(second.shown[1]).toEqual({ kind: "text", index: 0, ref: 2, text: REPLY_HOLD_NOTICE })
+    expect(hookBlock.block).toContain("- second")
+    expect(third).toEqual({ shown: pieces, result })
+    expect(runs).toHaveLength(2)
+    await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
+  })
+
+  test("does not count a block of another Stop hook after a checked reply", async () => {
+    const { $, stream, show } = session({ strict: true, checks: [clean, clean, hard("- third")] })
+    const turn = newTurn()
+    const passing = textReply("This is permitted.")
+    const failing = textReply("This isn't permitted.")
+    const otherHook = async () => ({ block: "other plugin" })
+
+    await show(holdReply($, turn, stream(passing.pieces, passing.result)))
+    await blockHeldReply($, stopEvent, otherHook)
+    await show(holdReply($, { ...turn, index: 1 }, stream(passing.pieces, passing.result)))
+    await blockHeldReply($, { ...stopEvent, stop_hook_active: true }, otherHook)
+    const held = await show(
+      holdReply($, { ...turn, index: 2 }, stream(failing.pieces, failing.result)),
+    )
+
+    expect(held.shown[1]).toEqual({ kind: "text", index: 0, ref: 2, text: REPLY_HOLD_NOTICE })
+    expect((await blockHeldReply($, stopEvent, async () => ({}))).block).toContain("- third")
+  })
+
+  test("does not count a lower block when stop_hook_active is true", async () => {
+    const failure = new Error("simulated reply check failure")
+    const { $, stream, show } = session({
+      strict: true,
+      checks: [failure, failure, hard("- third")],
+    })
+    const turn = newTurn()
+    const { pieces, result } = textReply("This isn't permitted.")
+    const lowerHook = async () => ({ block: "lower" })
+
+    await show(holdReply($, turn, stream(pieces, result)))
+    await blockHeldReply($, stopEvent, lowerHook)
+    await show(holdReply($, { ...turn, index: 1 }, stream(pieces, result)))
+    await blockHeldReply($, { ...stopEvent, stop_hook_active: true }, lowerHook)
+    const held = await show(holdReply($, { ...turn, index: 2 }, stream(pieces, result)))
+
+    expect(held.shown[1]).toEqual({ kind: "text", index: 0, ref: 2, text: REPLY_HOLD_NOTICE })
+    expect((await blockHeldReply($, stopEvent, async () => ({}))).block).toContain("- third")
+  })
+
+  test("does not block after the error handler shows the text that follows a held step", async () => {
+    const { $, stream, show } = session({ strict: true, checks: [hard("- first")] })
+    const turn = newTurn()
+    const { result } = textReply("The command is complete.")
+
+    await show(holdReply($, turn, stream(toolPieces, toolResult)))
+    await show(restoreReply($, { ...turn, index: 1 }, stream([], result, true)))
+
     await expect(blockHeldReply($, stopEvent, async () => ({}))).resolves.toEqual({})
   })
 

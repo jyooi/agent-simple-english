@@ -105,13 +105,19 @@ The Adapter holds and checks that rewrite the same way.
 The model gets a maximum of two rewrites in one turn.
 The sequence is: the Adapter blocks the first reply, the Adapter blocks the first rewrite, and Claude Code shows the second rewrite.
 The second rewrite shows as the model wrote it, also when it has a hard violation.
+A block of the `Stop` command hook uses one of the two rewrites.
+A block of another `Stop` hook uses no rewrite, unless the reply check failed for the last reply and `stop_hook_active` is false.
+If the second rewrite has no text, the notice stays the last text, because the Adapter blocks a maximum of two times.
 
 A step that has text and a tool call uses the same hold, and the tool runs.
 For such a step with a hard violation, Claude Code shows the notice line, and the Adapter keeps the text.
-The Adapter blocks only when the last reply of the turn has a hard violation.
+The Adapter blocks only when the last text of the turn is the notice.
+A step with no text leaves the notice as the last text, so the Adapter also blocks when the turn ends with such a step.
 The model then also gets the kept text and the violation details of the earlier steps.
+
 If the last reply has no hard violation, the Adapter does not block, and the reply shows one time.
 The kept text of a step with a tool call does not use one of the two rewrites.
+
 The hold does not apply to subagent replies.
 If the reply check fails, the Adapter shows the reply and adds one warning line.
 After an interrupt during the hold, Claude Code shows no text for that reply.

@@ -22,7 +22,7 @@
         "BLOCK_LIMIT",
         "turn"
       ],
-      "sha256": "f49ee8269d9f774ee95181efccf65ec1a6201c8dffc6b55d44903e37538625d2"
+      "sha256": "672430ebffae079a920266b180d108f6cf8ed4b6852e4d0df1442bdf8f9f8fc9"
     },
     {
       "file": "hooks/register.ts",
@@ -74,11 +74,21 @@
     },
     {
       "name": "NoticeIsFollowed",
-      "status": "finding"
+      "status": "holds",
+      "break": {
+        "code": "hooks/reply-hold.ts holdReply clears noticeIsLast at the start of each step, also for a step with no text",
+        "find": "  /\\ hold' = IF reply.text = \"none\" THEN hold ELSE [hold EXCEPT !.noticeIsLast = FALSE]",
+        "replace": "  /\\ hold' = [hold EXCEPT !.noticeIsLast = FALSE]"
+      }
     },
     {
       "name": "RewritesBounded",
-      "status": "finding"
+      "status": "holds",
+      "break": {
+        "code": "hooks/reply-hold.ts blockHeldReply does not count a block of a lower Stop hook",
+        "find": "  /\\ reply.text = \"dirty\"\n  /\\ hold' = [hold EXCEPT !.blocks = @ + 1]",
+        "replace": "  /\\ reply.text = \"dirty\"\n  /\\ UNCHANGED hold"
+      }
     }
   ]
 }
