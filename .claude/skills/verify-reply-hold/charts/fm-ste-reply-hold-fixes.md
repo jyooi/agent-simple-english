@@ -80,4 +80,4 @@ What the PR changes in the chart:
 The chart shows "you interrupt" only from "The model writes".
 It does not draw steps that stay in one chart state.
 
-Covered digest: `a13f6a04ff655b6f415bb73009605d9a9e33bdf71eaea45d0c93a880aab4a289`
+Covered digest: `634ae73ccbc7bd281bb8b509d3ae6fc5b6962548ba23e7621fa635d6c7bc3539`

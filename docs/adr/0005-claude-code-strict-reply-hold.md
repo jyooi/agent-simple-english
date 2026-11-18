@@ -37,7 +37,10 @@ The lower hooks run at the `Stop` event of the reply that the user sees.
 The model gets a maximum of two rewrites in one turn.
 The sequence is: the module blocks the first reply, the module blocks the first rewrite, and Claude Code shows the second rewrite unchanged.
 Claude Code accepts a block when `stop_hook_active` is true, so the module counts the blocks.
-It also counts a block of a lower `Stop` hook, such as the `Stop` command hook, so a turn has two blocks or fewer.
+It also counts a block of the lower `Stop` hooks, so a turn has two blocks or fewer.
+It counts that block only when the last text of the turn has no check, and `stop_hook_active` is false.
+Only then can the `Stop` command hook block.
+A block of a `Stop` hook of a different plugin at a different time uses no rewrite.
 If the second rewrite has no text, the notice stays the last text.
 We accept this, because a third block would break the limit of two.
 

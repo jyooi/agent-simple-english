@@ -104,6 +104,7 @@ The model assumes these facts about Claude Code 2.1.296 or later:
 - Strict mode off, and a failed read of the session state file, which acts as strict mode off for that step.
 - An interrupt during a step that the hook passes on with no check.
 - A failed lint in the `Stop` command hook, which allows the stop.
+- The `Stop` hooks of other plugins and of user settings. The hold counts their block only when the `Stop` command hook can also block.
 - Text that has only spaces, which the hook treats as no text.
 - Lint accuracy and the text of the feedback. The engine tests cover them.
 - The route of the `reply-check` subcommand in `src/cli/main.ts`. If that route breaks, each check fails, and the hold shows each reply.
@@ -116,15 +117,15 @@ Each action in `ReplyHold.tla` is one indivisible step in the code at the sync c
 | Action | Code |
 | --- | --- |
 | `UserPrompts` | Claude Code starts a turn with a new turn ID. |
-| `StepStarts` | `hooks/reply-hold.ts:126-129`: reset `turn` for a new turn ID, compare `blocks` with `BLOCK_LIMIT`, and clear `noticeIsLast` after two blocks. The model picks the reply that the model writes. |
-| `PassesOn` | `hooks/reply-hold.ts:131`: `return yield* next(e)` after two blocks. |
-| `ReadsStep` | `hooks/reply-hold.ts:134-141`: `readAll`, a step with no text shows unchanged and keeps `noticeIsLast`, and a step with text clears `noticeIsLast`. |
-| `CheckPasses` | `hooks/reply-hold.ts:144` and `151-154`: the check gives no feedback, and the pieces show. |
-| `CheckHolds` | `hooks/reply-hold.ts:156-158`: push the held reply, set `noticeIsLast`, and show the notice. |
-| `CheckFails` | `hooks/reply-hold.ts:143-154`: the check throws, the hook logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:162-178`) handles has the same result. |
-| `UserInterrupts` | `hooks/reply-hold.ts:135`, `146`, and `150`: after an abort, the hook returns and shows nothing. |
-| `HookBlocksStop` | `hooks/reply-hold.ts:185-193`: `blockHeldReply` blocks when `noticeIsLast` is set and the turn has fewer than two blocks, and it counts the block. The block keeps `noticeIsLast`. |
-| `CommandHookBlocksStop` | `hooks/reply-hold.ts:186-189` calls the `Stop` command hook of `hooks/hooks.json`, and it counts a block of that hook. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
+| `StepStarts` | `hooks/reply-hold.ts:131-143`: reset `turn` for a new turn ID, compare `blocks` with `BLOCK_LIMIT`, and after two blocks clear `noticeIsLast` and set `uncheckedIsLast`. The model picks the reply that the model writes. |
+| `PassesOn` | `hooks/reply-hold.ts:144`: `return yield* next(e)` after two blocks. |
+| `ReadsStep` | `hooks/reply-hold.ts:147-155`: `readAll`, a step with no text shows unchanged and keeps `noticeIsLast`, and a step with text clears `noticeIsLast` and `uncheckedIsLast`. |
+| `CheckPasses` | `hooks/reply-hold.ts:158` and `166-169`: the check gives no feedback, and the pieces show. |
+| `CheckHolds` | `hooks/reply-hold.ts:171-173`: push the held reply, set `noticeIsLast`, and show the notice. |
+| `CheckFails` | `hooks/reply-hold.ts:157-169`: the check throws, the hook sets `uncheckedIsLast`, logs a warning, and the pieces show. A hook error that `restoreReply` (`hooks/reply-hold.ts:177-197`) handles has the same result. |
+| `UserInterrupts` | `hooks/reply-hold.ts:148`, `160`, and `165`: after an abort, the hook returns and shows nothing. |
+| `HookBlocksStop` | `hooks/reply-hold.ts:204-214`: `blockHeldReply` blocks when `noticeIsLast` is set and the turn has fewer than two blocks, and it counts the block. The block keeps `noticeIsLast`. |
+| `CommandHookBlocksStop` | `hooks/reply-hold.ts:204-210` calls the `Stop` command hook of `hooks/hooks.json`. It counts a block of that hook when `uncheckedIsLast` is set and `stop_hook_active` is false. `src/cli/hook.ts:537-546` blocks a reply with hard violations when `stop_hook_active` is false. |
 | `TurnEnds` | The two `Stop` hooks allow the stop. |
 | `AllTurnsDone` | The model has no more turns. |
 

@@ -106,6 +106,7 @@ The model gets a maximum of two rewrites in one turn.
 The sequence is: the Adapter blocks the first reply, the Adapter blocks the first rewrite, and Claude Code shows the second rewrite.
 The second rewrite shows as the model wrote it, also when it has a hard violation.
 A block of the `Stop` command hook uses one of the two rewrites.
+A block of another `Stop` hook uses no rewrite, unless the reply check failed for the last reply and `stop_hook_active` is false.
 If the second rewrite has no text, the notice stays the last text, because the Adapter blocks a maximum of two times.
 
 A step that has text and a tool call uses the same hold, and the tool runs.

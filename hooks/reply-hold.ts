@@ -43,12 +43,17 @@ interface HeldReply {
 
 type StopResult = Readonly<Record<string, unknown>>
 
+interface StopEvent {
+  readonly stop_hook_active?: unknown
+}
+
 let turn = {
   id: "",
   blocks: 0,
   held: [] as HeldReply[],
   blocked: [] as HeldReply[],
   noticeIsLast: false,
+  uncheckedIsLast: false,
 }
 
 export async function sessionStatePath(
@@ -124,10 +129,18 @@ export async function* holdReply(
 ): AsyncGenerator<Piece, StepResult> {
   if (e.agentId !== undefined) return yield* next(e)
   if (turn.id !== e.turnId) {
-    turn = { id: e.turnId, blocks: 0, held: [], blocked: [], noticeIsLast: false }
+    turn = {
+      id: e.turnId,
+      blocks: 0,
+      held: [],
+      blocked: [],
+      noticeIsLast: false,
+      uncheckedIsLast: false,
+    }
   }
   if (turn.blocks >= BLOCK_LIMIT || !(await strictSession($))) {
     turn.noticeIsLast = false
+    turn.uncheckedIsLast = true
     return yield* next(e)
   }
 
@@ -139,11 +152,13 @@ export async function* holdReply(
   }
 
   turn.noticeIsLast = false
+  turn.uncheckedIsLast = false
   let feedback: string | undefined
   try {
     feedback = await replyFeedback($, result.answer)
   } catch (error) {
     if (next.signal.aborted) return result
+    turn.uncheckedIsLast = true
     const cause = error instanceof Error ? error.message : String(error)
     $.ui.log(`Writing-rule reply check error: ${cause}. The reply is allowed.`)
   }
@@ -167,7 +182,10 @@ export async function* restoreReply(
   if (!next.called) return yield* next(e)
   const { result } = await readAll(next(e))
   if (next.signal.aborted) return result
-  if (result.answer !== "") yield { kind: "text", index: 0, text: result.answer }
+  if (result.answer !== "") {
+    if (e.agentId === undefined) Object.assign(turn, { noticeIsLast: false, uncheckedIsLast: true })
+    yield { kind: "text", index: 0, text: result.answer }
+  }
   for (const [offset, use] of result.toolUses.entries()) {
     const index = offset + 1
     yield { kind: "tool", index, id: `toolu_hold_${e.turnId}_${e.index}_${index}`, name: use.name }
@@ -179,13 +197,15 @@ export async function* restoreReply(
 
 export async function blockHeldReply(
   _$: unknown,
-  e: unknown,
-  next: (e: unknown) => Promise<StopResult>,
+  e: StopEvent,
+  next: (e: StopEvent) => Promise<StopResult>,
 ): Promise<StopResult> {
   const held = turn.held.splice(0)
   if (!turn.noticeIsLast || turn.blocks >= BLOCK_LIMIT) {
     const result = await next(e)
-    if (result.block !== undefined) turn.blocks += 1
+    if (result.block !== undefined && turn.uncheckedIsLast && e.stop_hook_active !== true) {
+      turn.blocks += 1
+    }
     return result
   }
   if (held.length > 0) turn.blocked = held
